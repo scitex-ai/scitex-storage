@@ -1,10 +1,25 @@
-"""Unit tests for scitex_storage._scan (per-top-level-child size + inode scan)."""
+"""Unit tests for scitex_storage._scan (per-top-level-child size + inode scan).
+
+`_measure_dir`'s walk shells out to `fd` (see _scan.py's module docstring
+for the multi-terabyte-scale rationale) -- every test above the
+"fd dependency" section exercises the PUBLIC `scan`/`scan_roots` contract
+and is agnostic to that implementation detail (they pass identically
+whether the walk is os.walk-based or fd-based), so they are unchanged from
+before the fd migration. The dependency-handling tests below are new.
+"""
+
+import os
+import shutil
 
 import os
 
 import pytest
 
-from scitex_storage._scan import ChildUsage, RootScan, scan, scan_roots
+from scitex_storage._scan import ChildUsage, MissingSystemDependencyError, RootScan, scan, scan_roots
+
+# Resolved once at collection time -- BEFORE any test's isolated_path_bin_dir
+# fixture swaps PATH out from under a later `shutil.which()` call.
+_REAL_FD_BIN = shutil.which("fd") or shutil.which("fdfind")
 
 
 def _touch(path, size=1, mtime=None):
@@ -247,6 +262,52 @@ def test_scan_newest_mtime_falls_back_to_directory_mtime_when_empty(tmp_path):
     result = scan(tmp_path)
     # Assert
     assert result.children[0].newest_mtime == 1_234_567
+# =============================================================================
+# fd dependency -- missing-binary error handling
+#
+# This package forbids `monkeypatch`/`mocker` pytest fixtures ecosystem-wide
+# (STX-NM002 -- "production talks to the real collaborator"), so PATH is
+# isolated via a real env-var mutation (yield-based fixture) instead: the
+# code under test still calls the real `shutil.which` / real
+# `subprocess.run`; this only controls which directory those real stdlib
+# calls can see.
+# =============================================================================
+
+
+@pytest.fixture
+def isolated_path_bin_dir(tmp_path):
+    """Replace PATH with a fresh, empty directory for the test's duration."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    original_path = os.environ["PATH"]
+    os.environ["PATH"] = str(bin_dir)
+    yield bin_dir
+    os.environ["PATH"] = original_path
+
+
+def test_scan_raises_missing_dependency_when_fd_absent(tmp_path, isolated_path_bin_dir):
+    # Arrange
+    _touch(tmp_path / "child" / "a.bin", 10)
+    # Act
+    # Assert
+    with pytest.raises(MissingSystemDependencyError, match="cargo install fd-find"):
+        scan(tmp_path)
+
+
+@pytest.mark.skipif(
+    _REAL_FD_BIN is None, reason="requires a real `fd`/`fdfind` binary on PATH"
+)
+def test_scan_finds_fd_under_its_debian_fdfind_alias(tmp_path, isolated_path_bin_dir):
+    """`fd-find`'s apt package installs the binary as `fdfind`, not `fd`."""
+    # Arrange -- scan a dedicated subdir, not tmp_path itself, so the fake
+    # `bin/` the fixture created inside tmp_path isn't itself a scanned child.
+    (isolated_path_bin_dir / "fdfind").symlink_to(_REAL_FD_BIN)
+    target = tmp_path / "target"
+    _touch(target / "child" / "a.bin", 10)
+    # Act
+    result = scan(target)
+    # Assert
+    assert result.children[0].name == "child"
 
 
 # EOF
