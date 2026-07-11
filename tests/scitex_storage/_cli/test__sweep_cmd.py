@@ -32,6 +32,22 @@ def slurm_job():
             os.environ["SLURM_JOB_ID"] = prev
 
 
+@pytest.fixture
+def no_slurm_job():
+    """Unset $SLURM_JOB_ID for the duration of the test, restore on teardown.
+
+    Don't rely on the ambient environment lacking SLURM_JOB_ID -- CI
+    runners can (and now do, via the spartan-cpu-org-* self-hosted
+    runners that live inside a long-held SLURM allocation) have it set.
+    """
+    prev = os.environ.pop("SLURM_JOB_ID", None)
+    try:
+        yield
+    finally:
+        if prev is not None:
+            os.environ["SLURM_JOB_ID"] = prev
+
+
 def _hog(tmp_path, name, n_files=10, age_seconds=2 * 24 * 3600):
     now = time.time()
     mtime = now - age_seconds
@@ -103,7 +119,7 @@ def test_cli_sweep_apply_with_confirm_removes_the_directory(tmp_path, slurm_job)
     assert not hog.exists()
 
 
-def test_cli_sweep_apply_without_slurm_job_id_fails(tmp_path):
+def test_cli_sweep_apply_without_slurm_job_id_fails(tmp_path, no_slurm_job):
     # Arrange
     hog = _hog(tmp_path, "hog", n_files=20)
     runner = CliRunner()
