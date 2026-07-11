@@ -11,6 +11,7 @@ import click
 from .. import __version__
 from ._archive_cmd import archive_cmd, restore_cmd
 from ._compat import spec_group_kwargs
+from ._duplicates_cmd import find_duplicates_cmd
 from ._images_cmd import images_group
 from ._introspect import list_python_apis
 from ._mcp_commands import mcp
@@ -35,21 +36,25 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
     invoke_without_command=True,
     context_settings=CONTEXT_SETTINGS,
     **spec_group_kwargs(
-        summary="Research-data storage triage (scan + versioned-image rotation).",
+        summary="Research-data storage triage (scan + duplicates + versioned-image rotation).",
         description=(
             "Discovery + rotation layers of a planned storage-tiering tool "
             "(local SSD -> NAS SSD -> NAS HDD -> offline). `scan` is a "
-            "read-only, stat-only directory walk that reports the biggest "
-            "space and inode (file-count) consumers per top-level child of "
-            "a root. `images prune` rotates a directory of versioned files "
-            "(e.g. dated SIF builds), always excluding files any symlink in "
-            "the directory currently references. `sweep` tars an inode-hog "
-            "directory in place (many small files -> one tar, one inode), "
-            "compute-node-only, gated on an explicit per-directory confirm. "
-            "`archive` moves a directory to nas/nas2 over ssh (scitex-ssh's "
-            "sync_dir), verifying before removing the local copy and "
-            "writing a manifest `restore` reads back. Every mutating "
-            "command defaults to a dry-run.",
+            "read-only, stat-only directory walk (via `fd`) that reports "
+            "the biggest space and inode (file-count) consumers per "
+            "top-level child of a root -- no file contents are ever read. "
+            "`find-duplicates` is a separate, explicitly opt-in verb (via "
+            "`fclones`) that DOES read file contents (to hash them) to "
+            "report exact-duplicate groups. `images prune` rotates a "
+            "directory of versioned files (e.g. dated SIF builds), always "
+            "excluding files any symlink in the directory currently "
+            "references. `sweep` tars an inode-hog directory in place "
+            "(many small files -> one tar, one inode), compute-node-only, "
+            "gated on an explicit per-directory confirm. `archive` moves a "
+            "directory to nas/nas2 over ssh (scitex-ssh's sync_dir), "
+            "verifying before removing the local copy and writing a "
+            "manifest `restore` reads back. Every mutating command "
+            "defaults to a dry-run.",
         ),
         config_resolution=(
             "scitex-storage has no configurable state yet — every command "
@@ -62,7 +67,15 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
         command_categories=(
             (
                 "Storage",
-                ("scan", "images", "sweep", "sweep-status", "archive", "restore"),
+                (
+                    "scan",
+                    "find-duplicates",
+                    "images",
+                    "sweep",
+                    "sweep-status",
+                    "archive",
+                    "restore",
+                ),
             ),
             ("Introspection", ("list-python-apis", "mcp")),
         ),
@@ -99,6 +112,7 @@ def main(ctx: click.Context, help_recursive: bool, as_json: bool) -> None:
 
 
 main.add_command(scan_cmd)
+main.add_command(find_duplicates_cmd)
 main.add_command(images_group)
 main.add_command(sweep_cmd)
 main.add_command(sweep_status_cmd)

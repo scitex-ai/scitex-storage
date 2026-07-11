@@ -1,8 +1,8 @@
 """Unit tests for the scitex-storage root CLI group (version/help/json flags).
 
 Per-verb command tests live in their own files mirroring the split CLI
-submodules: test__scan_cmd.py, test__images_cmd.py, test__sweep_cmd.py,
-test__archive_cmd.py.
+submodules: test__scan_cmd.py, test__duplicates_cmd.py, test__images_cmd.py,
+test__sweep_cmd.py, test__archive_cmd.py.
 """
 
 from click.testing import CliRunner

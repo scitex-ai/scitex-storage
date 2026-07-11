@@ -2,16 +2,18 @@
 # -*- coding: utf-8 -*-
 """scitex-storage: research-data storage triage.
 
-Current scope (see README for the full roadmap): a read-only directory-tree
-``scan`` that inventories the biggest space and inode (file-count)
-consumers per top-level child of a root; ``images prune`` — rotation for a
-directory of versioned files (e.g. dated SIF builds) that never removes a
-file any symlink in the directory currently references; ``sweep`` — tars
-an inode-hog directory in place (compute-node-only, explicit
-per-directory confirm required); and ``archive``/``restore`` — move-not-
-delete tiering to nas/nas2 over ssh, verified before the local copy is
-removed, with a manifest ``restore`` reads back. Every mutating command
-defaults to a dry-run.
+Current scope (see README for the full roadmap): a read-only, stat-only
+directory-tree ``scan`` (delegates its walk to ``fd``) that inventories
+the biggest space and inode (file-count) consumers per top-level child of
+a root; ``find_duplicates`` — an explicitly opt-in verb that DOES read
+file contents (delegated to ``fclones``) to report exact-duplicate
+groups; ``images prune`` — rotation for a directory of versioned files
+(e.g. dated SIF builds) that never removes a file any symlink in the
+directory currently references; ``sweep`` — tars an inode-hog directory
+in place (compute-node-only, explicit per-directory confirm required);
+and ``archive``/``restore`` — move-not-delete tiering to nas/nas2 over
+ssh, verified before the local copy is removed, with a manifest
+``restore`` reads back. Every mutating command defaults to a dry-run.
 
 Public names — including ``__version__`` — are exposed via PEP 562
 ``__getattr__`` (lazy, on first access) so ``import scitex_storage`` itself
@@ -29,9 +31,11 @@ from __future__ import annotations
 # Public-name -> source-submodule map. ONE row per public symbol.
 _LAZY_ATTRS: dict[str, str] = {
     "ChildUsage": "_scan",
+    "MissingSystemDependencyError": "_scan",
     "RootScan": "_scan",
     "scan": "_scan",
     "scan_roots": "_scan",
+    "find_duplicates": "_duplicates",
     "ApplyResult": "_images",
     "PruneCandidate": "_images",
     "PrunePlan": "_images",
@@ -87,9 +91,11 @@ def __dir__() -> list[str]:
 # sync with the _LAZY_ATTRS keys above.
 __all__ = [
     "ChildUsage",
+    "MissingSystemDependencyError",
     "RootScan",
     "scan",
     "scan_roots",
+    "find_duplicates",
     "ApplyResult",
     "PruneCandidate",
     "PrunePlan",
