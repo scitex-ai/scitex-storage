@@ -7,6 +7,37 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- `scitex-storage archive SOURCE --to nas|nas2 [--remote-path PATH] [--exclude PATTERN ...] [--checksum/--no-checksum] [--yes|-y] [--dry-run]`
+  — move-not-delete tiering to nas/nas2 over ssh, built on scitex-ssh's
+  `sync_dir` (rsync-over-ssh). Copy-verify-then-remove: pushes SOURCE,
+  verifies the sync (checksummed by default), writes a manifest under
+  `~/.scitex/scitex-storage/runtime/archive-manifests/`, and ONLY THEN
+  removes the local copy. A failed sync leaves SOURCE completely untouched
+  and no manifest is written. Defaults to a dry-run; `--yes`/`-y` is
+  required to actually sync + remove (canonical mutating-verb flags per
+  the ecosystem convention, unlike `images prune`/`sweep`'s `--apply` —
+  `archive`/`restore` are audit-cli's hardcoded mutating-verb list, those
+  two aren't). Creates the remote parent directory (`mkdir -p` via
+  `exec_remote`, not `rsync --mkpath` — the latter needs rsync 3.2.3+,
+  and a real destination still runs 3.0.7) before the sync, since a
+  destination that's never held archived data has no
+  `~/scitex-storage-archive/...` tree yet — the common first-use case,
+  found by scitex-ssh smoke-testing a real archive against real nas2.
+  Every shell command built from a remote path (the `mkdir -p` above,
+  `rm -rf` for `restore --delete-remote`) leaves a leading `~` unquoted —
+  a naive `shlex.quote()` of the whole path turns `~` into a literal
+  character (tilde-expansion only applies unquoted), silently creating a
+  directory named `~` instead of resolving `$HOME` — also found by
+  scitex-ssh's real-nas2 smoke test. Both `archive` (push) and `restore`
+  (pull) add a trailing `/` to the copy source so rsync copies its
+  *contents* directly into the destination rather than nesting the source
+  one level deeper as a subdirectory — without it, a restored tree landed
+  two directories deep with byte-correct but wrongly-placed data, caught
+  by scitex-ssh diffing actual restored file paths, not just checksums.
+- `scitex-storage restore SOURCE [--delete-remote] [--yes|-y] [--dry-run]`
+  — reads the manifest `archive` wrote for SOURCE and pulls the data back.
+  The remote copy is kept by default; `--delete-remote` removes it after a
+  verified restore. Defaults to a dry-run.
 - `scitex-storage sweep DIRECTORY --threshold-files N [--min-age-hours H] [--apply --confirm NAME ...]`
   — tar an inode-hog directory in place (many small files -> one tar, one
   inode). Candidates are immediate children of DIRECTORY at or above

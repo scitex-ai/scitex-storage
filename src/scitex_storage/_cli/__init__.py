@@ -1,38 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""scitex-storage CLI — ``scan`` (read-only) and ``images prune`` (rotation)."""
+"""scitex-storage CLI — thin orchestrator; each verb lives in its own submodule."""
 
 from __future__ import annotations
 
-import json
 import sys
-from pathlib import Path
 
 import click
 
 from .. import __version__
-from .._images import apply_prune, plan_prune
-from .._report import (
-    format_prune_report,
-    format_report,
-    format_sweep_report,
-    format_sweep_status_report,
-    prune_plan_to_json_dict,
-    sweep_plan_to_json_dict,
-    sweep_status_to_json_dict,
-    to_json_dict,
-)
-from .._scan import scan as _scan
-from .._sweep import apply_sweep, plan_sweep, sweep_status
-from ._compat import spec_command_kwargs, spec_group_kwargs
+from ._archive_cmd import archive_cmd, restore_cmd
+from ._compat import spec_group_kwargs
+from ._images_cmd import images_group
 from ._introspect import list_python_apis
 from ._mcp_commands import mcp
+from ._scan_cmd import scan_cmd
+from ._sweep_cmd import sweep_cmd, sweep_status_cmd
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
-
-# Where research junk accumulates first on a SciTeX box: the tool's own
-# state tree and the projects tree. Used when ``scan`` is given no PATH.
-DEFAULT_ROOTS: tuple[str, ...] = ("~/.scitex", "~/proj")
 
 
 def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
@@ -61,17 +46,24 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
             "the directory currently references. `sweep` tars an inode-hog "
             "directory in place (many small files -> one tar, one inode), "
             "compute-node-only, gated on an explicit per-directory confirm. "
-            "Every mutating command defaults to a dry-run.",
+            "`archive` moves a directory to nas/nas2 over ssh (scitex-ssh's "
+            "sync_dir), verifying before removing the local copy and "
+            "writing a manifest `restore` reads back. Every mutating "
+            "command defaults to a dry-run.",
         ),
         config_resolution=(
             "scitex-storage has no configurable state yet — every command "
-            "takes its options on the command line. Runtime state, if any "
-            "is ever added, lives under ~/.scitex/scitex-storage/runtime/; "
-            "nothing reads or writes it yet.",
+            "takes its options on the command line. Runtime state written: "
+            "archive manifests under "
+            "~/.scitex/scitex-storage/runtime/archive-manifests/, one JSON "
+            "file per archived directory, read back by `restore`.",
         ),
         version_of="scitex-storage",
         command_categories=(
-            ("Storage", ("scan", "images", "sweep", "sweep-status")),
+            (
+                "Storage",
+                ("scan", "images", "sweep", "sweep-status", "archive", "restore"),
+            ),
             ("Introspection", ("list-python-apis", "mcp")),
         ),
     ),
@@ -106,284 +98,12 @@ def main(ctx: click.Context, help_recursive: bool, as_json: bool) -> None:
         click.echo(ctx.get_help())
 
 
-def _resolve_roots(paths: tuple[str, ...]) -> list[Path]:
-    """Validate PATHs into scan roots.
-
-    Explicit PATHs fail loud (``ClickException``) when missing / not a
-    directory. When no PATH is given, the ``DEFAULT_ROOTS`` are used and any
-    that do not exist are skipped with a stderr note (a box legitimately may
-    not have ``~/proj``).
-    """
-    explicit = bool(paths)
-    raw = list(paths) if explicit else list(DEFAULT_ROOTS)
-    roots: list[Path] = []
-    for item in raw:
-        p = Path(item).expanduser()
-        if not p.exists() or not p.is_dir():
-            if explicit:
-                raise click.ClickException(
-                    f"path does not exist or is not a directory: {p}"
-                )
-            click.echo(f"(skipping missing default root: {p})", err=True)
-            continue
-        roots.append(p)
-    if not roots:
-        raise click.ClickException("no existing directories to scan")
-    return roots
-
-
-@main.command(
-    "scan",
-    **spec_command_kwargs(
-        summary="Inventory the biggest space + inode consumers under PATH(s).",
-        description=(
-            "For each immediate (top-level) child of every PATH, report the "
-            "total bytes and the total file inodes beneath it, sorted so the "
-            "worst offenders surface first. With no PATH, scans ~/.scitex and "
-            "~/proj. Read-only and stat-only: never follows symlinked "
-            "directories (no network-mount storms), never reads file "
-            "contents, and never modifies anything.",
-        ),
-        examples=(
-            ("{prog} scan", "inventory ~/.scitex and ~/proj (text)"),
-            ("{prog} scan ~/proj --sort files", "rank children by inode count"),
-            ("{prog} scan /data --top 40 --json", "top 40 children, JSON"),
-            ("{prog} scan /mnt/nfs --max-depth 2", "cap recursion on a slow path"),
-        ),
-    ),
-)
-@click.argument("paths", nargs=-1, type=click.Path())
-@click.option(
-    "--top",
-    type=int,
-    default=20,
-    show_default=True,
-    help="Number of top children to report per root.",
-)
-@click.option(
-    "--sort",
-    type=click.Choice(["size", "files"]),
-    default="size",
-    show_default=True,
-    help="Rank children by total size or by inode (file) count.",
-)
-@click.option(
-    "--max-depth",
-    type=int,
-    default=None,
-    help="Cap recursion depth per child (login-node safety). Default: unlimited.",
-)
-@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of text.")
-def scan_cmd(
-    paths: tuple[str, ...],
-    top: int,
-    sort: str,
-    max_depth: int | None,
-    as_json: bool,
-) -> None:
-    roots = _resolve_roots(paths)
-    results = [_scan(p, max_depth=max_depth) for p in roots]
-    if as_json:
-        click.echo(json.dumps(to_json_dict(results, top=top, sort=sort), indent=2))
-    else:
-        click.echo(format_report(results, top=top, sort=sort))
-
-
-@main.group(
-    "images",
-    **spec_group_kwargs(
-        summary="Versioned-image (SIF and friends) directory rotation.",
-    ),
-)
-def images_group() -> None:
-    pass
-
-
-@images_group.command(
-    "prune",
-    **spec_command_kwargs(
-        summary="Rotate a directory of versioned files, keeping the newest N.",
-        description=(
-            "Scans DIRECTORY (non-recursive) for files matching --pattern "
-            "and plans removal of everything past the newest --keep, "
-            "EXCEPT any file a symlink directly in DIRECTORY currently "
-            "resolves to — those survive regardless of --keep. With "
-            "--apply, a second guard also skips (loudly, never raises) any "
-            "candidate a running process still has open. Defaults to a "
-            "dry-run: prints the plan and reclaimable bytes without "
-            "touching the filesystem.",
-        ),
-        examples=(
-            (
-                "{prog} images prune ~/.scitex/agent-container/containers/sac-base",
-                "dry-run, default --keep 5",
-            ),
-            (
-                "{prog} images prune DIR --keep 3 --apply",
-                "actually delete down to 3 (referenced files still excluded)",
-            ),
-            ("{prog} images prune DIR --pattern '*.tar' --json", "non-SIF pattern, JSON"),
-        ),
-    ),
-)
-@click.argument("directory", type=click.Path())
-@click.option(
-    "--keep",
-    type=int,
-    default=5,
-    show_default=True,
-    help="Target number retained (referenced files are kept on top of this).",
-)
-@click.option(
-    "--pattern",
-    default="*.sif",
-    show_default=True,
-    help="Glob matched against candidate filenames.",
-)
-@click.option(
-    "--apply",
-    "do_apply",
-    is_flag=True,
-    help="Actually delete. Without this flag, prune only reports the plan.",
-)
-@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of text.")
-def images_prune_cmd(
-    directory: str, keep: int, pattern: str, do_apply: bool, as_json: bool
-) -> None:
-    plan = plan_prune(directory, keep=keep, pattern=pattern)
-    apply_result = apply_prune(plan) if do_apply else None
-    if as_json:
-        click.echo(
-            json.dumps(
-                prune_plan_to_json_dict(plan, applied=do_apply, apply_result=apply_result),
-                indent=2,
-            )
-        )
-    else:
-        click.echo(format_prune_report(plan, applied=do_apply, apply_result=apply_result))
-
-
-@main.command(
-    "sweep",
-    **spec_command_kwargs(
-        summary="Tar an inode-hog directory in place (many files -> one).",
-        description=(
-            "Scans the immediate children of DIRECTORY (via `scan`) for "
-            "ones with at least --threshold-files files whose newest file "
-            "is older than --min-age-hours (skips anything that looks still "
-            "in use). Defaults to a dry-run listing candidates. --apply "
-            "requires an explicit --confirm NAME for every directory to "
-            "actually tar+remove — never a blanket 'sweep everything the "
-            "plan found'. COMPUTE-NODE-ONLY: --apply refuses to run unless "
-            "$SLURM_JOB_ID is set (tar reads file content; submit via "
-            "sbatch/srun, never on a login node).",
-        ),
-        examples=(
-            (
-                "{prog} sweep /data/gpfs/projects/punim0264/runs --threshold-files 5000",
-                "dry-run, list inode-hog children",
-            ),
-            (
-                "{prog} sweep DIR --threshold-files 5000 --apply --confirm old-run-42",
-                "sweep exactly one reviewed directory (inside an sbatch job)",
-            ),
-        ),
-    ),
-)
-@click.argument("directory", type=click.Path())
-@click.option(
-    "--threshold-files",
-    type=int,
-    required=True,
-    help="Minimum file count to qualify as a candidate (no default -- pick deliberately).",
-)
-@click.option(
-    "--min-age-hours",
-    type=float,
-    default=24.0,
-    show_default=True,
-    help="Exclude a candidate if its newest file is younger than this many hours.",
-)
-@click.option(
-    "--apply",
-    "do_apply",
-    is_flag=True,
-    help="Actually tar+remove. Without this flag, sweep only reports the plan.",
-)
-@click.option(
-    "--confirm",
-    "confirm_names",
-    multiple=True,
-    metavar="NAME",
-    help="Name of a candidate to actually sweep (repeatable). Required with --apply.",
-)
-@click.option(
-    "--min-remaining-seconds",
-    type=float,
-    default=300.0,
-    show_default=True,
-    help="Stop before starting a candidate if less walltime than this remains.",
-)
-@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of text.")
-def sweep_cmd(
-    directory: str,
-    threshold_files: int,
-    min_age_hours: float,
-    do_apply: bool,
-    confirm_names: tuple[str, ...],
-    min_remaining_seconds: float,
-    as_json: bool,
-) -> None:
-    if do_apply and not confirm_names:
-        raise click.ClickException(
-            "--apply requires at least one --confirm NAME (never a blanket apply)"
-        )
-    plan = plan_sweep(
-        directory, threshold_files=threshold_files, min_age_seconds=min_age_hours * 3600
-    )
-    result = (
-        apply_sweep(
-            plan, confirm_names=list(confirm_names), min_remaining_seconds=min_remaining_seconds
-        )
-        if do_apply
-        else None
-    )
-    if as_json:
-        click.echo(
-            json.dumps(sweep_plan_to_json_dict(plan, applied=do_apply, result=result), indent=2)
-        )
-    else:
-        click.echo(format_sweep_report(plan, applied=do_apply, result=result))
-
-
-@main.command(
-    "sweep-status",
-    **spec_command_kwargs(
-        summary="List directories under DIRECTORY already swept into a tar.",
-        description=(
-            "Read-only. A child is 'swept' if a sibling <name>.tar exists "
-            "directly in DIRECTORY. Flags the anomalous case where the "
-            "original directory of the same name is somehow still present "
-            "alongside its tar.",
-        ),
-        examples=(
-            (
-                "{prog} sweep-status /data/gpfs/projects/punim0264/runs",
-                "list what's already been swept",
-            ),
-        ),
-    ),
-)
-@click.argument("directory", type=click.Path())
-@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of text.")
-def sweep_status_cmd(directory: str, as_json: bool) -> None:
-    entries = sweep_status(directory)
-    if as_json:
-        click.echo(json.dumps(sweep_status_to_json_dict(directory, entries), indent=2))
-    else:
-        click.echo(format_sweep_status_report(directory, entries))
-
-
+main.add_command(scan_cmd)
+main.add_command(images_group)
+main.add_command(sweep_cmd)
+main.add_command(sweep_status_cmd)
+main.add_command(archive_cmd)
+main.add_command(restore_cmd)
 main.add_command(list_python_apis)
 main.add_command(mcp)
 

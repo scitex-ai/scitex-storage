@@ -6,7 +6,7 @@
   </a>
 </p>
 
-<p align="center"><b>Research-data storage triage — a read-only, stat-only scan that finds the biggest space and inode (file-count) consumers on your disk, plus safe rotation: referenced-file-aware for versioned build artifacts, and compute-node-only tar-in-place for HPC inode hogs.</b></p>
+<p align="center"><b>Research-data storage triage — a read-only, stat-only scan that finds the biggest space and inode (file-count) consumers on your disk, safe rotation (referenced-file-aware for build artifacts, compute-node-only tar-in-place for HPC inode hogs), and copy-verify-then-remove tiering to NAS.</b></p>
 
 <p align="center">
   <a href="https://scitex-storage.readthedocs.io/">Full Documentation</a> · <code>pip install scitex-storage</code>
@@ -33,6 +33,7 @@
 | 2 | **Inodes run out (`No space left on device` with GBs free)** — `du` measures bytes, not the millions of tiny files starving an HPC quota | **The `FILES` column** — every child's inode count, and `--sort files` to rank by it, so an inode hog surfaces even when it's small on disk |
 | 3 | **A build directory fills up with dated images (SIFs, tarballs, ...) and an age-only cleanup deletes one still in use** — the currently-live file is often the *oldest*-looking one still symlinked in | **`scitex-storage images prune`** — rotates to the newest N, but a file any symlink in the directory currently resolves to is never a candidate, regardless of age. Dry-run by default |
 | 4 | **A GPFS/HPC fileset hits its inode quota from millions of small files** — deleting real data isn't an option, and the fix (tar it) reads file content, which is barred from HPC login nodes | **`scitex-storage sweep`** — tars an inode-hog directory in place (many files → one), compute-node-only (refuses without `$SLURM_JOB_ID`), explicit per-directory `--confirm`, freshness-excludes anything still active |
+| 5 | **Local disk fills up with directories that should move to NAS, but "just delete after copying" risks a partial/failed copy silently losing data** | **`scitex-storage archive --to nas\|nas2`** — copy-verify-then-remove over ssh (scitex-ssh's `sync_dir`), checksummed by default, manifest written before the local copy is removed, `restore` reads it back |
 
 ## Installation
 
@@ -152,6 +153,28 @@ scitex-storage sweep-status DIRECTORY [--json]
 
 Read-only: lists directories already swept (a sibling `<name>.tar` exists).
 
+```bash
+scitex-storage archive SOURCE --to nas|nas2 [--remote-path PATH] [--exclude PATTERN ...] [--checksum/--no-checksum] [--yes|-y] [--dry-run] [--json]
+scitex-storage restore SOURCE [--delete-remote] [--yes|-y] [--dry-run] [--json]
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `SOURCE` | (required) | Directory to archive / the original path to restore to |
+| `--to` | (required, `archive` only) | `nas` or `nas2` — the `~/.ssh/config` alias to sync to |
+| `--remote-path` | mirrors `SOURCE` under `~/scitex-storage-archive` | Explicit remote path override |
+| `--exclude PATTERN` | — | Glob to exclude from the sync (repeatable) |
+| `--checksum` / `--no-checksum` | on | Read every byte on both sides (rsync `--checksum`) before removing the local copy |
+| `--delete-remote` | off | `restore` only: remove the remote copy after a verified pull |
+| `--yes`, `-y` | off | Actually sync/pull + mutate. Canonical mutating-verb flag (`archive`/`restore` are in the ecosystem's hardcoded mutating-verb list, unlike `images prune`/`sweep`'s `--apply`) |
+| `--dry-run` | — | Explicit spelling of the default (no side effects either way) |
+| `--json` | off | Emit machine-readable JSON instead of the text report |
+
+`archive` is copy-verify-then-remove, never delete-then-copy: a failed sync
+leaves `SOURCE` completely untouched and no manifest is written. The
+manifest (`~/.scitex/scitex-storage/runtime/archive-manifests/`) is what
+`restore` reads back — it never needs `SOURCE` to still exist.
+
 Other top-level commands (ecosystem-standard, per every scitex-* CLI):
 `list-python-apis` (introspect the Python API), `mcp list-tools`
 (no MCP server shipped yet — reports zero tools), `--help-recursive`.
@@ -193,6 +216,13 @@ sweep_result.swept                       # [SweptCandidate(tar_path, member_coun
 sweep_result.reclaimed_inodes
 
 ss.sweep_status("/data/gpfs/projects/punim0264/runs")  # what's already swept
+
+archive_plan = ss.plan_archive("~/proj/old-experiment", "nas2")
+archive_plan.remote_path                 # default: mirrors the source path
+manifest = ss.apply_archive(archive_plan)  # sync, verify, write manifest, remove source
+
+restore_plan = ss.plan_restore("~/proj/old-experiment")  # reads the manifest back
+ss.apply_restore(restore_plan)           # pulls it back; keeps the remote copy by default
 ```
 
 </details>
@@ -219,6 +249,12 @@ flowchart LR
     O -->|--apply, per --confirm NAME| P[apply_sweep: SLURM-only, walltime-aware, one at a time]
     P --> Q[_sweep_one: tar to temp, verify non-empty, atomic rename, rmtree]
     O --> R[format_sweep_report / sweep_plan_to_json_dict]
+
+    S[SOURCE] -->|_measure_dir| T[plan_archive: size + file_count]
+    T -->|--yes| U[apply_archive: sync_dir push, verify, write manifest, THEN rmtree]
+    T --> V[format_archive_report / archive_plan_to_json_dict]
+    U --> W[(archive-manifests/*.json)]
+    W -->|plan_restore| X[apply_restore: sync_dir pull, optional delete_remote]
 ```
 
 ```
@@ -226,14 +262,15 @@ scitex_storage/
 ├── _scan.py     ← scan, scan_roots, ChildUsage, RootScan
 ├── _images.py   ← plan_prune, apply_prune, PruneCandidate, PrunePlan
 ├── _sweep.py    ← plan_sweep, apply_sweep, sweep_status, SweepPlan, SweepResult
-├── _report.py   ← format_report, to_json_dict, format_prune_report, format_sweep_report, format_size
-└── _cli/        ← scan, images prune, sweep, sweep-status, list-python-apis, mcp list-tools
+├── _archive.py  ← plan_archive, apply_archive, plan_restore, apply_restore, ArchiveManifest
+├── _report.py   ← format_report, to_json_dict, format_prune_report, format_sweep_report, format_archive_report, format_size
+└── _cli/        ← scan, images prune, sweep, sweep-status, archive, restore, list-python-apis, mcp list-tools
 ```
 
 ## Roadmap (not implemented)
 
-Discovery (`scan`) and rotation (`images prune`, `sweep`) are layers 1-2 of
-a larger, safety-first design —
+Discovery (`scan`), rotation (`images prune`, `sweep`), and migration
+(`archive`/`restore`) are layers 1-3 of a larger, safety-first design —
 **scan → recommend → dry-run → copy → verify → quarantine → delete**,
 never an immediate destructive action:
 
@@ -243,13 +280,13 @@ scitex-storage
 ├── Rotation        prune / tar superseded or hog files       <- images prune, sweep (done)
 ├── Classification  what kind of data it is                  <- planned
 ├── Policy          where it should live                     <- planned
-├── Migration       safe copy/move (archive --to nas|nas2)     <- planned
-├── Verification    checksum + count verify after move         <- planned
+├── Migration       safe copy/move (archive --to nas|nas2)     <- archive, restore (done)
+├── Verification    checksum + count verify after move         <- rsync --checksum (done)
 └── Retention       keep/quarantine/delete rules                 <- planned
 ```
 
-Backends (local disk, NAS via SSH/SMB/NFS, S3-compatible, Gitea/GitHub) and
-a project-level manifest format are planned but not present in this release.
+Backends beyond ssh/rsync (S3-compatible, Gitea/GitHub) are planned but not
+present in this release.
 
 ## Part of SciTeX
 

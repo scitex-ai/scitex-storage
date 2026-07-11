@@ -2,22 +2,27 @@
 # -*- coding: utf-8 -*-
 """Cross-package integration gate (PS-140) — runtime import contract.
 
-scitex-storage's CLI optionally imports two scitex-dev modules, both
-guarded so a lean install (no ``[dev]`` extra) still works:
+scitex-storage imports three cross-package modules under ``src/``:
 
 * ``scitex_dev.ecosystem`` (``_cli/_compat.py``) — the CliHelp /
-  SpecCommand / SpecGroup help-spec helpers.
+  SpecCommand / SpecGroup help-spec helpers. OPTIONAL/guarded (a lean
+  install with no ``[dev]`` extra still works via a fallback).
 * ``scitex_dev._cli._completion`` (``_cli/__init__.py``) —
   ``attach_shell_completion``, wiring ``install-shell-completion`` /
-  ``print-shell-completion``.
+  ``print-shell-completion``. OPTIONAL/guarded, same reason.
+* ``scitex_ssh`` (``_archive.py``) — ``sync_dir`` / ``exec_remote`` /
+  ``SSHResult``, the transport ``archive``/``restore`` are built on.
+  REQUIRED (a hard ``[project.dependencies]`` entry, unguarded) — archive
+  tiering has no meaning without a transport, unlike the two optional
+  scitex-dev help/completion niceties above.
 
-This gate proves that when ``scitex-dev`` IS installed, both imports
-actually resolve — catching a renamed/moved upstream API before it ships.
+This gate proves that when a listed package IS installed, the import
+actually resolves — catching a renamed/moved upstream API before it ships.
 
 ``CROSS_PACKAGE_IMPORTS`` is the audited source of truth: it must list
 exactly the cross-package modules imported under ``src/`` (audit-project
-verifies it). Keep it in sync with the guarded imports in ``_cli/_compat.py``
-and ``_cli/__init__.py``.
+verifies it). Keep it in sync with the imports in ``_cli/_compat.py``,
+``_cli/__init__.py``, and ``_archive.py``.
 """
 
 from __future__ import annotations
@@ -30,6 +35,7 @@ import pytest
 CROSS_PACKAGE_IMPORTS = [
     "scitex_dev.ecosystem",
     "scitex_dev._cli._completion",
+    "scitex_ssh",
 ]
 
 
@@ -63,6 +69,15 @@ def test_cli_wires_shell_completion_when_scitex_dev_is_installed():
     has_completion_cmd = "print-shell-completion" in main.commands
     # Assert
     assert has_completion_cmd is True
+
+
+def test_archive_module_resolves_sync_dir_from_scitex_ssh():
+    # Arrange -- a hard dependency, so this should always resolve.
+    from scitex_storage import _archive
+
+    # Act
+    # Assert
+    assert callable(_archive.sync_dir)
 
 
 # EOF
