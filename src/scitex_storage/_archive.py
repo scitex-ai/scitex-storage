@@ -12,6 +12,16 @@ Design constraints:
 * **Copy-verify-then-remove, never delete-then-copy.** :func:`apply_archive`
   only removes the local source after ``sync_dir`` reports success; a
   failed sync leaves the source completely untouched and raises loud.
+* **The remote parent must exist before rsync does.** On a destination
+  that's never held archived data before, ``~/scitex-storage-archive/...``
+  simply doesn't exist yet — rsync then fails with "errors selecting
+  input/output files (code 3)". :func:`apply_archive` runs
+  ``mkdir -p`` on the remote parent via ``exec_remote`` before ``sync_dir``.
+  Deliberately NOT ``rsync --mkpath`` (added in rsync 3.2.3; a real nas2
+  target still runs 3.0.7, where ``--mkpath`` is a hard unknown-option
+  error) — ``mkdir -p`` works on any rsync version. Found + verified by
+  scitex-ssh smoke-testing a real archive against real nas/nas2, not a
+  hypothetical (2026-07-11).
 * **Manifest before delete.** The manifest is written *before* the local
   source is removed, so a crash between "sync succeeded" and "manifest
   written" fails safe (source still present; re-running `archive` is a
@@ -27,6 +37,7 @@ Design constraints:
 from __future__ import annotations
 
 import json
+import posixpath
 import shlex
 import shutil
 import time
@@ -147,10 +158,27 @@ def apply_archive(
     delete) adds rsync's ``--checksum`` flag — reads every byte on both
     sides instead of rsync's fast mtime+size quick-check. A non-zero rsync
     exit raises immediately; the source is left completely untouched and no
-    manifest is written. ``runner`` is passed straight through to
-    ``sync_dir`` (a ``subprocess.run``-shaped invoker) — the same
-    real-transport-free test seam scitex-ssh itself exposes.
+    manifest is written. ``runner`` is passed straight through to both
+    ``exec_remote`` (the mkdir) and ``sync_dir`` (a ``subprocess.run``-
+    shaped invoker) — the same real-transport-free test seam scitex-ssh
+    itself exposes.
     """
+    remote_parent = posixpath.dirname(plan.remote_path)
+    if remote_parent and remote_parent not in _UNSAFE_REMOTE_PATHS:
+        mkdir_result = exec_remote(
+            plan.destination,
+            f"mkdir -p {shlex.quote(remote_parent)}",
+            runner=runner,
+        )
+        if not mkdir_result.success:
+            raise RuntimeError(
+                f"failed to create remote parent directory "
+                f"{plan.destination}:{remote_parent} "
+                f"(exit {mkdir_result.returncode}) -- source left untouched.\n"
+                f"--- stdout ---\n{mkdir_result.stdout}\n"
+                f"--- stderr ---\n{mkdir_result.stderr}"
+            )
+
     extra_opts: tuple[str, ...] = ("--checksum",) if checksum else ()
     result: SSHResult = sync_dir(
         plan.destination,

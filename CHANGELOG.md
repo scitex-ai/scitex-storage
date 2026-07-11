@@ -17,7 +17,12 @@ versions follow [Semantic Versioning](https://semver.org/).
   required to actually sync + remove (canonical mutating-verb flags per
   the ecosystem convention, unlike `images prune`/`sweep`'s `--apply` —
   `archive`/`restore` are audit-cli's hardcoded mutating-verb list, those
-  two aren't).
+  two aren't). Creates the remote parent directory (`mkdir -p` via
+  `exec_remote`, not `rsync --mkpath` — the latter needs rsync 3.2.3+,
+  and a real destination still runs 3.0.7) before the sync, since a
+  destination that's never held archived data has no
+  `~/scitex-storage-archive/...` tree yet — the common first-use case,
+  found by scitex-ssh smoke-testing a real archive against real nas2.
 - `scitex-storage restore SOURCE [--delete-remote] [--yes|-y] [--dry-run]`
   — reads the manifest `archive` wrote for SOURCE and pulls the data back.
   The remote copy is kept by default; `--delete-remote` removes it after a

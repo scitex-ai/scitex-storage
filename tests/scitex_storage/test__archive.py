@@ -31,7 +31,9 @@ class _FakeCompletedProcess:
 
 
 class _FakeRunner:
-    """Records every argv it's called with; returns a scripted result."""
+    """Records every argv it's called with; returns the SAME scripted result
+    for every call (mkdir and rsync alike -- use _StagedRunner to make only
+    one of them fail)."""
 
     def __init__(self, returncode=0, stdout="", stderr=""):
         self.returncode = returncode
@@ -42,6 +44,21 @@ class _FakeRunner:
     def __call__(self, cmd, **kwargs):
         self.calls.append(cmd)
         return _FakeCompletedProcess(self.returncode, self.stdout, self.stderr)
+
+
+class _StagedRunner:
+    """Scripts a distinct result per call index (1-based) -- e.g. mkdir
+    (call 1) succeeds, rsync (call 2) fails. Any call beyond the scripted
+    stages reuses the last stage's result."""
+
+    def __init__(self, *stages):
+        self.stages = stages
+        self.calls = []
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        stage = self.stages[min(len(self.calls), len(self.stages)) - 1]
+        return _FakeCompletedProcess(*stage)
 
 
 def _touch(path, size=1):
@@ -216,21 +233,50 @@ def test_apply_archive_manifest_records_the_source_path(tmp_path, sandbox_home):
     assert manifest.source == str(source)
 
 
-def test_apply_archive_leaves_source_untouched_on_sync_failure(tmp_path, sandbox_home):
+def test_apply_archive_creates_the_remote_parent_directory_first(tmp_path, sandbox_home):
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    runner = _FakeRunner(returncode=0)
+    # Act
+    apply_archive(plan, runner=runner)
+    # Assert
+    assert "mkdir -p" in runner.calls[0][-1]
+
+
+def test_apply_archive_mkdir_runs_before_the_rsync_call(tmp_path, sandbox_home):
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    runner = _FakeRunner(returncode=0)
+    # Act
+    apply_archive(plan, runner=runner)
+    # Assert
+    assert len(runner.calls) == 2
+
+
+# A uniform-failure runner fails BOTH the mkdir and the rsync call, so it
+# exercises the mkdir failure path specifically (mkdir is call 1, and the
+# code raises before ever reaching the rsync call).
+
+
+def test_apply_archive_leaves_source_untouched_on_mkdir_failure(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
     f = _touch(source / "a.bin")
     plan = plan_archive(source, "nas")
     # Act
     try:
-        apply_archive(plan, runner=_FakeRunner(returncode=1, stderr="rsync error"))
+        apply_archive(plan, runner=_FakeRunner(returncode=1, stderr="mkdir error"))
     except RuntimeError:
         pass
     # Assert
     assert f.exists()
 
 
-def test_apply_archive_raises_on_sync_failure(tmp_path, sandbox_home):
+def test_apply_archive_raises_on_mkdir_failure(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
     _touch(source / "a.bin")
@@ -238,10 +284,10 @@ def test_apply_archive_raises_on_sync_failure(tmp_path, sandbox_home):
     # Act
     # Assert
     with pytest.raises(RuntimeError):
-        apply_archive(plan, runner=_FakeRunner(returncode=1, stderr="rsync error"))
+        apply_archive(plan, runner=_FakeRunner(returncode=1, stderr="mkdir error"))
 
 
-def test_apply_archive_does_not_write_manifest_on_sync_failure(tmp_path, sandbox_home):
+def test_apply_archive_does_not_write_manifest_on_mkdir_failure(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
     _touch(source / "a.bin")
@@ -255,6 +301,38 @@ def test_apply_archive_does_not_write_manifest_on_sync_failure(tmp_path, sandbox
     assert not plan.manifest_path.exists()
 
 
+# A staged runner lets mkdir succeed so the rsync call specifically fails.
+
+
+def test_apply_archive_leaves_source_untouched_on_sync_failure_after_mkdir_ok(
+    tmp_path, sandbox_home
+):
+    # Arrange
+    source = tmp_path / "source"
+    f = _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    runner = _StagedRunner((0, "", ""), (1, "", "rsync error"))
+    # Act
+    try:
+        apply_archive(plan, runner=runner)
+    except RuntimeError:
+        pass
+    # Assert
+    assert f.exists()
+
+
+def test_apply_archive_raises_on_sync_failure_after_mkdir_ok(tmp_path, sandbox_home):
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    runner = _StagedRunner((0, "", ""), (1, "", "rsync error"))
+    # Act
+    # Assert
+    with pytest.raises(RuntimeError):
+        apply_archive(plan, runner=runner)
+
+
 def test_apply_archive_checksum_true_adds_the_rsync_flag(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -263,8 +341,8 @@ def test_apply_archive_checksum_true_adds_the_rsync_flag(tmp_path, sandbox_home)
     runner = _FakeRunner(returncode=0)
     # Act
     apply_archive(plan, checksum=True, runner=runner)
-    # Assert
-    assert "--checksum" in runner.calls[0]
+    # Assert -- calls[-1] is the rsync argv (mkdir runs first, at calls[0])
+    assert "--checksum" in runner.calls[-1]
 
 
 def test_apply_archive_checksum_false_omits_the_rsync_flag(tmp_path, sandbox_home):
@@ -276,7 +354,7 @@ def test_apply_archive_checksum_false_omits_the_rsync_flag(tmp_path, sandbox_hom
     # Act
     apply_archive(plan, checksum=False, runner=runner)
     # Assert
-    assert "--checksum" not in runner.calls[0]
+    assert "--checksum" not in runner.calls[-1]
 
 
 def test_apply_archive_passes_exclude_patterns_through(tmp_path, sandbox_home):
@@ -288,7 +366,7 @@ def test_apply_archive_passes_exclude_patterns_through(tmp_path, sandbox_home):
     # Act
     apply_archive(plan, exclude=("*.tmp",), runner=runner)
     # Assert
-    assert "--exclude=*.tmp" in runner.calls[0]
+    assert "--exclude=*.tmp" in runner.calls[-1]
 
 
 def test_apply_archive_returns_an_archivemanifest_instance(tmp_path, sandbox_home):
