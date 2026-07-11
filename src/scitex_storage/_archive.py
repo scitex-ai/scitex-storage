@@ -32,6 +32,21 @@ Design constraints:
   scitex-ssh's real-nas2 smoke test: the stray ``~`` directory was sitting
   in the remote home directory after the naive-quoting version "succeeded"
   (2026-07-11).
+* **Trailing slash controls "contents of" vs "the directory itself".**
+  rsync's classic gotcha: a source arg with NO trailing slash copies the
+  source directory itself into the destination (nesting one level:
+  ``dest/<source-basename>/...``); WITH a trailing slash it copies the
+  source's *contents* directly into the destination. Both
+  :func:`apply_archive` (push) and :func:`apply_restore` (pull) want
+  "contents of," so the copy SIDE (``local`` for push, ``remote_path`` for
+  pull) always gets a trailing slash appended before being handed to
+  ``sync_dir`` -- otherwise a restore lands two directories deep
+  (``source/<remote-basename>/<source-basename>/...``) with byte-correct
+  but wrongly-placed data, easy to miss if only checksums are checked.
+  scitex-ssh's own docstring is explicit that trailing-slash semantics are
+  the caller's to control; this is that layer. Found by scitex-ssh
+  smoke-testing a real archive+restore round-trip and diffing the actual
+  file paths, not just checksums (2026-07-11).
 * **Manifest before delete.** The manifest is written *before* the local
   source is removed, so a crash between "sync succeeded" and "manifest
   written" fails safe (source still present; re-running `archive` is a
@@ -84,6 +99,14 @@ def _quote_remote_path(path: str) -> str:
     if path.startswith("~/"):
         return "~/" + shlex.quote(path[2:])
     return shlex.quote(path)
+
+
+def _as_dir_contents(path: str) -> str:
+    """Append a trailing ``/`` (idempotent) so rsync copies ``path``'s
+    CONTENTS into the destination rather than nesting ``path`` itself one
+    level deeper as a subdirectory -- see the module docstring's trailing-
+    slash bullet."""
+    return path.rstrip("/") + "/"
 
 
 def _manifest_dir() -> Path:
@@ -211,7 +234,7 @@ def apply_archive(
     extra_opts: tuple[str, ...] = ("--checksum",) if checksum else ()
     result: SSHResult = sync_dir(
         plan.destination,
-        str(plan.source),
+        _as_dir_contents(str(plan.source)),
         plan.remote_path,
         direction="push",
         exclude=exclude,
@@ -283,7 +306,7 @@ def apply_restore(
     result: SSHResult = sync_dir(
         manifest.destination,
         str(source),
-        manifest.remote_path,
+        _as_dir_contents(manifest.remote_path),
         direction="pull",
         runner=runner,
     )

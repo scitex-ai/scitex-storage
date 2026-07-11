@@ -16,6 +16,7 @@ from scitex_storage._archive import (
     ArchiveManifest,
     ArchivePlan,
     RestorePlan,
+    _as_dir_contents,
     _quote_remote_path,
     apply_archive,
     apply_restore,
@@ -120,6 +121,36 @@ def test_quote_remote_path_quotes_a_non_tilde_path_normally():
     quoted = _quote_remote_path("/a dir/b")
     # Assert
     assert quoted == "'/a dir/b'"
+
+
+# --- _as_dir_contents ----------------------------------------------------------
+# Tested directly: rsync's trailing-slash "contents of" vs "the directory
+# itself" distinction is exactly what silently misplaced restored data --
+# see the module docstring's trailing-slash bullet.
+
+
+def test_as_dir_contents_appends_a_trailing_slash():
+    # Arrange
+    # Act
+    result = _as_dir_contents("/a/b")
+    # Assert
+    assert result == "/a/b/"
+
+
+def test_as_dir_contents_is_idempotent_on_an_already_slashed_path():
+    # Arrange
+    # Act
+    result = _as_dir_contents("/a/b/")
+    # Assert
+    assert result == "/a/b/"
+
+
+def test_as_dir_contents_preserves_a_leading_tilde():
+    # Arrange
+    # Act
+    result = _as_dir_contents("~/x")
+    # Assert
+    assert result == "~/x/"
 
 
 # --- plan_archive -------------------------------------------------------------
@@ -298,6 +329,21 @@ def test_apply_archive_mkdir_command_leaves_the_leading_tilde_unquoted(
     apply_archive(plan, runner=runner)
     # Assert
     assert "'~" not in runner.calls[0][-1]
+
+
+def test_apply_archive_rsync_source_has_a_trailing_slash(tmp_path, sandbox_home):
+    # Arrange -- without the trailing slash, rsync nests source itself one
+    # level deeper on the remote side instead of copying its contents
+    # directly into remote_path (regression: found by scitex-ssh diffing
+    # actual restored file paths, not just checksums, on a real round-trip).
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    runner = _FakeRunner(returncode=0)
+    # Act
+    apply_archive(plan, runner=runner)
+    # Assert -- the rsync call (calls[-1]) has src as the second-to-last argv
+    assert runner.calls[-1][-2] == f"{plan.source}/"
 
 
 def test_apply_archive_mkdir_runs_before_the_rsync_call(tmp_path, sandbox_home):
@@ -495,6 +541,20 @@ def test_apply_restore_returns_the_source_path_on_success(tmp_path):
     result = apply_restore(plan, runner=_FakeRunner(returncode=0))
     # Assert
     assert result == source
+
+
+def test_apply_restore_rsync_source_has_a_trailing_slash(tmp_path):
+    # Arrange -- without the trailing slash, rsync nests remote_path itself
+    # one level deeper under the local source instead of copying its
+    # contents directly into it (same bug class as the archive-side push,
+    # found by scitex-ssh diffing actual restored file paths).
+    source = tmp_path / "source"
+    plan = _restore_plan(source, remote_path="~/archive/x")
+    runner = _FakeRunner(returncode=0)
+    # Act
+    apply_restore(plan, runner=runner)
+    # Assert -- pull's src is "host:remote_path", the second-to-last argv
+    assert runner.calls[-1][-2] == "nas:~/archive/x/"
 
 
 def test_apply_restore_raises_on_pull_failure(tmp_path):

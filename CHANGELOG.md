@@ -28,7 +28,12 @@ versions follow [Semantic Versioning](https://semver.org/).
   a naive `shlex.quote()` of the whole path turns `~` into a literal
   character (tilde-expansion only applies unquoted), silently creating a
   directory named `~` instead of resolving `$HOME` — also found by
-  scitex-ssh's real-nas2 smoke test.
+  scitex-ssh's real-nas2 smoke test. Both `archive` (push) and `restore`
+  (pull) add a trailing `/` to the copy source so rsync copies its
+  *contents* directly into the destination rather than nesting the source
+  one level deeper as a subdirectory — without it, a restored tree landed
+  two directories deep with byte-correct but wrongly-placed data, caught
+  by scitex-ssh diffing actual restored file paths, not just checksums.
 - `scitex-storage restore SOURCE [--delete-remote] [--yes|-y] [--dry-run]`
   — reads the manifest `archive` wrote for SOURCE and pulls the data back.
   The remote copy is kept by default; `--delete-remote` removes it after a
