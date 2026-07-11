@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""scitex-storage CLI — ``scitex-storage scan <path>`` (MVP: read-only)."""
+"""scitex-storage CLI — ``scitex-storage scan [PATH ...]`` (MVP: read-only)."""
 
 from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 import click
 
 from .. import __version__
-from .._report import format_text_report, to_json_dict
+from .._report import format_report, to_json_dict
 from .._scan import scan as _scan
 from ._compat import spec_command_kwargs, spec_group_kwargs
 from ._introspect import list_python_apis
 from ._mcp_commands import mcp
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
+
+# Where research junk accumulates first on a SciTeX box: the tool's own
+# state tree and the projects tree. Used when ``scan`` is given no PATH.
+DEFAULT_ROOTS: tuple[str, ...] = ("~/.scitex", "~/proj")
 
 
 def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
@@ -38,16 +43,16 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
         description=(
             "Discovery layer of a planned storage-tiering tool (local SSD "
             "-> NAS SSD -> NAS HDD -> offline). This release ships only "
-            "`scan`: a read-only directory-tree walk that scores files by "
-            "size x days-since-last-access and reports the biggest, "
-            "stalest candidates plus (size+hash) duplicate groups. Nothing "
-            "moves, copies, or deletes anything.",
+            "`scan`: a read-only, stat-only directory walk that reports the "
+            "biggest space and inode (file-count) consumers per top-level "
+            "child of a root. Nothing moves, copies, or deletes anything, "
+            "and no file contents are ever read.",
         ),
         config_resolution=(
             "scitex-storage has no configurable state in this MVP — `scan` "
-            "takes every option on the command line. A future config.yaml "
-            "under ~/.scitex/storage/ is on the roadmap; nothing reads it "
-            "yet.",
+            "takes every option on the command line. Runtime state, if any "
+            "is ever added, lives under ~/.scitex/scitex-storage/runtime/; "
+            "nothing reads or writes it yet.",
         ),
         version_of="scitex-storage",
         command_categories=(
@@ -57,7 +62,10 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
     ),
 )
 @click.version_option(
-    __version__, "-V", "--version", prog_name="scitex-storage",
+    __version__,
+    "-V",
+    "--version",
+    prog_name="scitex-storage",
     message="%(prog)s %(version)s",
 )
 @click.option("--help-recursive", is_flag=True, help="Show help for all commands.")
@@ -83,39 +91,87 @@ def main(ctx: click.Context, help_recursive: bool, as_json: bool) -> None:
         click.echo(ctx.get_help())
 
 
+def _resolve_roots(paths: tuple[str, ...]) -> list[Path]:
+    """Validate PATHs into scan roots.
+
+    Explicit PATHs fail loud (``ClickException``) when missing / not a
+    directory. When no PATH is given, the ``DEFAULT_ROOTS`` are used and any
+    that do not exist are skipped with a stderr note (a box legitimately may
+    not have ``~/proj``).
+    """
+    explicit = bool(paths)
+    raw = list(paths) if explicit else list(DEFAULT_ROOTS)
+    roots: list[Path] = []
+    for item in raw:
+        p = Path(item).expanduser()
+        if not p.exists() or not p.is_dir():
+            if explicit:
+                raise click.ClickException(
+                    f"path does not exist or is not a directory: {p}"
+                )
+            click.echo(f"(skipping missing default root: {p})", err=True)
+            continue
+        roots.append(p)
+    if not roots:
+        raise click.ClickException("no existing directories to scan")
+    return roots
+
+
 @main.command(
     "scan",
     **spec_command_kwargs(
-        summary="Scan a directory tree and report size x staleness candidates.",
+        summary="Inventory the biggest space + inode consumers under PATH(s).",
         description=(
-            "Walks PATH (skipping .git/node_modules/.venv/build/dist/... — "
-            "regenerable dirs), scores each file by "
-            "size_bytes * days_since_last_access, and prints the biggest, "
-            "stalest files first. Read-only: never moves, deletes, or "
-            "modifies anything.",
+            "For each immediate (top-level) child of every PATH, report the "
+            "total bytes and the total file inodes beneath it, sorted so the "
+            "worst offenders surface first. With no PATH, scans ~/.scitex and "
+            "~/proj. Read-only and stat-only: never follows symlinked "
+            "directories (no network-mount storms), never reads file "
+            "contents, and never modifies anything.",
         ),
         examples=(
-            ("{prog} scan ~/projects", "text report, top 20"),
-            ("{prog} scan ~/projects --top 50 --json", "JSON, top 50"),
-            ("{prog} scan ~/projects --no-dedupe", "skip the hash-based duplicate pass"),
+            ("{prog} scan", "inventory ~/.scitex and ~/proj (text)"),
+            ("{prog} scan ~/proj --sort files", "rank children by inode count"),
+            ("{prog} scan /data --top 40 --json", "top 40 children, JSON"),
+            ("{prog} scan /mnt/nfs --max-depth 2", "cap recursion on a slow path"),
         ),
     ),
 )
-@click.argument("path", type=click.Path(exists=True, file_okay=False))
-@click.option("--top", type=int, default=20, show_default=True, help="Top-N candidates to report.")
-@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON instead of text.")
+@click.argument("paths", nargs=-1, type=click.Path())
 @click.option(
-    "--dedupe/--no-dedupe",
-    default=True,
+    "--top",
+    type=int,
+    default=20,
     show_default=True,
-    help="Run the (size+hash) duplicate-file pass.",
+    help="Number of top children to report per root.",
 )
-def scan_cmd(path: str, top: int, as_json: bool, dedupe: bool) -> None:
-    result = _scan(path, top=top, dedupe=dedupe)
+@click.option(
+    "--sort",
+    type=click.Choice(["size", "files"]),
+    default="size",
+    show_default=True,
+    help="Rank children by total size or by inode (file) count.",
+)
+@click.option(
+    "--max-depth",
+    type=int,
+    default=None,
+    help="Cap recursion depth per child (login-node safety). Default: unlimited.",
+)
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of text.")
+def scan_cmd(
+    paths: tuple[str, ...],
+    top: int,
+    sort: str,
+    max_depth: int | None,
+    as_json: bool,
+) -> None:
+    roots = _resolve_roots(paths)
+    results = [_scan(p, max_depth=max_depth) for p in roots]
     if as_json:
-        click.echo(json.dumps(to_json_dict(result, top=top), indent=2))
+        click.echo(json.dumps(to_json_dict(results, top=top, sort=sort), indent=2))
     else:
-        click.echo(format_text_report(result, top=top))
+        click.echo(format_report(results, top=top, sort=sort))
 
 
 main.add_command(list_python_apis)

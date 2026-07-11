@@ -9,5 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [0.1.0]
 
-- Initial bootstrap: `scitex-storage scan <path>` MVP (read-only discovery
-  + size x staleness scoring + human-readable report).
+- Initial bootstrap: `scitex-storage scan [PATH ...]` MVP — a read-only,
+  stat-only walk reporting the biggest space and inode (file-count)
+  consumers per top-level child of a root (defaults to `~/.scitex` and
+  `~/proj`). Never follows symlinked directories, never reads file
+  contents, never mutates anything.
