@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-12
+
 - `scitex-storage archive SOURCE --to nas|nas2 [--remote-path PATH] [--exclude PATTERN ...] [--checksum/--no-checksum] [--yes|-y] [--dry-run]`
   — move-not-delete tiering to nas/nas2 over ssh, built on scitex-ssh's
   `sync_dir` (rsync-over-ssh). Copy-verify-then-remove: pushes SOURCE,
