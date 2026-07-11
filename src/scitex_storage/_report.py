@@ -351,7 +351,7 @@ def format_archive_report(
             f"source removed, manifest written to {plan.manifest_path}"
         )
     else:
-        lines.append("  WOULD ARCHIVE (dry-run — pass --apply to actually sync + remove)")
+        lines.append("  WOULD ARCHIVE (dry-run — pass --yes/-y to actually sync + remove)")
     return "\n".join(lines)
 
 
@@ -390,7 +390,7 @@ def format_restore_report(
     if applied and restored_path:
         lines.append(f"  RESTORED to {restored_path}")
     else:
-        lines.append("  WOULD RESTORE (dry-run — pass --apply to actually pull)")
+        lines.append("  WOULD RESTORE (dry-run — pass --yes/-y to actually pull)")
     return "\n".join(lines)
 
 
