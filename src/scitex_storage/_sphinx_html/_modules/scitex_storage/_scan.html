@@ -1,0 +1,376 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>scitex_storage._scan &mdash; SciTeX Storage v0.1.0</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+      <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+      <script src="../../_static/copybutton.js?v=f281be69"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            SciTeX Storage
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#basic-installation">Basic Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#development">Development</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../quickstart.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api/scitex_storage.html">scitex_storage</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.FileEntry"><code class="docutils literal notranslate"><span class="pre">FileEntry</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.FileEntry.path"><code class="docutils literal notranslate"><span class="pre">FileEntry.path</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.FileEntry.size"><code class="docutils literal notranslate"><span class="pre">FileEntry.size</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.FileEntry.atime"><code class="docutils literal notranslate"><span class="pre">FileEntry.atime</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.FileEntry.days_since_access"><code class="docutils literal notranslate"><span class="pre">FileEntry.days_since_access()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.FileEntry.score"><code class="docutils literal notranslate"><span class="pre">FileEntry.score()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.FileEntry.__init__"><code class="docutils literal notranslate"><span class="pre">FileEntry.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.ScanResult"><code class="docutils literal notranslate"><span class="pre">ScanResult</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.ScanResult.root"><code class="docutils literal notranslate"><span class="pre">ScanResult.root</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.ScanResult.files_scanned"><code class="docutils literal notranslate"><span class="pre">ScanResult.files_scanned</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.ScanResult.dirs_scanned"><code class="docutils literal notranslate"><span class="pre">ScanResult.dirs_scanned</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.ScanResult.total_size"><code class="docutils literal notranslate"><span class="pre">ScanResult.total_size</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.ScanResult.skipped_size"><code class="docutils literal notranslate"><span class="pre">ScanResult.skipped_size</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.ScanResult.skipped_dirs"><code class="docutils literal notranslate"><span class="pre">ScanResult.skipped_dirs</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.ScanResult.entries"><code class="docutils literal notranslate"><span class="pre">ScanResult.entries</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.ScanResult.duplicate_groups"><code class="docutils literal notranslate"><span class="pre">ScanResult.duplicate_groups</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.ScanResult.scan_time"><code class="docutils literal notranslate"><span class="pre">ScanResult.scan_time</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.ScanResult.top_candidates"><code class="docutils literal notranslate"><span class="pre">ScanResult.top_candidates()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.ScanResult.__init__"><code class="docutils literal notranslate"><span class="pre">ScanResult.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.find_duplicates"><code class="docutils literal notranslate"><span class="pre">find_duplicates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.scan"><code class="docutils literal notranslate"><span class="pre">scan()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/scitex_storage.html#scitex_storage.walk_tree"><code class="docutils literal notranslate"><span class="pre">walk_tree()</span></code></a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">SciTeX Storage</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">scitex_storage._scan</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for scitex_storage._scan</h1><div class="highlight"><pre>
+<span></span><span class="ch">#!/usr/bin/env python3</span>
+<span class="c1"># -*- coding: utf-8 -*-</span>
+<span class="sd">&quot;&quot;&quot;Read-only directory-tree scan: discovery + size x staleness scoring.</span>
+
+<span class="sd">Implements exactly the &quot;first MVP&quot; slice from the project&#39;s design notes</span>
+<span class="sd">(``scitex-storage scan ~/projects``): walk a tree, skip regenerable</span>
+<span class="sd">directories, score each file by ``size_bytes * days_since_last_access``,</span>
+<span class="sd">and (optionally) group same-size/same-hash files as duplicate candidates.</span>
+
+<span class="sd">This module never writes, moves, or deletes anything — it only reads</span>
+<span class="sd">``os.stat`` and (for the duplicate pass) file bytes for hashing.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="c1"># Regenerable / vendored directories the design notes call out as</span>
+<span class="c1"># &quot;全部無視&quot; (ignore entirely) for space-reclaim purposes — build artifacts,</span>
+<span class="c1"># vendored deps, caches. Matched by directory *name*, anywhere in the tree.</span>
+<span class="n">DEFAULT_EXCLUDE_DIRS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;.git&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;node_modules&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;.venv&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;venv&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;env&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;__pycache__&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;build&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;dist&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;.tox&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;.mypy_cache&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;.pytest_cache&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;.ruff_cache&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;.eggs&quot;</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_excluded</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">exclude_dirs</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">exclude_dirs</span> <span class="ow">or</span> <span class="n">name</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s2">&quot;.egg-info&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="FileEntry">
+<a class="viewcode-back" href="../../api/scitex_storage.html#scitex_storage.FileEntry">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FileEntry</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One scanned file: its path (relative to the scan root), size, and</span>
+<span class="sd">    last-access time.&quot;&quot;&quot;</span>
+
+    <span class="n">path</span><span class="p">:</span> <span class="n">Path</span>
+    <span class="n">size</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">atime</span><span class="p">:</span> <span class="nb">float</span>  <span class="c1"># epoch seconds, os.stat().st_atime</span>
+
+<div class="viewcode-block" id="FileEntry.days_since_access">
+<a class="viewcode-back" href="../../api/scitex_storage.html#scitex_storage.FileEntry.days_since_access">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">days_since_access</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">now</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+        <span class="n">now</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="k">if</span> <span class="n">now</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">now</span>
+        <span class="k">return</span> <span class="nb">max</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="p">(</span><span class="n">now</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">atime</span><span class="p">)</span> <span class="o">/</span> <span class="mf">86400.0</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="FileEntry.score">
+<a class="viewcode-back" href="../../api/scitex_storage.html#scitex_storage.FileEntry.score">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">score</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">now</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;``score = size_bytes * days_since_last_access`` (design-doc heuristic).&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">days_since_access</span><span class="p">(</span><span class="n">now</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="ScanResult">
+<a class="viewcode-back" href="../../api/scitex_storage.html#scitex_storage.ScanResult">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ScanResult</span><span class="p">:</span>
+    <span class="n">root</span><span class="p">:</span> <span class="n">Path</span>
+    <span class="n">files_scanned</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">dirs_scanned</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">total_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">skipped_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">skipped_dirs</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">set</span><span class="p">)</span>
+    <span class="n">entries</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FileEntry</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">duplicate_groups</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">scan_time</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ScanResult.top_candidates">
+<a class="viewcode-back" href="../../api/scitex_storage.html#scitex_storage.ScanResult.top_candidates">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">top_candidates</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">top</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">20</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">FileEntry</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">entries</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">:</span> <span class="n">e</span><span class="o">.</span><span class="n">score</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scan_time</span><span class="p">),</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)[:</span><span class="n">top</span><span class="p">]</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="walk_tree">
+<a class="viewcode-back" href="../../api/scitex_storage.html#scitex_storage.walk_tree">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">walk_tree</span><span class="p">(</span>
+    <span class="n">root</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">exclude_dirs</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">DEFAULT_EXCLUDE_DIRS</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">FileEntry</span><span class="p">],</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Walk ``root``, returning ``(entries, dirs_scanned, skipped_size)``.</span>
+
+<span class="sd">    Directories whose *name* matches ``exclude_dirs`` are pruned entirely</span>
+<span class="sd">    (never descended into); their on-disk size is best-effort summed into</span>
+<span class="sd">    ``skipped_size`` for the report, but their contents are not scanned.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">entries</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FileEntry</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">dirs_scanned</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">skipped_size</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">for</span> <span class="n">dirpath</span><span class="p">,</span> <span class="n">dirnames</span><span class="p">,</span> <span class="n">filenames</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">walk</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="n">topdown</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+        <span class="n">keep</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">dirnames</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">_is_excluded</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="n">exclude_dirs</span><span class="p">):</span>
+                <span class="n">skipped_size</span> <span class="o">+=</span> <span class="n">_dir_size_best_effort</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">dirpath</span><span class="p">)</span> <span class="o">/</span> <span class="n">d</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">keep</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+        <span class="n">dirnames</span><span class="p">[:]</span> <span class="o">=</span> <span class="n">keep</span>
+        <span class="n">dirs_scanned</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="k">for</span> <span class="n">fname</span> <span class="ow">in</span> <span class="n">filenames</span><span class="p">:</span>
+            <span class="n">fpath</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">dirpath</span><span class="p">)</span> <span class="o">/</span> <span class="n">fname</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">st</span> <span class="o">=</span> <span class="n">fpath</span><span class="o">.</span><span class="n">lstat</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">fpath</span><span class="p">)</span> <span class="ow">or</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">islink</span><span class="p">(</span><span class="n">fpath</span><span class="p">):</span>
+                <span class="c1"># Skip symlinks (and anything stat can&#39;t confirm is a</span>
+                <span class="c1"># regular file) — this MVP only reports plain files.</span>
+                <span class="k">continue</span>
+            <span class="n">entries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">FileEntry</span><span class="p">(</span><span class="n">path</span><span class="o">=</span><span class="n">fpath</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">st</span><span class="o">.</span><span class="n">st_size</span><span class="p">,</span> <span class="n">atime</span><span class="o">=</span><span class="n">st</span><span class="o">.</span><span class="n">st_atime</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">entries</span><span class="p">,</span> <span class="n">dirs_scanned</span><span class="p">,</span> <span class="n">skipped_size</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_dir_size_best_effort</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="n">total</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">dirpath</span><span class="p">,</span> <span class="n">_dirnames</span><span class="p">,</span> <span class="n">filenames</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">walk</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">fname</span> <span class="ow">in</span> <span class="n">filenames</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">total</span> <span class="o">+=</span> <span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">dirpath</span><span class="p">)</span> <span class="o">/</span> <span class="n">fname</span><span class="p">)</span><span class="o">.</span><span class="n">lstat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
+                <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                    <span class="k">continue</span>
+    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">0</span>
+    <span class="k">return</span> <span class="n">total</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_hash_file</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">chunk_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">&lt;&lt;</span> <span class="mi">20</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">()</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;rb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="nb">iter</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">chunk_size</span><span class="p">),</span> <span class="sa">b</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
+            <span class="n">h</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">h</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+
+
+<div class="viewcode-block" id="find_duplicates">
+<a class="viewcode-back" href="../../api/scitex_storage.html#scitex_storage.find_duplicates">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">find_duplicates</span><span class="p">(</span><span class="n">entries</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FileEntry</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Group files that share (size, sha256) — a cheap, exact duplicate</span>
+<span class="sd">    detector in the spirit of ``fdupes``/``rdfind``.</span>
+
+<span class="sd">    Files are first bucketed by size (free — already known from the walk);</span>
+<span class="sd">    only files sharing a size bucket with &gt;= 2 members are hashed, so a</span>
+<span class="sd">    tree with no same-size collisions costs zero hashing.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">by_size</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">FileEntry</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">continue</span>  <span class="c1"># empty files are not useful &quot;duplicates&quot; to report</span>
+        <span class="n">by_size</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+
+    <span class="n">groups</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">size</span><span class="p">,</span> <span class="n">candidates</span> <span class="ow">in</span> <span class="n">by_size</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">candidates</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">by_hash</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">candidates</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">digest</span> <span class="o">=</span> <span class="n">_hash_file</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">path</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">by_hash</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">digest</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">path</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">paths</span> <span class="ow">in</span> <span class="n">by_hash</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">paths</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="n">groups</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">paths</span><span class="p">))</span>
+
+    <span class="n">groups</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">g</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">g</span><span class="p">),</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">groups</span></div>
+
+
+
+<div class="viewcode-block" id="scan">
+<a class="viewcode-back" href="../../api/scitex_storage.html#scitex_storage.scan">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">scan</span><span class="p">(</span>
+    <span class="n">root</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">top</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">20</span><span class="p">,</span>
+    <span class="n">dedupe</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">exclude_dirs</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">DEFAULT_EXCLUDE_DIRS</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ScanResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Scan ``root`` and return a :class:`ScanResult`.</span>
+
+<span class="sd">    Read-only: only stats and (for ``dedupe``) reads file bytes. Never</span>
+<span class="sd">    writes, moves, or deletes anything.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">root</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">root</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">root</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">NotADirectoryError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a directory: </span><span class="si">{</span><span class="n">root</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">entries</span><span class="p">,</span> <span class="n">dirs_scanned</span><span class="p">,</span> <span class="n">skipped_size</span> <span class="o">=</span> <span class="n">walk_tree</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="n">exclude_dirs</span><span class="p">)</span>
+    <span class="n">total_size</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">size</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">)</span>
+
+    <span class="n">result</span> <span class="o">=</span> <span class="n">ScanResult</span><span class="p">(</span>
+        <span class="n">root</span><span class="o">=</span><span class="n">root</span><span class="p">,</span>
+        <span class="n">files_scanned</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">entries</span><span class="p">),</span>
+        <span class="n">dirs_scanned</span><span class="o">=</span><span class="n">dirs_scanned</span><span class="p">,</span>
+        <span class="n">total_size</span><span class="o">=</span><span class="n">total_size</span><span class="p">,</span>
+        <span class="n">skipped_size</span><span class="o">=</span><span class="n">skipped_size</span><span class="p">,</span>
+        <span class="n">skipped_dirs</span><span class="o">=</span><span class="nb">set</span><span class="p">(</span><span class="n">exclude_dirs</span><span class="p">),</span>
+        <span class="n">entries</span><span class="o">=</span><span class="n">entries</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">dedupe</span><span class="p">:</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">duplicate_groups</span> <span class="o">=</span> <span class="n">find_duplicates</span><span class="p">(</span><span class="n">entries</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">result</span></div>
+
+
+
+<span class="c1"># EOF</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Yusuke Watanabe.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

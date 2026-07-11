@@ -1,0 +1,37 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.whl
+.venv/
+venv/
+env/
+.env
+.tox/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+
+# scitex-dev local state: ignore everything under .scitex/ except the
+# tracked dev/config.yaml (audit whitelist for top-level files).
+.scitex/*
+!.scitex/dev/
+.scitex/dev/*
+!.scitex/dev/config.yaml
+
+# Sphinx local build output (the in-wheel src/<pkg>/_sphinx_html bundle IS tracked)
+docs/sphinx/_build/
+
+# Operator's private brainstorm notes — never committed (see repo instructions).
+GITIGNORED/

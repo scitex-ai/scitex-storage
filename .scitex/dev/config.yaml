@@ -1,0 +1,4 @@
+# scitex-dev project config
+# No project-type declared: scitex-storage is a general-purpose CLI tool,
+# not a `research` (figure/provenance-gated) checkout — the default
+# (non-research) rule set applies.
