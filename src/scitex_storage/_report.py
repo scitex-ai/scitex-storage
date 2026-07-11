@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Human-readable + JSON rendering for :class:`~scitex_storage._scan.RootScan`."""
+"""Human-readable + JSON rendering for scan and prune results."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from ._images import ApplyResult, PrunePlan
 from ._scan import RootScan
 
 _UNITS = ("B", "KB", "MB", "GB", "TB", "PB")
@@ -102,6 +103,86 @@ def to_json_dict(
             }
         )
     return {"roots": roots}
+
+
+def format_prune_report(
+    plan: PrunePlan, applied: bool, apply_result: ApplyResult | None = None
+) -> str:
+    """Render a :class:`~scitex_storage._images.PrunePlan` as the CLI text.
+
+    ``apply_result`` is required when ``applied`` is true — it carries what
+    actually happened (some ``plan.remove`` candidates may have been
+    skipped as in-use rather than unlinked).
+    """
+    lines: list[str] = []
+    header = f"scitex-storage images prune  {plan.directory}"
+    lines.append(header)
+    lines.append("=" * len(header))
+    kept_unreferenced = len(plan.kept) - len(plan.referenced)
+    lines.append(
+        f"{len(plan.referenced)} referenced (always kept), "
+        f"{kept_unreferenced} newest kept, "
+        f"{len(plan.remove)} to remove"
+    )
+    lines.append("")
+
+    if plan.remove:
+        verb = "REMOVED" if applied else "WOULD REMOVE"
+        removed_paths = (
+            {c.path for c in apply_result.removed} if applied and apply_result else None
+        )
+        lines.append(f"  {verb}:")
+        for c in plan.remove:
+            if removed_paths is not None and c.path not in removed_paths:
+                continue
+            lines.append(f"    {format_size(c.size):>10}  {c.path.name}")
+    else:
+        lines.append("  (nothing to remove)")
+
+    if applied and apply_result and apply_result.skipped_in_use:
+        lines.append("")
+        lines.append("  SKIPPED (in use):")
+        for s in apply_result.skipped_in_use:
+            pids = ", ".join(str(p) for p in s.pids)
+            lines.append(
+                f"    {format_size(s.candidate.size):>10}  "
+                f"{s.candidate.path.name}  [open by pid {pids}]"
+            )
+
+    reclaimed = (
+        apply_result.reclaimed_bytes if applied and apply_result else plan.reclaimable_bytes
+    )
+    lines.append("")
+    lines.append(f"  {format_size(reclaimed)} {'reclaimed' if applied else 'reclaimable'}")
+    if not applied and plan.remove:
+        lines.append("  (dry-run — pass --apply to actually delete)")
+    return "\n".join(lines)
+
+
+def _prune_candidate_dict(c: Any) -> dict[str, Any]:
+    return {"path": str(c.path), "size_bytes": c.size, "mtime": c.mtime}
+
+
+def prune_plan_to_json_dict(
+    plan: PrunePlan, applied: bool, apply_result: ApplyResult | None = None
+) -> dict[str, Any]:
+    """Render a :class:`~scitex_storage._images.PrunePlan` as a JSON dict."""
+    payload: dict[str, Any] = {
+        "directory": str(plan.directory),
+        "applied": applied,
+        "referenced": [_prune_candidate_dict(c) for c in plan.referenced],
+        "kept": [_prune_candidate_dict(c) for c in plan.kept],
+        "remove": [_prune_candidate_dict(c) for c in plan.remove],
+        "reclaimable_bytes": plan.reclaimable_bytes,
+    }
+    if applied and apply_result:
+        payload["removed"] = [_prune_candidate_dict(c) for c in apply_result.removed]
+        payload["skipped_in_use"] = [
+            {**_prune_candidate_dict(s.candidate), "pids": s.pids}
+            for s in apply_result.skipped_in_use
+        ]
+        payload["reclaimed_bytes"] = apply_result.reclaimed_bytes
+    return payload
 
 
 # EOF

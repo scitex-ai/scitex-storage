@@ -6,7 +6,7 @@
   </a>
 </p>
 
-<p align="center"><b>Research-data storage triage — a read-only, stat-only scan that finds the biggest space and inode (file-count) consumers on your disk.</b></p>
+<p align="center"><b>Research-data storage triage — a read-only, stat-only scan that finds the biggest space and inode (file-count) consumers on your disk, plus safe, referenced-file-aware rotation for versioned build artifacts.</b></p>
 
 <p align="center">
   <a href="https://scitex-storage.readthedocs.io/">Full Documentation</a> · <code>pip install scitex-storage</code>
@@ -31,6 +31,7 @@
 |---|---------|----------|
 | 1 | **A disk hits 100% and you don't know which directory ate it** — `du -sh *` storms the filesystem and follows symlinks onto slow network mounts | **`scitex-storage scan`** — a read-only, stat-only walk that reports total **bytes per top-level child**, sorted biggest-first, never following symlinked dirs |
 | 2 | **Inodes run out (`No space left on device` with GBs free)** — `du` measures bytes, not the millions of tiny files starving an HPC quota | **The `FILES` column** — every child's inode count, and `--sort files` to rank by it, so an inode hog surfaces even when it's small on disk |
+| 3 | **A build directory fills up with dated images (SIFs, tarballs, ...) and an age-only cleanup deletes one still in use** — the currently-live file is often the *oldest*-looking one still symlinked in | **`scitex-storage images prune`** — rotates to the newest N, but a file any symlink in the directory currently resolves to is never a candidate, regardless of age. Dry-run by default |
 
 ## Installation
 
@@ -86,6 +87,32 @@ scitex-storage scan [PATH ...] [--top N] [--sort size|files] [--max-depth D] [--
 | `--max-depth D` | unlimited | Cap recursion depth per child (login-node / network-path safety) |
 | `--json` | off | Emit machine-readable JSON instead of the text table |
 
+```bash
+scitex-storage images prune DIRECTORY [--keep N] [--pattern GLOB] [--apply] [--json]
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `DIRECTORY` | (required) | Directory of versioned files to rotate, e.g. a SIF build dir |
+| `--keep N` | 5 | Target retained count. Files any symlink in `DIRECTORY` references are kept on top of this |
+| `--pattern` | `*.sif` | Glob matched against candidate filenames |
+| `--apply` | off | Actually delete. Skips (never deletes) any candidate a running process still has open. Without it, prints the plan only (dry-run) |
+| `--json` | off | Emit machine-readable JSON instead of the text report |
+
+```bash
+$ scitex-storage images prune ~/.scitex/agent-container/containers/sac-base
+scitex-storage images prune  /home/user/.scitex/agent-container/containers/sac-base
+====================================================================================
+1 referenced (always kept), 4 newest kept, 2 to remove
+
+  WOULD REMOVE:
+        1.3 GB  sac-base-2026-0512-212752.sif
+        1.3 GB  sac-base-2026-0513-083535.sif
+
+  2.6 GB reclaimable
+  (dry-run — pass --apply to actually delete)
+```
+
 Other top-level commands (ecosystem-standard, per every scitex-* CLI):
 `list-python-apis` (introspect the Python API), `mcp list-tools`
 (no MCP server shipped yet — reports zero tools), `--help-recursive`.
@@ -108,6 +135,15 @@ result.by_file_count()[0]                # child with the most inodes
 
 for r in ss.scan_roots(["~/.scitex", "~/proj"]):
     print(r.root, r.total_size, r.total_files)
+
+plan = ss.plan_prune("~/.scitex/agent-container/containers/sac-base", keep=5)
+plan.remove                              # candidates that would be deleted
+plan.reclaimable_bytes                   # bytes those candidates hold
+
+result = ss.apply_prune(plan)            # never touches referenced or open files
+result.removed                           # candidates actually unlinked
+result.skipped_in_use                    # candidates skipped: [(candidate, pids), ...]
+result.reclaimed_bytes                   # bytes actually freed
 ```
 
 </details>
@@ -121,27 +157,37 @@ flowchart LR
     C --> D[by_size / by_file_count]
     D --> E[format_report / to_json_dict]
     E --> F[CLI stdout]
+
+    G[DIRECTORY] -->|os.scandir, resolve symlinks| H[referenced set]
+    G -->|os.scandir, match --pattern| I[candidates]
+    H --> J[plan_prune: referenced U newest-N excluded from remove]
+    I --> J
+    J -->|--apply| K[apply_prune: /proc-check then unlink, skip if open]
+    J --> L[format_prune_report / prune_plan_to_json_dict]
 ```
 
 ```
 scitex_storage/
 ├── _scan.py     ← scan, scan_roots, ChildUsage, RootScan
-├── _report.py   ← format_report, to_json_dict, format_size
-└── _cli/        ← scan, list-python-apis, mcp list-tools
+├── _images.py   ← plan_prune, apply_prune, PruneCandidate, PrunePlan
+├── _report.py   ← format_report, to_json_dict, format_prune_report, prune_plan_to_json_dict, format_size
+└── _cli/        ← scan, images prune, list-python-apis, mcp list-tools
 ```
 
 ## Roadmap (not implemented)
 
-Discovery (this release) is layer 1 of a larger, safety-first design —
+Discovery (`scan`) and rotation (`images prune`) are layers 1-2 of a
+larger, safety-first design —
 **scan → recommend → dry-run → copy → verify → quarantine → delete**,
 never an immediate destructive action:
 
 ```
 scitex-storage
-├── Discovery       what exists (size + inodes)             <- scan (done, MVP)
+├── Discovery       what exists (size + inodes)             <- scan (done)
+├── Rotation        prune superseded versioned files          <- images prune (done)
 ├── Classification  what kind of data it is                  <- planned
 ├── Policy          where it should live                     <- planned
-├── Migration       safe copy/move                            <- planned
+├── Migration       safe copy/move (archive --to nas|nas2)     <- planned
 ├── Verification    checksum + count verify after move         <- planned
 └── Retention       keep/quarantine/delete rules                 <- planned
 ```

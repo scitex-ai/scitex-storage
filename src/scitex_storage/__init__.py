@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 """scitex-storage: research-data storage triage.
 
-MVP scope (see README for the full roadmap): a read-only directory-tree
+Current scope (see README for the full roadmap): a read-only directory-tree
 ``scan`` that inventories the biggest space and inode (file-count)
-consumers per top-level child of a root. Nothing in this release moves,
-deletes, or otherwise mutates anything on disk — it only stats.
+consumers per top-level child of a root, plus ``images prune`` — rotation
+for a directory of versioned files (e.g. dated SIF builds) that never
+removes a file any symlink in the directory currently references, and
+defaults to a dry-run.
 
 Public names are exposed via PEP 562 ``__getattr__`` (lazy, on first
 access) so ``import scitex_storage`` itself stays cheap — every CLI
@@ -29,6 +31,12 @@ _LAZY_ATTRS: dict[str, str] = {
     "RootScan": "_scan",
     "scan": "_scan",
     "scan_roots": "_scan",
+    "ApplyResult": "_images",
+    "PruneCandidate": "_images",
+    "PrunePlan": "_images",
+    "SkippedInUse": "_images",
+    "apply_prune": "_images",
+    "plan_prune": "_images",
 }
 
 
@@ -55,6 +63,12 @@ __all__ = [
     "RootScan",
     "scan",
     "scan_roots",
+    "ApplyResult",
+    "PruneCandidate",
+    "PrunePlan",
+    "SkippedInUse",
+    "apply_prune",
+    "plan_prune",
     "__version__",
 ]
 

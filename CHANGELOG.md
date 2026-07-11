@@ -7,6 +7,15 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- `scitex-storage images prune DIRECTORY [--keep N] [--pattern GLOB] [--apply]`
+  — rotate a directory of versioned files (e.g. dated SIF builds), keeping
+  the newest N plus every file any symlink in the directory currently
+  references (those are never removed regardless of N). Before unlinking,
+  also checks `/proc` for any process with the candidate open and skips it
+  (loudly, never raises) — a second guard for a file that dropped out of
+  the symlink target mid-swap but is still open by a running process.
+  Defaults to a dry-run; `--apply` is required to actually delete.
+
 ## [0.1.0]
 
 - Initial bootstrap: `scitex-storage scan [PATH ...]` MVP — a read-only,
