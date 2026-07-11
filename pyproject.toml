@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "scitex-storage"
 version = "0.1.0"
-description = "Research-data storage triage: a read-only, stat-only scan reporting the biggest space and inode (file-count) consumers per top-level directory (MVP)"
+description = "Research-data storage triage: read-only stat-only scan + referenced-file-aware rotation of versioned build artifacts (e.g. SIF images)"
 readme = "README.md"
 license = "AGPL-3.0-only"
 requires-python = ">=3.10"
