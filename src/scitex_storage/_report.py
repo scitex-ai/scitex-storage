@@ -8,6 +8,7 @@ from typing import Any
 
 from ._images import ApplyResult, PrunePlan
 from ._scan import RootScan
+from ._sweep import SweepPlan, SweepResult, SweptEntry
 
 _UNITS = ("B", "KB", "MB", "GB", "TB", "PB")
 
@@ -83,6 +84,7 @@ def _child_dict(c: Any) -> dict[str, Any]:
         "size_bytes": c.size,
         "file_count": c.file_count,
         "is_dir": c.is_dir,
+        "newest_mtime": c.newest_mtime,
         "error": c.error,
     }
 
@@ -183,6 +185,150 @@ def prune_plan_to_json_dict(
         ]
         payload["reclaimed_bytes"] = apply_result.reclaimed_bytes
     return payload
+
+
+def format_sweep_report(
+    plan: SweepPlan, applied: bool, result: SweepResult | None = None
+) -> str:
+    """Render a :class:`~scitex_storage._sweep.SweepPlan` as the CLI text.
+
+    ``result`` is required when ``applied`` is true.
+    """
+    lines: list[str] = []
+    header = f"scitex-storage sweep  {plan.directory}"
+    lines.append(header)
+    lines.append("=" * len(header))
+    lines.append(
+        f"threshold >= {format_count(plan.threshold_files)} files, "
+        f"min age {plan.min_age_seconds / 3600:.0f}h  "
+        f"({len(plan.candidates)} candidate(s), "
+        f"{len(plan.skipped_fresh)} skipped as too fresh)"
+    )
+    lines.append("")
+
+    if not plan.candidates:
+        lines.append("  (no candidates)")
+    elif applied and result:
+        swept_names = {s.candidate.name for s in result.swept}
+        stopped_names = {c.name for c in result.stopped_low_walltime}
+        lines.append("  SWEPT:")
+        for s in result.swept:
+            lines.append(
+                f"    {format_count(s.member_count):>10}  {s.candidate.name}"
+                f"  -> {s.tar_path.name} ({format_size(s.tar_size)})"
+            )
+        untouched = [
+            c for c in plan.candidates if c.name not in swept_names | stopped_names
+        ]
+        if result.stopped_low_walltime:
+            lines.append("")
+            lines.append("  STOPPED (low remaining walltime):")
+            for c in result.stopped_low_walltime:
+                lines.append(f"    {format_count(c.file_count):>10}  {c.name}")
+        if untouched:
+            lines.append("")
+            lines.append("  NOT CONFIRMED (left untouched):")
+            for c in untouched:
+                lines.append(f"    {format_count(c.file_count):>10}  {c.name}")
+    else:
+        lines.append("  CANDIDATES (dry-run):")
+        for c in plan.candidates:
+            lines.append(
+                f"    {format_count(c.file_count):>10}  {c.name}"
+                f"  (~{format_count(max(0, c.file_count - 1))} inodes reclaimable)"
+            )
+
+    if plan.skipped_fresh:
+        lines.append("")
+        lines.append("  SKIPPED (too fresh, possibly still in use):")
+        for c in plan.skipped_fresh:
+            lines.append(f"    {format_count(c.file_count):>10}  {c.name}")
+
+    reclaimed = result.reclaimed_inodes if applied and result else plan.reclaimable_inodes
+    lines.append("")
+    lines.append(
+        f"  {format_count(reclaimed)} inodes "
+        f"{'reclaimed' if applied else 'reclaimable'}"
+    )
+    if not applied and plan.candidates:
+        lines.append(
+            "  (dry-run — pass --apply --confirm NAME [--confirm NAME ...] to sweep)"
+        )
+    return "\n".join(lines)
+
+
+def _sweep_candidate_dict(c: Any) -> dict[str, Any]:
+    return {
+        "name": c.name,
+        "path": str(c.path),
+        "file_count": c.file_count,
+        "size_bytes": c.size,
+        "newest_mtime": c.newest_mtime,
+    }
+
+
+def sweep_plan_to_json_dict(
+    plan: SweepPlan, applied: bool, result: SweepResult | None = None
+) -> dict[str, Any]:
+    """Render a :class:`~scitex_storage._sweep.SweepPlan` as a JSON dict."""
+    payload: dict[str, Any] = {
+        "directory": str(plan.directory),
+        "threshold_files": plan.threshold_files,
+        "min_age_seconds": plan.min_age_seconds,
+        "applied": applied,
+        "candidates": [_sweep_candidate_dict(c) for c in plan.candidates],
+        "skipped_fresh": [_sweep_candidate_dict(c) for c in plan.skipped_fresh],
+        "reclaimable_inodes": plan.reclaimable_inodes,
+    }
+    if applied and result:
+        payload["swept"] = [
+            {
+                **_sweep_candidate_dict(s.candidate),
+                "tar_path": str(s.tar_path),
+                "tar_size_bytes": s.tar_size,
+                "member_count": s.member_count,
+                "reclaimed_inodes": s.reclaimed_inodes,
+            }
+            for s in result.swept
+        ]
+        payload["stopped_low_walltime"] = [
+            _sweep_candidate_dict(c) for c in result.stopped_low_walltime
+        ]
+        payload["reclaimed_inodes"] = result.reclaimed_inodes
+    return payload
+
+
+def format_sweep_status_report(directory: str, entries: list[SweptEntry]) -> str:
+    """Render :func:`~scitex_storage._sweep.sweep_status` results as CLI text."""
+    lines: list[str] = []
+    header = f"scitex-storage sweep-status  {directory}"
+    lines.append(header)
+    lines.append("=" * len(header))
+    if not entries:
+        lines.append("  (nothing swept)")
+        return "\n".join(lines)
+    for e in entries:
+        note = "  [ANOMALY: original directory still present]" if e.original_still_present else ""
+        lines.append(f"  {format_size(e.tar_size):>10}  {e.name}.tar{note}")
+    return "\n".join(lines)
+
+
+def sweep_status_to_json_dict(
+    directory: str, entries: list[SweptEntry]
+) -> dict[str, Any]:
+    """Render :func:`~scitex_storage._sweep.sweep_status` results as a JSON dict."""
+    return {
+        "directory": directory,
+        "swept": [
+            {
+                "name": e.name,
+                "tar_path": str(e.tar_path),
+                "tar_size_bytes": e.tar_size,
+                "original_still_present": e.original_still_present,
+            }
+            for e in entries
+        ],
+    }
 
 
 # EOF
