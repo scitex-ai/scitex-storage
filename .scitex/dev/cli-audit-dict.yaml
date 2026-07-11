@@ -1,0 +1,10 @@
+# cli-audit-dict.yaml — package-specific additions to the CLI-audit
+# noun/verb catalog (audit-cli §1). Additive only: never reclassifies or
+# overrides the canonical catalog.
+intransitive_verbs:
+  - scan  # why: matches the design doc's own command name
+          # (`scitex-storage scan ~/projects`) and standard filesystem-tool
+          # usage (fdupes/rdfind/clamscan all use bare "scan" as a leaf verb).
+  - sweep  # why: matches standard filesystem-tool usage (e.g. `fstrim`-style
+           # sweep tools use bare "sweep" as a leaf verb); the object is
+           # always the DIRECTORY argument, not implied by the verb itself.

@@ -1,0 +1,43 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.whl
+.venv/
+venv/
+env/
+.env
+.tox/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+
+# direnv + git worktrees live in-tree but are never committed.
+.envrc
+.worktrees/
+
+# scitex-dev local state: ignore everything under .scitex/ except the
+# tracked dev/config.yaml and the CLI-audit noun/verb dict (both are audit
+# inputs CI must see on a fresh checkout).
+.scitex/*
+!.scitex/dev/
+.scitex/dev/*
+!.scitex/dev/config.yaml
+!.scitex/dev/cli-audit-dict.yaml
+
+# Sphinx local build output (the in-wheel src/<pkg>/_sphinx_html bundle IS tracked)
+docs/sphinx/_build/
+
+# Operator's private brainstorm notes — never committed (see repo instructions).
+GITIGNORED/
