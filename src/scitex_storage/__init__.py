@@ -2,10 +2,13 @@
 # -*- coding: utf-8 -*-
 """scitex-storage: research-data storage triage.
 
-MVP scope (see README for the full roadmap): a read-only directory-tree
-``scan`` that inventories the biggest space and inode (file-count)
-consumers per top-level child of a root. Nothing in this release moves,
-deletes, or otherwise mutates anything on disk — it only stats.
+MVP scope (see README for the full roadmap): a read-only, stat-only
+directory-tree ``scan`` that inventories the biggest space and inode
+(file-count) consumers per top-level child of a root (never reads file
+contents; delegates its walk to ``fd``), plus an explicitly opt-in
+``find_duplicates`` that DOES read file contents (delegated to ``fclones``)
+to report exact-duplicate groups. Nothing in this release moves, deletes,
+or otherwise mutates anything on disk.
 
 Public names are exposed via PEP 562 ``__getattr__`` (lazy, on first
 access) so ``import scitex_storage`` itself stays cheap — every CLI
@@ -26,9 +29,11 @@ except PackageNotFoundError:  # source checkout without an installed dist
 # Public-name -> source-submodule map. ONE row per public symbol.
 _LAZY_ATTRS: dict[str, str] = {
     "ChildUsage": "_scan",
+    "MissingSystemDependencyError": "_scan",
     "RootScan": "_scan",
     "scan": "_scan",
     "scan_roots": "_scan",
+    "find_duplicates": "_duplicates",
 }
 
 
@@ -52,9 +57,11 @@ def __dir__() -> list[str]:
 # sync with the _LAZY_ATTRS keys above.
 __all__ = [
     "ChildUsage",
+    "MissingSystemDependencyError",
     "RootScan",
     "scan",
     "scan_roots",
+    "find_duplicates",
     "__version__",
 ]
 

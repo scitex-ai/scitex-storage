@@ -2,22 +2,26 @@
 # -*- coding: utf-8 -*-
 """Cross-package integration gate (PS-140) — runtime import contract.
 
-scitex-storage's CLI optionally imports two scitex-dev modules, both
-guarded so a lean install (no ``[dev]`` extra) still works:
+scitex-storage's CLI/package optionally imports three scitex-dev modules,
+all guarded so a lean install (no ``[dev]`` extra) still works:
 
 * ``scitex_dev.ecosystem`` (``_cli/_compat.py``) — the CliHelp /
   SpecCommand / SpecGroup help-spec helpers.
 * ``scitex_dev._cli._completion`` (``_cli/__init__.py``) —
   ``attach_shell_completion``, wiring ``install-shell-completion`` /
   ``print-shell-completion``.
+* ``scitex_dev.system_deps`` (``_system_deps.py``) — ``SystemDepSpec``,
+  used by the ``scitex_dev.system_deps`` entry-point provider that
+  declares scitex-storage's ``fd``/``fclones`` system dependencies to the
+  fleet-wide aggregator (``scitex-dev ecosystem system-deps``).
 
-This gate proves that when ``scitex-dev`` IS installed, both imports
+This gate proves that when ``scitex-dev`` IS installed, all three imports
 actually resolve — catching a renamed/moved upstream API before it ships.
 
 ``CROSS_PACKAGE_IMPORTS`` is the audited source of truth: it must list
 exactly the cross-package modules imported under ``src/`` (audit-project
-verifies it). Keep it in sync with the guarded imports in ``_cli/_compat.py``
-and ``_cli/__init__.py``.
+verifies it). Keep it in sync with the guarded imports in ``_cli/_compat.py``,
+``_cli/__init__.py``, and ``_system_deps.py``.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ import pytest
 CROSS_PACKAGE_IMPORTS = [
     "scitex_dev.ecosystem",
     "scitex_dev._cli._completion",
+    "scitex_dev.system_deps",
 ]
 
 

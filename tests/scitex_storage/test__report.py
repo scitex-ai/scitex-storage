@@ -1,7 +1,11 @@
 """Unit tests for scitex_storage._report (text + JSON rendering)."""
 
+from pathlib import Path
+
 from scitex_storage._report import (
+    duplicates_to_json_dict,
     format_count,
+    format_duplicates_report,
     format_report,
     format_root_report,
     format_size,
@@ -135,6 +139,44 @@ def test_to_json_dict_respects_top_limit(tmp_path):
     payload = to_json_dict(results, top=2)
     # Assert
     assert len(payload["roots"][0]["children"]) == 2
+
+
+def test_format_duplicates_report_handles_no_groups():
+    # Arrange
+    groups = []
+    # Act
+    text = format_duplicates_report(groups)
+    # Assert
+    assert "No duplicate files found." == text
+
+
+def test_format_duplicates_report_lists_group_paths(tmp_path):
+    # Arrange
+    a = _touch(tmp_path / "a.bin", 10)
+    b = _touch(tmp_path / "b.bin", 10)
+    groups = [[a, b]]
+    # Act
+    text = format_duplicates_report(groups)
+    # Assert
+    assert str(a) in text and str(b) in text
+
+
+def test_duplicates_to_json_dict_has_group_count():
+    # Arrange
+    groups = [[Path("/a"), Path("/b")]]
+    # Act
+    payload = duplicates_to_json_dict(groups)
+    # Assert
+    assert payload["group_count"] == 1
+
+
+def test_duplicates_to_json_dict_renders_paths_as_strings():
+    # Arrange
+    groups = [[Path("/a"), Path("/b")]]
+    # Act
+    payload = duplicates_to_json_dict(groups)
+    # Assert
+    assert payload["groups"] == [["/a", "/b"]]
 
 
 # EOF

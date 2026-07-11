@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Human-readable + JSON rendering for :class:`~scitex_storage._scan.RootScan`."""
+"""Human-readable + JSON rendering for :class:`~scitex_storage._scan.RootScan`
+and for :func:`~scitex_storage._duplicates.find_duplicates` groups."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ._scan import RootScan
@@ -102,6 +104,36 @@ def to_json_dict(
             }
         )
     return {"roots": roots}
+
+
+def format_duplicates_report(groups: list[list[Path]]) -> str:
+    """Render ``find_duplicates()`` groups as the human-readable CLI report."""
+    if not groups:
+        return "No duplicate files found."
+
+    lines: list[str] = [
+        f"{len(groups)} duplicate group{'s' if len(groups) != 1 else ''}:",
+        "",
+    ]
+    for group in groups:
+        size = 0
+        try:
+            size = group[0].stat().st_size
+        except OSError:
+            pass
+        lines.append(f"  {len(group)} files, {format_size(size)} each:")
+        for p in group:
+            lines.append(f"    {p}")
+        lines.append("")
+    return "\n".join(lines).rstrip("\n")
+
+
+def duplicates_to_json_dict(groups: list[list[Path]]) -> dict[str, Any]:
+    """Render ``find_duplicates()`` groups as a JSON-serializable dict."""
+    return {
+        "group_count": len(groups),
+        "groups": [[str(p) for p in group] for group in groups],
+    }
 
 
 # EOF
