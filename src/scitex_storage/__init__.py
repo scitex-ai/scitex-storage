@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 """scitex-storage: research-data storage triage.
 
-MVP scope (see README for the full roadmap): read-only directory-tree
-``scan`` — discovery, size x staleness scoring, and an optional
-(size+hash) duplicate-file report. Nothing in this release moves,
-deletes, or otherwise mutates anything on disk.
+MVP scope (see README for the full roadmap): a read-only directory-tree
+``scan`` that inventories the biggest space and inode (file-count)
+consumers per top-level child of a root. Nothing in this release moves,
+deletes, or otherwise mutates anything on disk — it only stats.
 
 Public names are exposed via PEP 562 ``__getattr__`` (lazy, on first
 access) so ``import scitex_storage`` itself stays cheap — every CLI
@@ -25,12 +25,10 @@ except PackageNotFoundError:  # source checkout without an installed dist
 
 # Public-name -> source-submodule map. ONE row per public symbol.
 _LAZY_ATTRS: dict[str, str] = {
-    "DEFAULT_EXCLUDE_DIRS": "_scan",
-    "FileEntry": "_scan",
-    "ScanResult": "_scan",
-    "find_duplicates": "_scan",
+    "ChildUsage": "_scan",
+    "RootScan": "_scan",
     "scan": "_scan",
-    "walk_tree": "_scan",
+    "scan_roots": "_scan",
 }
 
 
@@ -53,12 +51,10 @@ def __dir__() -> list[str]:
 # Literal (not computed) so PA-101's static AST check can see it. Keep in
 # sync with the _LAZY_ATTRS keys above.
 __all__ = [
-    "DEFAULT_EXCLUDE_DIRS",
-    "FileEntry",
-    "ScanResult",
-    "find_duplicates",
+    "ChildUsage",
+    "RootScan",
     "scan",
-    "walk_tree",
+    "scan_roots",
     "__version__",
 ]
 

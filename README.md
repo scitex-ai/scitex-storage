@@ -6,7 +6,7 @@
   </a>
 </p>
 
-<p align="center"><b>Research-data storage triage — scan a directory tree, score files by size &times; staleness, and report space-reclaim / archive candidates.</b></p>
+<p align="center"><b>Research-data storage triage — a read-only, stat-only scan that finds the biggest space and inode (file-count) consumers on your disk.</b></p>
 
 <p align="center">
   <a href="https://scitex-storage.readthedocs.io/">Full Documentation</a> · <code>pip install scitex-storage</code>
@@ -25,23 +25,12 @@
 
 ---
 
-## What this is (and isn't, yet)
+## Problem and Solution
 
-Research machines accumulate large, stale files: build artifacts, old
-datasets, forgotten Docker layers, duplicated project copies. Deciding what
-is safe to move to slower/cheaper storage (or delete) is tedious to do by
-hand and risky to automate carelessly.
-
-`scitex-storage` is the first slice of a planned storage-tiering tool
-(local SSD -> NAS SSD -> NAS HDD -> offline archive), following a
-safety-first design: **scan -> recommend -> dry-run -> copy -> verify ->
-quarantine -> delete**, never an immediate destructive action.
-
-**This release ships only the first step: `scan`.** It is entirely
-**read-only** — it never moves, deletes, or modifies anything. Everything
-past discovery/scoring/reporting (classification, policy, migration,
-NAS/S3/Gitea backends, manifests, versioning) is on the roadmap, not built
-yet. Don't point automation at this expecting more than a report.
+| # | Problem | Solution |
+|---|---------|----------|
+| 1 | **A disk hits 100% and you don't know which directory ate it** — `du -sh *` storms the filesystem and follows symlinks onto slow network mounts | **`scitex-storage scan`** — a read-only, stat-only walk that reports total **bytes per top-level child**, sorted biggest-first, never following symlinked dirs |
+| 2 | **Inodes run out (`No space left on device` with GBs free)** — `du` measures bytes, not the millions of tiny files starving an HPC quota | **The `FILES` column** — every child's inode count, and `--sort files` to rank by it, so an inode hog surfaces even when it's small on disk |
 
 ## Installation
 
@@ -52,33 +41,31 @@ pip install scitex-storage
 ## Quick Start
 
 ```bash
-scitex-storage scan ~/projects
+# No PATH → inventory ~/.scitex and ~/proj
+scitex-storage scan
+
+# A specific tree, ranked by inode count
+scitex-storage scan ~/proj --sort files
 ```
 
 ```
-scitex-storage scan report
-==========================
-Root:            /home/user/projects
-Scanned:         2 431 files, 187 directories
-Total size:      412.7 GB
-Skipped:         .git, node_modules, .venv, build, dist (91.2 GB, regenerable)
+scitex-storage scan  /home/user/.scitex
+=======================================
+88.4 GB in 412,003 files across 9 top-level children  (sorted by size)
 
-Top candidates (size x days-since-access):
-  score        size    last access   path
-  6 480 000    18.0 GB   360d         projects/old-scan/data/raw.zip
-  4 500 000     5.0 GB   900d         projects/2022-thesis/dataset.zip
-  1 230 000    12.3 GB    100d        projects/demo/models/checkpoint.pt
-
-Possible duplicates (by size + hash):
-  3 files, 5.2 GB total:
-    projects/dataset.zip
-    projects/dataset (1).zip
-    projects/old/dataset_final.zip
+        SIZE       FILES  CHILD
+  ----------  ----------  ------------------------
+     71.2 GB     118,204  scholar/
+      9.1 GB     251,880  agent-container/
+      4.0 GB      12,033  todo/
+      ...
+  ----------  ----------  ------------------------
+     88.4 GB     412,003  TOTAL
 ```
 
-Scoring follows the simple heuristic from the project's design notes:
-`score = size_bytes * days_since_last_access`. Bigger and staler files
-float to the top; nothing is touched.
+Everything is **read-only**: `scan` only calls `os.stat`, never reads file
+contents, never follows symlinked directories, and never moves or deletes
+anything. It is safe to point at a nearly-full disk or an HPC login node.
 
 ## 1 Interfaces
 
@@ -88,18 +75,16 @@ float to the top; nothing is touched.
 <br>
 
 ```bash
-scitex-storage scan PATH [--top N] [--json] [--no-dedupe]
+scitex-storage scan [PATH ...] [--top N] [--sort size|files] [--max-depth D] [--json]
 ```
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--top N` | 20 | How many top-scored candidates to print |
-| `--json` | off | Emit machine-readable JSON instead of the text report |
-| `--no-dedupe` | off | Skip the (size+hash) duplicate-file pass |
-
-Excluded by default (regenerable, "全部無視" per the design notes):
-`.git`, `node_modules`, `.venv`, `venv`, `__pycache__`, `build`, `dist`,
-`.tox`, `.mypy_cache`, `.pytest_cache`, `.ruff_cache`, `.egg-info`.
+| `PATH ...` | `~/.scitex ~/proj` | One or more roots. Missing default roots are skipped; a missing *explicit* PATH is a hard error |
+| `--top N` | 20 | How many top children to print per root |
+| `--sort` | `size` | Rank children by total `size` or by inode `files` count |
+| `--max-depth D` | unlimited | Cap recursion depth per child (login-node / network-path safety) |
+| `--json` | off | Emit machine-readable JSON instead of the text table |
 
 Other top-level commands (ecosystem-standard, per every scitex-* CLI):
 `list-python-apis` (introspect the Python API), `mcp list-tools`
@@ -115,9 +100,14 @@ Other top-level commands (ecosystem-standard, per every scitex-* CLI):
 ```python
 import scitex_storage as ss
 
-result = ss.scan("~/projects")          # read-only walk + scoring
-top = result.top_candidates(top=20)     # biggest, stalest files first
-dupes = result.duplicate_groups         # (size+hash) duplicate groups
+result = ss.scan("~/.scitex")           # read-only, stat-only walk
+result.total_size                        # bytes across all children
+result.total_files                       # inodes across all children
+result.by_size()[0]                      # biggest child (ChildUsage)
+result.by_file_count()[0]                # child with the most inodes
+
+for r in ss.scan_roots(["~/.scitex", "~/proj"]):
+    print(r.root, r.total_size, r.total_files)
 ```
 
 </details>
@@ -126,40 +116,38 @@ dupes = result.duplicate_groups         # (size+hash) duplicate groups
 
 ```mermaid
 flowchart LR
-    A[PATH] -->|os.walk, skip .git/.venv/build/...| B[FileEntry list]
-    B -->|score = size * days_since_access| C[ranked candidates]
-    B -->|group by size, then sha256| D[duplicate groups]
-    C --> E[format_text_report / to_json_dict]
-    D --> E
+    A[PATH] -->|os.scandir top level| B[per-child]
+    B -->|os.walk, stat-only, no symlink follow| C[size + inode count]
+    C --> D[by_size / by_file_count]
+    D --> E[format_report / to_json_dict]
     E --> F[CLI stdout]
 ```
 
 ```
 scitex_storage/
-├── _scan.py     ← walk_tree, scan, find_duplicates, FileEntry, ScanResult
-├── _report.py   ← format_text_report, to_json_dict, format_size
+├── _scan.py     ← scan, scan_roots, ChildUsage, RootScan
+├── _report.py   ← format_report, to_json_dict, format_size
 └── _cli/        ← scan, list-python-apis, mcp list-tools
 ```
 
 ## Roadmap (not implemented)
 
-Discovery (this release) is layer 1 of a larger design:
+Discovery (this release) is layer 1 of a larger, safety-first design —
+**scan → recommend → dry-run → copy → verify → quarantine → delete**,
+never an immediate destructive action:
 
 ```
 scitex-storage
-├── Discovery       what exists                          <- scan (done, MVP)
-├── Classification  what kind of data it is               <- planned
-├── Policy          where it should live                  <- planned
-├── Migration       safe copy/move                         <- planned
-├── Verification    checksum + count verify after move      <- planned
-├── Versioning      snapshots/history                        <- planned
-├── Provenance      where data came from                      <- planned
-└── Retention       keep/quarantine/delete rules                <- planned
+├── Discovery       what exists (size + inodes)             <- scan (done, MVP)
+├── Classification  what kind of data it is                  <- planned
+├── Policy          where it should live                     <- planned
+├── Migration       safe copy/move                            <- planned
+├── Verification    checksum + count verify after move         <- planned
+└── Retention       keep/quarantine/delete rules                 <- planned
 ```
 
 Backends (local disk, NAS via SSH/SMB/NFS, S3-compatible, Gitea/GitHub) and
-a project-level manifest format are planned but not present in this
-release. See the repo issue tracker for the staged plan.
+a project-level manifest format are planned but not present in this release.
 
 ## Part of SciTeX
 

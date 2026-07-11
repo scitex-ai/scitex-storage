@@ -1,138 +1,138 @@
-"""Unit tests for scitex_storage._scan (walk / score / dedupe)."""
-
-import os
-import time
+"""Unit tests for scitex_storage._scan (per-top-level-child size + inode scan)."""
 
 import pytest
 
-from scitex_storage._scan import (
-    DEFAULT_EXCLUDE_DIRS,
-    FileEntry,
-    find_duplicates,
-    scan,
-    walk_tree,
-)
+from scitex_storage._scan import ChildUsage, RootScan, scan, scan_roots
 
 
-def _touch(path, size, age_days=0):
+def _touch(path, size):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"\0" * size)
-    if age_days:
-        t = time.time() - age_days * 86400
-        os.utime(path, (t, t))
     return path
 
 
-def test_walk_tree_finds_regular_files(tmp_path):
+def test_scan_reports_one_child_per_top_level_entry(tmp_path):
     # Arrange
-    _touch(tmp_path / "a.bin", 10)
-    _touch(tmp_path / "sub" / "b.bin", 20)
-    # Act
-    entries, _dirs, _skipped = walk_tree(tmp_path)
-    # Assert
-    assert {e.path.name for e in entries} == {"a.bin", "b.bin"}
-
-
-def test_walk_tree_skips_default_excluded_dirs(tmp_path):
-    # Arrange
-    _touch(tmp_path / "keep.bin", 10)
-    _touch(tmp_path / ".venv" / "site" / "pkg.py", 10)
-    # Act
-    entries, _dirs, _skipped = walk_tree(tmp_path)
-    # Assert
-    assert {e.path.name for e in entries} == {"keep.bin"}
-
-
-def test_walk_tree_counts_skipped_size(tmp_path):
-    # Arrange
-    _touch(tmp_path / "node_modules" / "pkg" / "index.js", 100)
-    # Act
-    _entries, _dirs, skipped_size = walk_tree(tmp_path)
-    # Assert
-    assert skipped_size == 100
-
-
-def test_walk_tree_ignores_symlinked_files(tmp_path):
-    # Arrange
-    target = _touch(tmp_path / "real.bin", 10)
-    (tmp_path / "link.bin").symlink_to(target)
-    # Act
-    entries, _dirs, _skipped = walk_tree(tmp_path)
-    # Assert
-    assert {e.path.name for e in entries} == {"real.bin"}
-
-
-def test_default_exclude_dirs_contains_git():
-    # Arrange
-    excludes = DEFAULT_EXCLUDE_DIRS
-    # Act
-    is_excluded = ".git" in excludes
-    # Assert
-    assert is_excluded is True
-
-
-def test_file_entry_days_since_access_for_fresh_file(tmp_path):
-    # Arrange
-    entry = FileEntry(path=tmp_path / "f.bin", size=100, atime=time.time())
-    # Act
-    days = entry.days_since_access()
-    # Assert
-    assert days < 1
-
-
-def test_file_entry_days_since_access_for_old_file(tmp_path):
-    # Arrange
-    old_atime = time.time() - 100 * 86400
-    entry = FileEntry(path=tmp_path / "f.bin", size=100, atime=old_atime)
-    # Act
-    days = entry.days_since_access()
-    # Assert
-    assert days == pytest.approx(100, abs=1)
-
-
-def test_file_entry_score_is_size_times_days():
-    # Arrange
-    now = time.time()
-    entry = FileEntry(path=None, size=1000, atime=now - 10 * 86400)
-    # Act
-    score = entry.score(now)
-    # Assert
-    assert score == pytest.approx(10000, rel=0.01)
-
-
-def test_scan_reports_total_size(tmp_path):
-    # Arrange
-    _touch(tmp_path / "a.bin", 100)
-    _touch(tmp_path / "b.bin", 200)
+    _touch(tmp_path / "alpha" / "a.bin", 10)
+    _touch(tmp_path / "beta" / "b.bin", 20)
     # Act
     result = scan(tmp_path)
     # Assert
-    assert result.total_size == 300
+    assert {c.name for c in result.children} == {"alpha", "beta"}
 
 
-def test_scan_top_candidates_orders_by_score_descending(tmp_path):
+def test_scan_sums_size_recursively_under_a_child(tmp_path):
     # Arrange
-    _touch(tmp_path / "small_stale.bin", 10, age_days=900)
-    _touch(tmp_path / "big_stale.bin", 10_000, age_days=900)
+    _touch(tmp_path / "child" / "a.bin", 100)
+    _touch(tmp_path / "child" / "sub" / "b.bin", 200)
     # Act
     result = scan(tmp_path)
-    top = result.top_candidates(top=2)
     # Assert
-    assert top[0].path.name == "big_stale.bin"
+    assert result.children[0].size == 300
 
 
-def test_scan_raises_for_missing_directory(tmp_path):
+def test_scan_counts_inodes_recursively_under_a_child(tmp_path):
+    # Arrange
+    _touch(tmp_path / "child" / "a.bin", 1)
+    _touch(tmp_path / "child" / "sub" / "b.bin", 1)
+    _touch(tmp_path / "child" / "sub" / "c.bin", 1)
+    # Act
+    result = scan(tmp_path)
+    # Assert
+    assert result.children[0].file_count == 3
+
+
+def test_scan_top_level_file_child_is_not_a_directory(tmp_path):
+    # Arrange
+    _touch(tmp_path / "loose.bin", 42)
+    # Act
+    result = scan(tmp_path)
+    # Assert
+    assert result.children[0].is_dir is False
+
+
+def test_scan_top_level_file_child_counts_as_one_inode(tmp_path):
+    # Arrange
+    _touch(tmp_path / "loose.bin", 42)
+    # Act
+    result = scan(tmp_path)
+    # Assert
+    assert result.children[0].file_count == 1
+
+
+def test_scan_symlinked_directory_child_counts_as_one_inode(tmp_path):
+    # Arrange
+    real = tmp_path / "real"
+    _touch(real / "a.bin", 10)
+    _touch(real / "b.bin", 10)
+    (tmp_path / "link").symlink_to(real, target_is_directory=True)
+    # Act
+    result = scan(tmp_path)
+    # Assert
+    link_child = next(c for c in result.children if c.name == "link")
+    assert link_child.file_count == 1
+
+
+def test_scan_symlinked_directory_child_is_not_reported_as_directory(tmp_path):
+    # Arrange
+    real = tmp_path / "real"
+    _touch(real / "a.bin", 10)
+    (tmp_path / "link").symlink_to(real, target_is_directory=True)
+    # Act
+    result = scan(tmp_path)
+    # Assert
+    link_child = next(c for c in result.children if c.name == "link")
+    assert link_child.is_dir is False
+
+
+def test_scan_does_not_follow_symlinked_directory_nested(tmp_path):
+    # Arrange
+    outside = tmp_path / "outside"
+    _touch(outside / "x.bin", 10)
+    _touch(outside / "y.bin", 10)
+    child = tmp_path / "child"
+    child.mkdir()
+    _touch(child / "own.bin", 5)
+    (child / "escape").symlink_to(outside, target_is_directory=True)
+    # Act
+    result = scan(tmp_path)
+    # Assert — child's own file counts; the escape symlink is never traversed
+    child_usage = next(c for c in result.children if c.name == "child")
+    assert child_usage.file_count == 1
+
+
+def test_scan_max_depth_bounds_recursion(tmp_path):
+    # Arrange
+    _touch(tmp_path / "child" / "a.bin", 1)  # depth 0 under child
+    _touch(tmp_path / "child" / "x" / "b.bin", 1)  # depth 1
+    _touch(tmp_path / "child" / "x" / "y" / "c.bin", 1)  # depth 2
+    # Act
+    result = scan(tmp_path, max_depth=1)
+    # Assert — a.bin + b.bin counted, c.bin (depth 2) excluded
+    assert result.children[0].file_count == 2
+
+
+def test_scan_raises_for_missing_path(tmp_path):
     # Arrange
     missing = tmp_path / "does-not-exist"
     # Act
     # Assert
-    with pytest.raises(NotADirectoryError):
+    with pytest.raises(FileNotFoundError):
         scan(missing)
+
+
+def test_scan_raises_for_non_directory_path(tmp_path):
+    # Arrange
+    a_file = _touch(tmp_path / "a.bin", 10)
+    # Act
+    # Assert
+    with pytest.raises(NotADirectoryError):
+        scan(a_file)
 
 
 def test_scan_is_read_only(tmp_path):
     # Arrange
-    f = _touch(tmp_path / "a.bin", 10)
+    f = _touch(tmp_path / "child" / "a.bin", 10)
     before = f.read_bytes()
     # Act
     scan(tmp_path)
@@ -140,46 +140,79 @@ def test_scan_is_read_only(tmp_path):
     assert f.read_bytes() == before
 
 
-def test_find_duplicates_groups_identical_files(tmp_path):
+def test_rootscan_total_size_aggregates_children(tmp_path):
     # Arrange
-    _touch(tmp_path / "a.bin", 50)
-    (tmp_path / "a.bin").write_bytes(b"x" * 50)
-    (tmp_path / "b.bin").write_bytes(b"x" * 50)
-    (tmp_path / "c.bin").write_bytes(b"y" * 50)
-    entries, _dirs, _skipped = walk_tree(tmp_path)
+    _touch(tmp_path / "a" / "f.bin", 100)
+    _touch(tmp_path / "b" / "g.bin", 250)
     # Act
-    groups = find_duplicates(entries)
+    result = scan(tmp_path)
     # Assert
-    assert any(len(g) == 2 for g in groups)
+    assert result.total_size == 350
 
 
-def test_find_duplicates_ignores_different_content_same_size(tmp_path):
+def test_rootscan_total_files_aggregates_children(tmp_path):
     # Arrange
-    (tmp_path / "a.bin").write_bytes(b"x" * 50)
-    (tmp_path / "b.bin").write_bytes(b"y" * 50)
-    entries, _dirs, _skipped = walk_tree(tmp_path)
+    _touch(tmp_path / "a" / "f.bin", 1)
+    _touch(tmp_path / "b" / "g.bin", 1)
+    _touch(tmp_path / "b" / "h.bin", 1)
     # Act
-    groups = find_duplicates(entries)
+    result = scan(tmp_path)
     # Assert
-    assert groups == []
+    assert result.total_files == 3
 
 
-def test_find_duplicates_ignores_empty_files(tmp_path):
+def test_rootscan_by_size_orders_biggest_first(tmp_path):
     # Arrange
-    (tmp_path / "a.bin").write_bytes(b"")
-    (tmp_path / "b.bin").write_bytes(b"")
-    entries, _dirs, _skipped = walk_tree(tmp_path)
+    _touch(tmp_path / "small" / "s.bin", 10)
+    _touch(tmp_path / "large" / "l.bin", 10_000)
     # Act
-    groups = find_duplicates(entries)
+    result = scan(tmp_path)
+    ordered = result.by_size()
     # Assert
-    assert groups == []
+    assert ordered[0].name == "large"
 
 
-def test_scan_dedupe_false_skips_duplicate_pass(tmp_path):
+def test_rootscan_by_file_count_orders_most_inodes_first(tmp_path):
     # Arrange
-    (tmp_path / "a.bin").write_bytes(b"x" * 50)
-    (tmp_path / "b.bin").write_bytes(b"x" * 50)
+    _touch(tmp_path / "few" / "a.bin", 5_000)  # big but 1 inode
+    for i in range(5):
+        _touch(tmp_path / "many" / f"f{i}.bin", 1)  # tiny but 5 inodes
     # Act
-    result = scan(tmp_path, dedupe=False)
+    result = scan(tmp_path)
+    ordered = result.by_file_count()
     # Assert
-    assert result.duplicate_groups == []
+    assert ordered[0].name == "many"
+
+
+def test_scan_roots_returns_one_result_per_root(tmp_path):
+    # Arrange
+    root_a = tmp_path / "A"
+    root_b = tmp_path / "B"
+    _touch(root_a / "a.bin", 10)
+    _touch(root_b / "b.bin", 20)
+    # Act
+    results = scan_roots([root_a, root_b])
+    # Assert
+    assert [r.root.name for r in results] == ["A", "B"]
+
+
+def test_scan_roots_returns_rootscan_instances(tmp_path):
+    # Arrange
+    root_a = tmp_path / "A"
+    _touch(root_a / "a.bin", 10)
+    # Act
+    results = scan_roots([root_a])
+    # Assert
+    assert isinstance(results[0], RootScan)
+
+
+def test_scan_child_is_a_childusage_instance(tmp_path):
+    # Arrange
+    _touch(tmp_path / "child" / "a.bin", 10)
+    # Act
+    child = scan(tmp_path).children[0]
+    # Assert
+    assert isinstance(child, ChildUsage)
+
+
+# EOF

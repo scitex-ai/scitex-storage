@@ -40,10 +40,10 @@ def test_quickstart_example_exits_zero():
     assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
 
 
-def test_quickstart_example_reports_the_stale_file_as_top_candidate():
+def test_quickstart_example_reports_the_large_child_as_biggest():
     # Arrange
     example = EXAMPLE
     # Act
     proc = _run_example()
     # Assert
-    assert "top candidate: stale.bin" in proc.stdout
+    assert "biggest child: big-data" in proc.stdout

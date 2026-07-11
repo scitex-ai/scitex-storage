@@ -1,210 +1,189 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Read-only directory-tree scan: discovery + size x staleness scoring.
+"""Read-only storage inventory: per-top-level-child size + inode (file-count) usage.
 
-Implements exactly the "first MVP" slice from the project's design notes
-(``scitex-storage scan ~/projects``): walk a tree, skip regenerable
-directories, score each file by ``size_bytes * days_since_last_access``,
-and (optionally) group same-size/same-hash files as duplicate candidates.
+The MVP verb behind ``scitex-storage scan``. Given one or more root
+directories, it reports — for each immediate (top-level) child — the total
+bytes and the total number of file inodes beneath it, sorted so the biggest
+space / inode consumers surface first.
 
-This module never writes, moves, or deletes anything — it only reads
-``os.stat`` and (for the duplicate pass) file bytes for hashing.
+Design constraints (this tool is dogfooded on a 100%-full disk and on
+inode-starved HPC trees, so it must never make either worse):
+
+* **Read-only** — only ``os.lstat`` / ``os.scandir`` are called; file
+  *contents* are never read. No hashing, no ``du``-style byte reads.
+* **No symlink traversal** — symlinked directories are never followed, so
+  the walk can never wander onto a slow network mount (NFS / SMB) or loop.
+* **Bounded** — an optional ``max_depth`` caps recursion for login-node
+  safety; the traversal is otherwise a plain local stat walk.
+* **Fail-loud** — a missing / non-directory root raises, rather than being
+  silently reported as empty.
+
+Both bytes AND inodes are reported because the two crises are different:
+a disk can be full of a few huge files, or starved of inodes by millions
+of tiny ones. The ``FILES`` column is what surfaces an inode hog.
 """
 
 from __future__ import annotations
 
-import hashlib
 import os
-import time
+import stat as stat_mod
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Regenerable / vendored directories the design notes call out as
-# "全部無視" (ignore entirely) for space-reclaim purposes — build artifacts,
-# vendored deps, caches. Matched by directory *name*, anywhere in the tree.
-DEFAULT_EXCLUDE_DIRS: frozenset[str] = frozenset(
-    {
-        ".git",
-        "node_modules",
-        ".venv",
-        "venv",
-        "env",
-        "__pycache__",
-        "build",
-        "dist",
-        ".tox",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".eggs",
-    }
-)
-
-
-def _is_excluded(name: str, exclude_dirs: frozenset[str]) -> bool:
-    return name in exclude_dirs or name.endswith(".egg-info")
-
 
 @dataclass
-class FileEntry:
-    """One scanned file: its path (relative to the scan root), size, and
-    last-access time."""
+class ChildUsage:
+    """Space + inode usage for one top-level child of a scanned root."""
 
+    name: str
     path: Path
-    size: int
-    atime: float  # epoch seconds, os.stat().st_atime
-
-    def days_since_access(self, now: float | None = None) -> float:
-        now = time.time() if now is None else now
-        return max(0.0, (now - self.atime) / 86400.0)
-
-    def score(self, now: float | None = None) -> float:
-        """``score = size_bytes * days_since_last_access`` (design-doc heuristic)."""
-        return self.size * self.days_since_access(now)
+    size: int  # total bytes of files beneath (os.lstat().st_size, summed)
+    file_count: int  # total file inodes beneath (regular files + symlinks)
+    is_dir: bool
+    error: str | None = None  # set when the walk hit unreadable entries
 
 
 @dataclass
-class ScanResult:
+class RootScan:
+    """Per-top-level-child scan result for one root directory."""
+
     root: Path
-    files_scanned: int = 0
-    dirs_scanned: int = 0
-    total_size: int = 0
-    skipped_size: int = 0
-    skipped_dirs: set[str] = field(default_factory=set)
-    entries: list[FileEntry] = field(default_factory=list)
-    duplicate_groups: list[list[Path]] = field(default_factory=list)
-    scan_time: float = field(default_factory=time.time)
+    children: list[ChildUsage] = field(default_factory=list)
 
-    def top_candidates(self, top: int = 20) -> list[FileEntry]:
+    @property
+    def total_size(self) -> int:
+        return sum(c.size for c in self.children)
+
+    @property
+    def total_files(self) -> int:
+        return sum(c.file_count for c in self.children)
+
+    def by_size(self) -> list[ChildUsage]:
+        """Children sorted by size (then inode count) descending."""
         return sorted(
-            self.entries, key=lambda e: e.score(self.scan_time), reverse=True
-        )[:top]
+            self.children, key=lambda c: (c.size, c.file_count), reverse=True
+        )
+
+    def by_file_count(self) -> list[ChildUsage]:
+        """Children sorted by inode count (then size) descending."""
+        return sorted(
+            self.children, key=lambda c: (c.file_count, c.size), reverse=True
+        )
 
 
-def walk_tree(
-    root: Path,
-    exclude_dirs: frozenset[str] = DEFAULT_EXCLUDE_DIRS,
-) -> tuple[list[FileEntry], int, int]:
-    """Walk ``root``, returning ``(entries, dirs_scanned, skipped_size)``.
+def _measure_dir(
+    root: Path, max_depth: int | None = None
+) -> tuple[int, int, str | None]:
+    """Return ``(total_size, file_count, error)`` for the tree under ``root``.
 
-    Directories whose *name* matches ``exclude_dirs`` are pruned entirely
-    (never descended into); their on-disk size is best-effort summed into
-    ``skipped_size`` for the report, but their contents are not scanned.
+    Stat-only and never follows symlinked directories. ``max_depth``
+    (relative to ``root``; ``None`` = unlimited) caps recursion depth for
+    login-node safety. ``error`` is a short note when some entries could
+    not be stat-ed (partial result), else ``None``.
     """
-    entries: list[FileEntry] = []
-    dirs_scanned = 0
-    skipped_size = 0
+    total_size = 0
+    file_count = 0
+    errors = 0
 
-    for dirpath, dirnames, filenames in os.walk(root, topdown=True):
-        keep: list[str] = []
-        for d in dirnames:
-            if _is_excluded(d, exclude_dirs):
-                skipped_size += _dir_size_best_effort(Path(dirpath) / d)
-            else:
-                keep.append(d)
-        dirnames[:] = keep
-        dirs_scanned += 1
+    def _on_error(_exc: OSError) -> None:
+        nonlocal errors
+        errors += 1
 
+    for dirpath, dirnames, filenames in os.walk(
+        root, topdown=True, followlinks=False, onerror=_on_error
+    ):
+        if max_depth is not None:
+            rel = os.path.relpath(dirpath, root)
+            depth = 0 if rel == os.curdir else rel.count(os.sep) + 1
+            if depth >= max_depth:
+                dirnames[:] = []
+        # Never descend into symlinked directories (network-hop / loop guard).
+        dirnames[:] = [
+            d for d in dirnames if not os.path.islink(os.path.join(dirpath, d))
+        ]
         for fname in filenames:
-            fpath = Path(dirpath) / fname
+            fpath = os.path.join(dirpath, fname)
             try:
-                st = fpath.lstat()
+                st = os.lstat(fpath)
             except OSError:
+                errors += 1
                 continue
-            if not os.path.isfile(fpath) or os.path.islink(fpath):
-                # Skip symlinks (and anything stat can't confirm is a
-                # regular file) — this MVP only reports plain files.
-                continue
-            entries.append(FileEntry(path=fpath, size=st.st_size, atime=st.st_atime))
+            mode = st.st_mode
+            # Count regular files and symlinks as inodes; never follow either.
+            if stat_mod.S_ISREG(mode) or stat_mod.S_ISLNK(mode):
+                file_count += 1
+                total_size += st.st_size
 
-    return entries, dirs_scanned, skipped_size
-
-
-def _dir_size_best_effort(path: Path) -> int:
-    total = 0
-    try:
-        for dirpath, _dirnames, filenames in os.walk(path):
-            for fname in filenames:
-                try:
-                    total += (Path(dirpath) / fname).lstat().st_size
-                except OSError:
-                    continue
-    except OSError:
-        return 0
-    return total
+    err = f"{errors} unreadable entr{'y' if errors == 1 else 'ies'}" if errors else None
+    return total_size, file_count, err
 
 
-def _hash_file(path: Path, chunk_size: int = 1 << 20) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(chunk_size), b""):
-            h.update(chunk)
-    return h.hexdigest()
+def scan(root: str | Path, max_depth: int | None = None) -> RootScan:
+    """Inventory ``root``'s immediate children by size and inode count.
 
-
-def find_duplicates(entries: list[FileEntry]) -> list[list[Path]]:
-    """Group files that share (size, sha256) — a cheap, exact duplicate
-    detector in the spirit of ``fdupes``/``rdfind``.
-
-    Files are first bucketed by size (free — already known from the walk);
-    only files sharing a size bucket with >= 2 members are hashed, so a
-    tree with no same-size collisions costs zero hashing.
+    Read-only. Raises ``FileNotFoundError`` if ``root`` is missing and
+    ``NotADirectoryError`` if it exists but is not a directory (fail-loud —
+    a bad path is never silently treated as empty).
     """
-    by_size: dict[int, list[FileEntry]] = {}
-    for e in entries:
-        if e.size == 0:
-            continue  # empty files are not useful "duplicates" to report
-        by_size.setdefault(e.size, []).append(e)
-
-    groups: list[list[Path]] = []
-    for size, candidates in by_size.items():
-        if len(candidates) < 2:
-            continue
-        by_hash: dict[str, list[Path]] = {}
-        for e in candidates:
-            try:
-                digest = _hash_file(e.path)
-            except OSError:
-                continue
-            by_hash.setdefault(digest, []).append(e.path)
-        for paths in by_hash.values():
-            if len(paths) >= 2:
-                groups.append(sorted(paths))
-
-    groups.sort(key=lambda g: len(g), reverse=True)
-    return groups
-
-
-def scan(
-    root: str | Path,
-    top: int = 20,
-    dedupe: bool = True,
-    exclude_dirs: frozenset[str] = DEFAULT_EXCLUDE_DIRS,
-) -> ScanResult:
-    """Scan ``root`` and return a :class:`ScanResult`.
-
-    Read-only: only stats and (for ``dedupe``) reads file bytes. Never
-    writes, moves, or deletes anything.
-    """
-    root = Path(root).expanduser().resolve()
+    root = Path(root).expanduser()
+    if not root.exists():
+        raise FileNotFoundError(f"path does not exist: {root}")
     if not root.is_dir():
         raise NotADirectoryError(f"not a directory: {root}")
+    root = root.resolve()
 
-    entries, dirs_scanned, skipped_size = walk_tree(root, exclude_dirs)
-    total_size = sum(e.size for e in entries)
+    result = RootScan(root=root)
+    with os.scandir(root) as it:
+        entries = sorted(it, key=lambda e: e.name)
 
-    result = ScanResult(
-        root=root,
-        files_scanned=len(entries),
-        dirs_scanned=dirs_scanned,
-        total_size=total_size,
-        skipped_size=skipped_size,
-        skipped_dirs=set(exclude_dirs),
-        entries=entries,
-    )
-    if dedupe:
-        result.duplicate_groups = find_duplicates(entries)
+    for entry in entries:
+        epath = Path(entry.path)
+        try:
+            is_symlink = entry.is_symlink()
+        except OSError:
+            is_symlink = False
+        try:
+            is_dir = entry.is_dir(follow_symlinks=False)
+        except OSError:
+            is_dir = False
+
+        if is_dir and not is_symlink:
+            size, count, err = _measure_dir(epath, max_depth=max_depth)
+            result.children.append(
+                ChildUsage(
+                    name=entry.name,
+                    path=epath,
+                    size=size,
+                    file_count=count,
+                    is_dir=True,
+                    error=err,
+                )
+            )
+        else:
+            # A file, or a symlink (dir or file) we refuse to follow: count
+            # the link/file inode itself via lstat, never traverse it.
+            try:
+                size = entry.stat(follow_symlinks=False).st_size
+            except OSError:
+                size = 0
+            result.children.append(
+                ChildUsage(
+                    name=entry.name,
+                    path=epath,
+                    size=size,
+                    file_count=1,
+                    is_dir=False,
+                )
+            )
     return result
+
+
+def scan_roots(
+    roots: list[str | Path], max_depth: int | None = None
+) -> list[RootScan]:
+    """Scan several roots, returning one :class:`RootScan` per root (in order)."""
+    return [scan(r, max_depth=max_depth) for r in roots]
 
 
 # EOF
