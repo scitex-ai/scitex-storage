@@ -1,13 +1,17 @@
 """Unit tests for scitex_storage._scan (per-top-level-child size + inode scan)."""
 
+import os
+
 import pytest
 
 from scitex_storage._scan import ChildUsage, RootScan, scan, scan_roots
 
 
-def _touch(path, size):
+def _touch(path, size=1, mtime=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"\0" * size)
+    if mtime is not None:
+        os.utime(path, (mtime, mtime))
     return path
 
 
@@ -213,6 +217,36 @@ def test_scan_child_is_a_childusage_instance(tmp_path):
     child = scan(tmp_path).children[0]
     # Assert
     assert isinstance(child, ChildUsage)
+
+
+def test_scan_newest_mtime_reflects_the_most_recently_modified_file(tmp_path):
+    # Arrange
+    _touch(tmp_path / "child" / "old.bin", mtime=1_000_000)
+    _touch(tmp_path / "child" / "new.bin", mtime=2_000_000)
+    # Act
+    result = scan(tmp_path)
+    # Assert
+    assert result.children[0].newest_mtime == 2_000_000
+
+
+def test_scan_newest_mtime_for_top_level_file_is_its_own_mtime(tmp_path):
+    # Arrange
+    _touch(tmp_path / "loose.bin", mtime=1_500_000)
+    # Act
+    result = scan(tmp_path)
+    # Assert
+    assert result.children[0].newest_mtime == 1_500_000
+
+
+def test_scan_newest_mtime_falls_back_to_directory_mtime_when_empty(tmp_path):
+    # Arrange
+    child = tmp_path / "empty"
+    child.mkdir()
+    os.utime(child, (1_234_567, 1_234_567))
+    # Act
+    result = scan(tmp_path)
+    # Assert
+    assert result.children[0].newest_mtime == 1_234_567
 
 
 # EOF

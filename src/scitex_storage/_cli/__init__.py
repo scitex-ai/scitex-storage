@@ -15,10 +15,15 @@ from .._images import apply_prune, plan_prune
 from .._report import (
     format_prune_report,
     format_report,
+    format_sweep_report,
+    format_sweep_status_report,
     prune_plan_to_json_dict,
+    sweep_plan_to_json_dict,
+    sweep_status_to_json_dict,
     to_json_dict,
 )
 from .._scan import scan as _scan
+from .._sweep import apply_sweep, plan_sweep, sweep_status
 from ._compat import spec_command_kwargs, spec_group_kwargs
 from ._introspect import list_python_apis
 from ._mcp_commands import mcp
@@ -53,7 +58,10 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
             "space and inode (file-count) consumers per top-level child of "
             "a root. `images prune` rotates a directory of versioned files "
             "(e.g. dated SIF builds), always excluding files any symlink in "
-            "the directory currently references, and defaults to a dry-run.",
+            "the directory currently references. `sweep` tars an inode-hog "
+            "directory in place (many small files -> one tar, one inode), "
+            "compute-node-only, gated on an explicit per-directory confirm. "
+            "Every mutating command defaults to a dry-run.",
         ),
         config_resolution=(
             "scitex-storage has no configurable state yet — every command "
@@ -63,7 +71,7 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
         ),
         version_of="scitex-storage",
         command_categories=(
-            ("Storage", ("scan", "images")),
+            ("Storage", ("scan", "images", "sweep", "sweep-status")),
             ("Introspection", ("list-python-apis", "mcp")),
         ),
     ),
@@ -253,6 +261,127 @@ def images_prune_cmd(
         )
     else:
         click.echo(format_prune_report(plan, applied=do_apply, apply_result=apply_result))
+
+
+@main.command(
+    "sweep",
+    **spec_command_kwargs(
+        summary="Tar an inode-hog directory in place (many files -> one).",
+        description=(
+            "Scans the immediate children of DIRECTORY (via `scan`) for "
+            "ones with at least --threshold-files files whose newest file "
+            "is older than --min-age-hours (skips anything that looks still "
+            "in use). Defaults to a dry-run listing candidates. --apply "
+            "requires an explicit --confirm NAME for every directory to "
+            "actually tar+remove — never a blanket 'sweep everything the "
+            "plan found'. COMPUTE-NODE-ONLY: --apply refuses to run unless "
+            "$SLURM_JOB_ID is set (tar reads file content; submit via "
+            "sbatch/srun, never on a login node).",
+        ),
+        examples=(
+            (
+                "{prog} sweep /data/gpfs/projects/punim0264/runs --threshold-files 5000",
+                "dry-run, list inode-hog children",
+            ),
+            (
+                "{prog} sweep DIR --threshold-files 5000 --apply --confirm old-run-42",
+                "sweep exactly one reviewed directory (inside an sbatch job)",
+            ),
+        ),
+    ),
+)
+@click.argument("directory", type=click.Path())
+@click.option(
+    "--threshold-files",
+    type=int,
+    required=True,
+    help="Minimum file count to qualify as a candidate (no default -- pick deliberately).",
+)
+@click.option(
+    "--min-age-hours",
+    type=float,
+    default=24.0,
+    show_default=True,
+    help="Exclude a candidate if its newest file is younger than this many hours.",
+)
+@click.option(
+    "--apply",
+    "do_apply",
+    is_flag=True,
+    help="Actually tar+remove. Without this flag, sweep only reports the plan.",
+)
+@click.option(
+    "--confirm",
+    "confirm_names",
+    multiple=True,
+    metavar="NAME",
+    help="Name of a candidate to actually sweep (repeatable). Required with --apply.",
+)
+@click.option(
+    "--min-remaining-seconds",
+    type=float,
+    default=300.0,
+    show_default=True,
+    help="Stop before starting a candidate if less walltime than this remains.",
+)
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of text.")
+def sweep_cmd(
+    directory: str,
+    threshold_files: int,
+    min_age_hours: float,
+    do_apply: bool,
+    confirm_names: tuple[str, ...],
+    min_remaining_seconds: float,
+    as_json: bool,
+) -> None:
+    if do_apply and not confirm_names:
+        raise click.ClickException(
+            "--apply requires at least one --confirm NAME (never a blanket apply)"
+        )
+    plan = plan_sweep(
+        directory, threshold_files=threshold_files, min_age_seconds=min_age_hours * 3600
+    )
+    result = (
+        apply_sweep(
+            plan, confirm_names=list(confirm_names), min_remaining_seconds=min_remaining_seconds
+        )
+        if do_apply
+        else None
+    )
+    if as_json:
+        click.echo(
+            json.dumps(sweep_plan_to_json_dict(plan, applied=do_apply, result=result), indent=2)
+        )
+    else:
+        click.echo(format_sweep_report(plan, applied=do_apply, result=result))
+
+
+@main.command(
+    "sweep-status",
+    **spec_command_kwargs(
+        summary="List directories under DIRECTORY already swept into a tar.",
+        description=(
+            "Read-only. A child is 'swept' if a sibling <name>.tar exists "
+            "directly in DIRECTORY. Flags the anomalous case where the "
+            "original directory of the same name is somehow still present "
+            "alongside its tar.",
+        ),
+        examples=(
+            (
+                "{prog} sweep-status /data/gpfs/projects/punim0264/runs",
+                "list what's already been swept",
+            ),
+        ),
+    ),
+)
+@click.argument("directory", type=click.Path())
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of text.")
+def sweep_status_cmd(directory: str, as_json: bool) -> None:
+    entries = sweep_status(directory)
+    if as_json:
+        click.echo(json.dumps(sweep_status_to_json_dict(directory, entries), indent=2))
+    else:
+        click.echo(format_sweep_status_report(directory, entries))
 
 
 main.add_command(list_python_apis)

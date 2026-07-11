@@ -41,6 +41,7 @@ class ChildUsage:
     size: int  # total bytes of files beneath (os.lstat().st_size, summed)
     file_count: int  # total file inodes beneath (regular files + symlinks)
     is_dir: bool
+    newest_mtime: float = 0.0  # max st_mtime among the child itself + everything beneath
     error: str | None = None  # set when the walk hit unreadable entries
 
 
@@ -74,17 +75,27 @@ class RootScan:
 
 def _measure_dir(
     root: Path, max_depth: int | None = None
-) -> tuple[int, int, str | None]:
-    """Return ``(total_size, file_count, error)`` for the tree under ``root``.
+) -> tuple[int, int, float | None, str | None]:
+    """Return ``(total_size, file_count, newest_file_mtime, error)`` for ``root``.
 
     Stat-only and never follows symlinked directories. ``max_depth``
     (relative to ``root``; ``None`` = unlimited) caps recursion depth for
-    login-node safety. ``error`` is a short note when some entries could
-    not be stat-ed (partial result), else ``None``.
+    login-node safety. ``newest_file_mtime`` is the max ``st_mtime`` among
+    files found during the walk, or ``None`` if none were found — computed
+    in the same pass as size/count rather than a second directory
+    traversal, which matters on filesystems where high inode utilization
+    makes metadata ops slow. Deliberately NOT seeded from any directory's
+    own mtime: a directory's mtime updates whenever an entry is added or
+    removed inside it, which is unrelated to (and can be far newer or older
+    than) its files' own content-modification times — mixing the two would
+    corrupt the "how recently was this actually touched" signal callers
+    rely on (e.g. `sweep`'s freshness exclusion). ``error`` is a short note
+    when some entries could not be stat-ed (partial result), else ``None``.
     """
     total_size = 0
     file_count = 0
     errors = 0
+    newest_file_mtime: float | None = None
 
     def _on_error(_exc: OSError) -> None:
         nonlocal errors
@@ -114,9 +125,11 @@ def _measure_dir(
             if stat_mod.S_ISREG(mode) or stat_mod.S_ISLNK(mode):
                 file_count += 1
                 total_size += st.st_size
+                if newest_file_mtime is None or st.st_mtime > newest_file_mtime:
+                    newest_file_mtime = st.st_mtime
 
     err = f"{errors} unreadable entr{'y' if errors == 1 else 'ies'}" if errors else None
-    return total_size, file_count, err
+    return total_size, file_count, newest_file_mtime, err
 
 
 def scan(root: str | Path, max_depth: int | None = None) -> RootScan:
@@ -149,7 +162,17 @@ def scan(root: str | Path, max_depth: int | None = None) -> RootScan:
             is_dir = False
 
         if is_dir and not is_symlink:
-            size, count, err = _measure_dir(epath, max_depth=max_depth)
+            size, count, newest_file_mtime, err = _measure_dir(epath, max_depth=max_depth)
+            if newest_file_mtime is not None:
+                newest_mtime = newest_file_mtime
+            else:
+                # No files anywhere beneath -- fall back to the directory's
+                # own mtime so an empty-of-files-but-recently-touched dir
+                # still reports something meaningful.
+                try:
+                    newest_mtime = entry.stat(follow_symlinks=False).st_mtime
+                except OSError:
+                    newest_mtime = 0.0
             result.children.append(
                 ChildUsage(
                     name=entry.name,
@@ -157,6 +180,7 @@ def scan(root: str | Path, max_depth: int | None = None) -> RootScan:
                     size=size,
                     file_count=count,
                     is_dir=True,
+                    newest_mtime=newest_mtime,
                     error=err,
                 )
             )
@@ -164,9 +188,12 @@ def scan(root: str | Path, max_depth: int | None = None) -> RootScan:
             # A file, or a symlink (dir or file) we refuse to follow: count
             # the link/file inode itself via lstat, never traverse it.
             try:
-                size = entry.stat(follow_symlinks=False).st_size
+                st = entry.stat(follow_symlinks=False)
+                size = st.st_size
+                mtime = st.st_mtime
             except OSError:
                 size = 0
+                mtime = 0.0
             result.children.append(
                 ChildUsage(
                     name=entry.name,
@@ -174,6 +201,7 @@ def scan(root: str | Path, max_depth: int | None = None) -> RootScan:
                     size=size,
                     file_count=1,
                     is_dir=False,
+                    newest_mtime=mtime,
                 )
             )
     return result

@@ -6,7 +6,7 @@
   </a>
 </p>
 
-<p align="center"><b>Research-data storage triage — a read-only, stat-only scan that finds the biggest space and inode (file-count) consumers on your disk, plus safe, referenced-file-aware rotation for versioned build artifacts.</b></p>
+<p align="center"><b>Research-data storage triage — a read-only, stat-only scan that finds the biggest space and inode (file-count) consumers on your disk, plus safe rotation: referenced-file-aware for versioned build artifacts, and compute-node-only tar-in-place for HPC inode hogs.</b></p>
 
 <p align="center">
   <a href="https://scitex-storage.readthedocs.io/">Full Documentation</a> · <code>pip install scitex-storage</code>
@@ -32,6 +32,7 @@
 | 1 | **A disk hits 100% and you don't know which directory ate it** — `du -sh *` storms the filesystem and follows symlinks onto slow network mounts | **`scitex-storage scan`** — a read-only, stat-only walk that reports total **bytes per top-level child**, sorted biggest-first, never following symlinked dirs |
 | 2 | **Inodes run out (`No space left on device` with GBs free)** — `du` measures bytes, not the millions of tiny files starving an HPC quota | **The `FILES` column** — every child's inode count, and `--sort files` to rank by it, so an inode hog surfaces even when it's small on disk |
 | 3 | **A build directory fills up with dated images (SIFs, tarballs, ...) and an age-only cleanup deletes one still in use** — the currently-live file is often the *oldest*-looking one still symlinked in | **`scitex-storage images prune`** — rotates to the newest N, but a file any symlink in the directory currently resolves to is never a candidate, regardless of age. Dry-run by default |
+| 4 | **A GPFS/HPC fileset hits its inode quota from millions of small files** — deleting real data isn't an option, and the fix (tar it) reads file content, which is barred from HPC login nodes | **`scitex-storage sweep`** — tars an inode-hog directory in place (many files → one), compute-node-only (refuses without `$SLURM_JOB_ID`), explicit per-directory `--confirm`, freshness-excludes anything still active |
 
 ## Installation
 
@@ -113,6 +114,44 @@ scitex-storage images prune  /home/user/.scitex/agent-container/containers/sac-b
   (dry-run — pass --apply to actually delete)
 ```
 
+```bash
+scitex-storage sweep DIRECTORY --threshold-files N [--min-age-hours H] [--apply --confirm NAME ...] [--min-remaining-seconds S] [--json]
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `DIRECTORY` | (required) | Directory whose immediate children are sweep candidates |
+| `--threshold-files N` | (required, no default) | Minimum file count to qualify as a candidate |
+| `--min-age-hours` | 24 | Exclude a candidate if its newest file is younger than this |
+| `--apply` | off | Actually tar + remove. Requires `--confirm` |
+| `--confirm NAME` | — | Explicit per-directory consent (repeatable). Never a blanket apply |
+| `--min-remaining-seconds` | 300 | Stop before starting a candidate if less SLURM walltime remains |
+| `--json` | off | Emit machine-readable JSON instead of the text report |
+
+`--apply` **refuses to run outside a SLURM allocation** (`$SLURM_JOB_ID` must
+be set) — tarring reads file content and the cleanup is a heavy metadata
+op, both barred from Spartan login nodes. Submit via `sbatch` or
+`srun --overlap --jobid=<held-allocation>`.
+
+```bash
+$ scitex-storage sweep /data/gpfs/projects/punim0264/runs --threshold-files 5000
+scitex-storage sweep  /data/gpfs/projects/punim0264/runs
+==========================================================
+threshold >= 5,000 files, min age 24h  (1 candidate(s), 0 skipped as too fresh)
+
+  CANDIDATES (dry-run):
+        18,204  old-run-42  (~18,203 inodes reclaimable)
+
+  18,203 inodes reclaimable
+  (dry-run — pass --apply --confirm NAME [--confirm NAME ...] to sweep)
+```
+
+```bash
+scitex-storage sweep-status DIRECTORY [--json]
+```
+
+Read-only: lists directories already swept (a sibling `<name>.tar` exists).
+
 Other top-level commands (ecosystem-standard, per every scitex-* CLI):
 `list-python-apis` (introspect the Python API), `mcp list-tools`
 (no MCP server shipped yet — reports zero tools), `--help-recursive`.
@@ -144,6 +183,16 @@ result = ss.apply_prune(plan)            # never touches referenced or open file
 result.removed                           # candidates actually unlinked
 result.skipped_in_use                    # candidates skipped: [(candidate, pids), ...]
 result.reclaimed_bytes                   # bytes actually freed
+
+sweep_plan = ss.plan_sweep("/data/gpfs/projects/punim0264/runs", threshold_files=5000)
+sweep_plan.candidates                    # inode-hog children, old enough to be safe
+sweep_plan.skipped_fresh                 # met the threshold but too recently touched
+
+sweep_result = ss.apply_sweep(sweep_plan, confirm_names=["old-run-42"])  # SLURM-only
+sweep_result.swept                       # [SweptCandidate(tar_path, member_count, ...), ...]
+sweep_result.reclaimed_inodes
+
+ss.sweep_status("/data/gpfs/projects/punim0264/runs")  # what's already swept
 ```
 
 </details>
@@ -164,27 +213,34 @@ flowchart LR
     I --> J
     J -->|--apply| K[apply_prune: /proc-check then unlink, skip if open]
     J --> L[format_prune_report / prune_plan_to_json_dict]
+
+    M[DIRECTORY] -->|scan, one walk incl. newest_mtime| N[candidates: threshold + fresh-enough]
+    N --> O[plan_sweep]
+    O -->|--apply, per --confirm NAME| P[apply_sweep: SLURM-only, walltime-aware, one at a time]
+    P --> Q[_sweep_one: tar to temp, verify non-empty, atomic rename, rmtree]
+    O --> R[format_sweep_report / sweep_plan_to_json_dict]
 ```
 
 ```
 scitex_storage/
 ├── _scan.py     ← scan, scan_roots, ChildUsage, RootScan
 ├── _images.py   ← plan_prune, apply_prune, PruneCandidate, PrunePlan
-├── _report.py   ← format_report, to_json_dict, format_prune_report, prune_plan_to_json_dict, format_size
-└── _cli/        ← scan, images prune, list-python-apis, mcp list-tools
+├── _sweep.py    ← plan_sweep, apply_sweep, sweep_status, SweepPlan, SweepResult
+├── _report.py   ← format_report, to_json_dict, format_prune_report, format_sweep_report, format_size
+└── _cli/        ← scan, images prune, sweep, sweep-status, list-python-apis, mcp list-tools
 ```
 
 ## Roadmap (not implemented)
 
-Discovery (`scan`) and rotation (`images prune`) are layers 1-2 of a
-larger, safety-first design —
+Discovery (`scan`) and rotation (`images prune`, `sweep`) are layers 1-2 of
+a larger, safety-first design —
 **scan → recommend → dry-run → copy → verify → quarantine → delete**,
 never an immediate destructive action:
 
 ```
 scitex-storage
 ├── Discovery       what exists (size + inodes)             <- scan (done)
-├── Rotation        prune superseded versioned files          <- images prune (done)
+├── Rotation        prune / tar superseded or hog files       <- images prune, sweep (done)
 ├── Classification  what kind of data it is                  <- planned
 ├── Policy          where it should live                     <- planned
 ├── Migration       safe copy/move (archive --to nas|nas2)     <- planned
