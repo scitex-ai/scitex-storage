@@ -23,6 +23,12 @@ versions follow [Semantic Versioning](https://semver.org/).
   destination that's never held archived data has no
   `~/scitex-storage-archive/...` tree yet — the common first-use case,
   found by scitex-ssh smoke-testing a real archive against real nas2.
+  Every shell command built from a remote path (the `mkdir -p` above,
+  `rm -rf` for `restore --delete-remote`) leaves a leading `~` unquoted —
+  a naive `shlex.quote()` of the whole path turns `~` into a literal
+  character (tilde-expansion only applies unquoted), silently creating a
+  directory named `~` instead of resolving `$HOME` — also found by
+  scitex-ssh's real-nas2 smoke test.
 - `scitex-storage restore SOURCE [--delete-remote] [--yes|-y] [--dry-run]`
   — reads the manifest `archive` wrote for SOURCE and pulls the data back.
   The remote copy is kept by default; `--delete-remote` removes it after a

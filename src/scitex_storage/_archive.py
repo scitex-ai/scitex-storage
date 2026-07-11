@@ -22,6 +22,16 @@ Design constraints:
   error) — ``mkdir -p`` works on any rsync version. Found + verified by
   scitex-ssh smoke-testing a real archive against real nas/nas2, not a
   hypothetical (2026-07-11).
+* **Never wrap a leading ``~`` in shell quotes.** Every remote path this
+  module builds a shell command from (the ``mkdir -p`` above, ``rm -rf``
+  in :func:`apply_restore`) goes through :func:`_quote_remote_path`, which
+  leaves a leading ``~/`` unquoted and only quotes the rest — a bare
+  ``shlex.quote(path)`` turns ``~`` into a literal character (tilde-
+  expansion only applies to an unquoted leading ``~``), silently creating
+  a directory named ``~`` instead of resolving ``$HOME``. Also found by
+  scitex-ssh's real-nas2 smoke test: the stray ``~`` directory was sitting
+  in the remote home directory after the naive-quoting version "succeeded"
+  (2026-07-11).
 * **Manifest before delete.** The manifest is written *before* the local
   source is removed, so a crash between "sync succeeded" and "manifest
   written" fails safe (source still present; re-running `archive` is a
@@ -55,6 +65,25 @@ DEFAULT_REMOTE_ROOT = "~/scitex-storage-archive"
 # -- a real path always has more structure than this after flattening a
 # real local absolute path under DEFAULT_REMOTE_ROOT.
 _UNSAFE_REMOTE_PATHS = {"", "/", "~", "."}
+
+
+def _quote_remote_path(path: str) -> str:
+    """shlex.quote ``path`` for a remote shell without breaking a leading
+    ``~`` home-dir shortcut.
+
+    Shell tilde-expansion only applies to an UNQUOTED (or quote-adjacent)
+    leading ``~`` -- naively wrapping the whole string in single quotes (a
+    bare ``shlex.quote(path)``) turns ``~`` into a literal character, so
+    ``mkdir -p '~/scitex-storage-archive/x'`` creates a bogus directory
+    literally named ``~`` instead of expanding to ``$HOME``. Confirmed via
+    scitex-ssh smoke-testing a real ``mkdir`` on nas2 (2026-07-11) -- the
+    stray ``~`` dir was found sitting in the remote home directory.
+    """
+    if path == "~":
+        return "~"
+    if path.startswith("~/"):
+        return "~/" + shlex.quote(path[2:])
+    return shlex.quote(path)
 
 
 def _manifest_dir() -> Path:
@@ -167,7 +196,7 @@ def apply_archive(
     if remote_parent and remote_parent not in _UNSAFE_REMOTE_PATHS:
         mkdir_result = exec_remote(
             plan.destination,
-            f"mkdir -p {shlex.quote(remote_parent)}",
+            f"mkdir -p -- {_quote_remote_path(remote_parent)}",
             runner=runner,
         )
         if not mkdir_result.success:
@@ -272,7 +301,7 @@ def apply_restore(
             )
         rm_result = exec_remote(
             manifest.destination,
-            f"rm -rf -- {shlex.quote(manifest.remote_path)}",
+            f"rm -rf -- {_quote_remote_path(manifest.remote_path)}",
             runner=runner,
         )
         if not rm_result.success:

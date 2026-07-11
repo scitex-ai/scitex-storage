@@ -16,6 +16,7 @@ from scitex_storage._archive import (
     ArchiveManifest,
     ArchivePlan,
     RestorePlan,
+    _quote_remote_path,
     apply_archive,
     apply_restore,
     plan_archive,
@@ -81,6 +82,44 @@ def sandbox_home(tmp_path):
             os.environ.pop("HOME", None)
         else:
             os.environ["HOME"] = prev
+
+
+# --- _quote_remote_path -------------------------------------------------------
+# Tested directly: a regression in this exact helper (naive shlex.quote of
+# a leading "~") silently broke real archives on nas2 -- see the module
+# docstring's "Never wrap a leading ~ in shell quotes" bullet.
+
+
+def test_quote_remote_path_leaves_bare_tilde_unquoted():
+    # Arrange
+    # Act
+    quoted = _quote_remote_path("~")
+    # Assert
+    assert quoted == "~"
+
+
+def test_quote_remote_path_leaves_tilde_slash_prefix_unquoted():
+    # Arrange
+    # Act
+    quoted = _quote_remote_path("~/scitex-storage-archive")
+    # Assert
+    assert quoted.startswith("~/")
+
+
+def test_quote_remote_path_quotes_the_rest_after_the_tilde():
+    # Arrange
+    # Act
+    quoted = _quote_remote_path("~/a dir/b")
+    # Assert
+    assert quoted == "~/" + "'a dir/b'"
+
+
+def test_quote_remote_path_quotes_a_non_tilde_path_normally():
+    # Arrange
+    # Act
+    quoted = _quote_remote_path("/a dir/b")
+    # Assert
+    assert quoted == "'/a dir/b'"
 
 
 # --- plan_archive -------------------------------------------------------------
@@ -243,6 +282,22 @@ def test_apply_archive_creates_the_remote_parent_directory_first(tmp_path, sandb
     apply_archive(plan, runner=runner)
     # Assert
     assert "mkdir -p" in runner.calls[0][-1]
+
+
+def test_apply_archive_mkdir_command_leaves_the_leading_tilde_unquoted(
+    tmp_path, sandbox_home
+):
+    # Arrange -- a naive shlex.quote(whole_path) would wrap "~" in quotes,
+    # which stops the remote shell from tilde-expanding it (regression:
+    # found by scitex-ssh smoke-testing a real mkdir on nas2).
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    runner = _FakeRunner(returncode=0)
+    # Act
+    apply_archive(plan, runner=runner)
+    # Assert
+    assert "'~" not in runner.calls[0][-1]
 
 
 def test_apply_archive_mkdir_runs_before_the_rsync_call(tmp_path, sandbox_home):
@@ -483,6 +538,18 @@ def test_apply_restore_delete_remote_command_targets_the_remote_path(tmp_path):
     apply_restore(plan, delete_remote=True, runner=runner)
     # Assert
     assert "needle" in runner.calls[1][-1]
+
+
+def test_apply_restore_delete_remote_command_leaves_the_leading_tilde_unquoted(tmp_path):
+    # Arrange -- same regression class as the archive-side mkdir: a naive
+    # shlex.quote(whole_path) would wrap "~" and break tilde-expansion.
+    source = tmp_path / "source"
+    plan = _restore_plan(source, remote_path="~/archive/needle")
+    runner = _FakeRunner(returncode=0)
+    # Act
+    apply_restore(plan, delete_remote=True, runner=runner)
+    # Assert
+    assert "'~" not in runner.calls[1][-1]
 
 
 def test_apply_restore_raises_if_remote_delete_fails(tmp_path):
