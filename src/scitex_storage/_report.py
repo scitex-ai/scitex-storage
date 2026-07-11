@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ._archive import ArchiveManifest, ArchivePlan, RestorePlan
 from ._images import ApplyResult, PrunePlan
 from ._scan import RootScan
 from ._sweep import SweepPlan, SweepResult, SweptEntry
@@ -329,6 +330,82 @@ def sweep_status_to_json_dict(
             for e in entries
         ],
     }
+
+
+def format_archive_report(
+    plan: ArchivePlan, applied: bool, manifest: ArchiveManifest | None = None
+) -> str:
+    """Render an :class:`~scitex_storage._archive.ArchivePlan` as CLI text."""
+    lines: list[str] = []
+    header = f"scitex-storage archive  {plan.source}"
+    lines.append(header)
+    lines.append("=" * len(header))
+    lines.append(
+        f"{format_size(plan.size_bytes)} in {format_count(plan.file_count)} files "
+        f"-> {plan.destination}:{plan.remote_path}"
+    )
+    lines.append("")
+    if applied and manifest:
+        lines.append(
+            f"  ARCHIVED (checksummed={manifest.checksummed}) -- "
+            f"source removed, manifest written to {plan.manifest_path}"
+        )
+    else:
+        lines.append("  WOULD ARCHIVE (dry-run — pass --apply to actually sync + remove)")
+    return "\n".join(lines)
+
+
+def archive_plan_to_json_dict(
+    plan: ArchivePlan, applied: bool, manifest: ArchiveManifest | None = None
+) -> dict[str, Any]:
+    """Render an :class:`~scitex_storage._archive.ArchivePlan` as a JSON dict."""
+    payload: dict[str, Any] = {
+        "source": str(plan.source),
+        "destination": plan.destination,
+        "remote_path": plan.remote_path,
+        "size_bytes": plan.size_bytes,
+        "file_count": plan.file_count,
+        "manifest_path": str(plan.manifest_path),
+        "applied": applied,
+    }
+    if applied and manifest:
+        payload["manifest"] = manifest.to_dict()
+    return payload
+
+
+def format_restore_report(
+    plan: RestorePlan, applied: bool, restored_path: Any | None = None
+) -> str:
+    """Render a :class:`~scitex_storage._archive.RestorePlan` as CLI text."""
+    m = plan.manifest
+    lines: list[str] = []
+    header = f"scitex-storage restore  {m.source}"
+    lines.append(header)
+    lines.append("=" * len(header))
+    lines.append(
+        f"{format_size(m.size_bytes)} in {format_count(m.file_count)} files "
+        f"<- {m.destination}:{m.remote_path}  (archived {m.archived_at:.0f})"
+    )
+    lines.append("")
+    if applied and restored_path:
+        lines.append(f"  RESTORED to {restored_path}")
+    else:
+        lines.append("  WOULD RESTORE (dry-run — pass --apply to actually pull)")
+    return "\n".join(lines)
+
+
+def restore_plan_to_json_dict(
+    plan: RestorePlan, applied: bool, restored_path: Any | None = None
+) -> dict[str, Any]:
+    """Render a :class:`~scitex_storage._archive.RestorePlan` as a JSON dict."""
+    payload: dict[str, Any] = {
+        "manifest": plan.manifest.to_dict(),
+        "manifest_path": str(plan.manifest_path),
+        "applied": applied,
+    }
+    if applied and restored_path:
+        payload["restored_path"] = str(restored_path)
+    return payload
 
 
 # EOF

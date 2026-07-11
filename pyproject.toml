@@ -29,6 +29,7 @@ classifiers = [
 
 dependencies = [
     "click",
+    "scitex-ssh>=1.1.0",
 ]
 
 [project.optional-dependencies]

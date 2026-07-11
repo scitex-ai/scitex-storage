@@ -7,6 +7,21 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- `scitex-storage archive SOURCE --to nas|nas2 [--remote-path PATH] [--exclude PATTERN ...] [--checksum/--no-checksum] [--yes|-y] [--dry-run]`
+  — move-not-delete tiering to nas/nas2 over ssh, built on scitex-ssh's
+  `sync_dir` (rsync-over-ssh). Copy-verify-then-remove: pushes SOURCE,
+  verifies the sync (checksummed by default), writes a manifest under
+  `~/.scitex/scitex-storage/runtime/archive-manifests/`, and ONLY THEN
+  removes the local copy. A failed sync leaves SOURCE completely untouched
+  and no manifest is written. Defaults to a dry-run; `--yes`/`-y` is
+  required to actually sync + remove (canonical mutating-verb flags per
+  the ecosystem convention, unlike `images prune`/`sweep`'s `--apply` —
+  `archive`/`restore` are audit-cli's hardcoded mutating-verb list, those
+  two aren't).
+- `scitex-storage restore SOURCE [--delete-remote] [--yes|-y] [--dry-run]`
+  — reads the manifest `archive` wrote for SOURCE and pulls the data back.
+  The remote copy is kept by default; `--delete-remote` removes it after a
+  verified restore. Defaults to a dry-run.
 - `scitex-storage sweep DIRECTORY --threshold-files N [--min-age-hours H] [--apply --confirm NAME ...]`
   — tar an inode-hog directory in place (many small files -> one tar, one
   inode). Candidates are immediate children of DIRECTORY at or above
