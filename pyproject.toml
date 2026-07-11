@@ -1,0 +1,91 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "scitex-storage"
+version = "0.1.0"
+description = "Intelligent research-data storage triage: scan local trees, score by size x staleness, and report space-reclaim / archive candidates (read-only MVP)"
+readme = "README.md"
+license = "AGPL-3.0-only"
+requires-python = ">=3.10"
+authors = [
+    { name = "Yusuke Watanabe" },
+]
+keywords = ["storage", "data-management", "disk-usage", "research-data", "science"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Archiving",
+    "Topic :: System :: Filesystems",
+]
+
+dependencies = [
+    "click",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "scitex-dev>=0.21.0",
+]
+docs = [
+    "sphinx>=7.0",
+    "sphinx-rtd-theme>=2.0",
+    "myst-parser>=2.0",
+    "sphinx-copybutton>=0.5",
+    "sphinx-autodoc-typehints>=1.25",
+]
+all = [
+    "scitex-storage[dev,docs]",
+]
+
+[project.scripts]
+scitex-storage = "scitex_storage._cli:main"
+
+[project.urls]
+Homepage = "https://github.com/scitex-ai/scitex-storage"
+Repository = "https://github.com/scitex-ai/scitex-storage"
+Issues = "https://github.com/scitex-ai/scitex-storage/issues"
+Documentation = "https://scitex-storage.readthedocs.io"
+
+[project.entry-points."scitex_dev.docs"]
+scitex-storage = "scitex_storage"
+
+[project.entry-points."scitex_dev.skills"]
+scitex-storage = "scitex_storage"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scitex_storage"]
+# Pre-built Sphinx HTML served in-wheel by scitex-cloud (PS-121); refreshed
+# by the rtd-sphinx-build CI job on main/develop pushes.
+artifacts = [
+    "src/scitex_storage/_sphinx_html/**/*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-x -q"
+
+[tool.coverage.run]
+parallel = true
+source = ["scitex_storage"]
+concurrency = ["multiprocessing", "thread"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.scitex-linter]
+library_dirs = ["src", "tests", "examples"]

@@ -1,0 +1,314 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>scitex_storage &mdash; SciTeX Storage v0.1.0</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+      <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+      <script src="../_static/copybutton.js?v=f281be69"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Quickstart" href="../quickstart.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            SciTeX Storage
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#basic-installation">Basic Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#development">Development</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">scitex_storage</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#scitex_storage.FileEntry"><code class="docutils literal notranslate"><span class="pre">FileEntry</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.FileEntry.path"><code class="docutils literal notranslate"><span class="pre">FileEntry.path</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.FileEntry.size"><code class="docutils literal notranslate"><span class="pre">FileEntry.size</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.FileEntry.atime"><code class="docutils literal notranslate"><span class="pre">FileEntry.atime</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.FileEntry.days_since_access"><code class="docutils literal notranslate"><span class="pre">FileEntry.days_since_access()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.FileEntry.score"><code class="docutils literal notranslate"><span class="pre">FileEntry.score()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.FileEntry.__init__"><code class="docutils literal notranslate"><span class="pre">FileEntry.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#scitex_storage.ScanResult"><code class="docutils literal notranslate"><span class="pre">ScanResult</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.ScanResult.root"><code class="docutils literal notranslate"><span class="pre">ScanResult.root</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.ScanResult.files_scanned"><code class="docutils literal notranslate"><span class="pre">ScanResult.files_scanned</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.ScanResult.dirs_scanned"><code class="docutils literal notranslate"><span class="pre">ScanResult.dirs_scanned</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.ScanResult.total_size"><code class="docutils literal notranslate"><span class="pre">ScanResult.total_size</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.ScanResult.skipped_size"><code class="docutils literal notranslate"><span class="pre">ScanResult.skipped_size</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.ScanResult.skipped_dirs"><code class="docutils literal notranslate"><span class="pre">ScanResult.skipped_dirs</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.ScanResult.entries"><code class="docutils literal notranslate"><span class="pre">ScanResult.entries</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.ScanResult.duplicate_groups"><code class="docutils literal notranslate"><span class="pre">ScanResult.duplicate_groups</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.ScanResult.scan_time"><code class="docutils literal notranslate"><span class="pre">ScanResult.scan_time</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.ScanResult.top_candidates"><code class="docutils literal notranslate"><span class="pre">ScanResult.top_candidates()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scitex_storage.ScanResult.__init__"><code class="docutils literal notranslate"><span class="pre">ScanResult.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#scitex_storage.find_duplicates"><code class="docutils literal notranslate"><span class="pre">find_duplicates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#scitex_storage.scan"><code class="docutils literal notranslate"><span class="pre">scan()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#scitex_storage.walk_tree"><code class="docutils literal notranslate"><span class="pre">walk_tree()</span></code></a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">SciTeX Storage</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">scitex_storage</li>
+      <li class="wy-breadcrumbs-aside">
+              <a href="https://github.com/scitex-ai/scitex-storage/blob/develop/docs/sphinx/api/scitex_storage.rst" class="fa fa-github"> Edit on GitHub</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-scitex_storage">
+<span id="scitex-storage"></span><h1>scitex_storage<a class="headerlink" href="#module-scitex_storage" title="Link to this heading"></a></h1>
+<p>scitex-storage: research-data storage triage.</p>
+<p>MVP scope (see README for the full roadmap): read-only directory-tree
+<code class="docutils literal notranslate"><span class="pre">scan</span></code> — discovery, size x staleness scoring, and an optional
+(size+hash) duplicate-file report. Nothing in this release moves,
+deletes, or otherwise mutates anything on disk.</p>
+<p>Public names are exposed via PEP 562 <code class="docutils literal notranslate"><span class="pre">__getattr__</span></code> (lazy, on first
+access) so <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">scitex_storage</span></code> itself stays cheap — every CLI
+invocation and every shell tab-completion pays this cost (see the
+python-api skill’s “PEP 562 module __getattr__” section).</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="scitex_storage.FileEntry">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">scitex_storage.</span></span><span class="sig-name descname"><span class="pre">FileEntry</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">atime</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scitex_storage/_scan.html#FileEntry"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scitex_storage.FileEntry" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>One scanned file: its path (relative to the scan root), size, and
+last-access time.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="scitex_storage.FileEntry.path">
+<span class="sig-name descname"><span class="pre">path</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span><a class="headerlink" href="#scitex_storage.FileEntry.path" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="scitex_storage.FileEntry.size">
+<span class="sig-name descname"><span class="pre">size</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#scitex_storage.FileEntry.size" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="scitex_storage.FileEntry.atime">
+<span class="sig-name descname"><span class="pre">atime</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><a class="headerlink" href="#scitex_storage.FileEntry.atime" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="scitex_storage.FileEntry.days_since_access">
+<span class="sig-name descname"><span class="pre">days_since_access</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">now</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scitex_storage/_scan.html#FileEntry.days_since_access"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scitex_storage.FileEntry.days_since_access" title="Link to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="scitex_storage.FileEntry.score">
+<span class="sig-name descname"><span class="pre">score</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">now</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scitex_storage/_scan.html#FileEntry.score"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scitex_storage.FileEntry.score" title="Link to this definition"></a></dt>
+<dd><p><code class="docutils literal notranslate"><span class="pre">score</span> <span class="pre">=</span> <span class="pre">size_bytes</span> <span class="pre">*</span> <span class="pre">days_since_last_access</span></code> (design-doc heuristic).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="scitex_storage.FileEntry.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">atime</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#scitex_storage.FileEntry.__init__" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="scitex_storage.ScanResult">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">scitex_storage.</span></span><span class="sig-name descname"><span class="pre">ScanResult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">root</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">files_scanned</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dirs_scanned</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">skipped_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">skipped_dirs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">entries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">duplicate_groups</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scan_time</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scitex_storage/_scan.html#ScanResult"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scitex_storage.ScanResult" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="scitex_storage.ScanResult.root">
+<span class="sig-name descname"><span class="pre">root</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span><a class="headerlink" href="#scitex_storage.ScanResult.root" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="scitex_storage.ScanResult.files_scanned">
+<span class="sig-name descname"><span class="pre">files_scanned</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></span><a class="headerlink" href="#scitex_storage.ScanResult.files_scanned" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="scitex_storage.ScanResult.dirs_scanned">
+<span class="sig-name descname"><span class="pre">dirs_scanned</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></span><a class="headerlink" href="#scitex_storage.ScanResult.dirs_scanned" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="scitex_storage.ScanResult.total_size">
+<span class="sig-name descname"><span class="pre">total_size</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></span><a class="headerlink" href="#scitex_storage.ScanResult.total_size" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="scitex_storage.ScanResult.skipped_size">
+<span class="sig-name descname"><span class="pre">skipped_size</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></span><a class="headerlink" href="#scitex_storage.ScanResult.skipped_size" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="scitex_storage.ScanResult.skipped_dirs">
+<span class="sig-name descname"><span class="pre">skipped_dirs</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#set" title="(in Python v3.14)"><span class="pre">set</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#scitex_storage.ScanResult.skipped_dirs" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="scitex_storage.ScanResult.entries">
+<span class="sig-name descname"><span class="pre">entries</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#scitex_storage.FileEntry" title="scitex_storage._scan.FileEntry"><span class="pre">FileEntry</span></a><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#scitex_storage.ScanResult.entries" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="scitex_storage.ScanResult.duplicate_groups">
+<span class="sig-name descname"><span class="pre">duplicate_groups</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#scitex_storage.ScanResult.duplicate_groups" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="scitex_storage.ScanResult.scan_time">
+<span class="sig-name descname"><span class="pre">scan_time</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><a class="headerlink" href="#scitex_storage.ScanResult.scan_time" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="scitex_storage.ScanResult.top_candidates">
+<span class="sig-name descname"><span class="pre">top_candidates</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">top</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scitex_storage/_scan.html#ScanResult.top_candidates"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scitex_storage.ScanResult.top_candidates" title="Link to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code></a>[<a class="reference internal" href="#scitex_storage.FileEntry" title="scitex_storage._scan.FileEntry"><code class="xref py py-class docutils literal notranslate"><span class="pre">FileEntry</span></code></a>]</span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="scitex_storage.ScanResult.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">root</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">files_scanned</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dirs_scanned</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">skipped_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">skipped_dirs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">entries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">duplicate_groups</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scan_time</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#scitex_storage.ScanResult.__init__" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scitex_storage.find_duplicates">
+<span class="sig-prename descclassname"><span class="pre">scitex_storage.</span></span><span class="sig-name descname"><span class="pre">find_duplicates</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">entries</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scitex_storage/_scan.html#find_duplicates"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scitex_storage.find_duplicates" title="Link to this definition"></a></dt>
+<dd><p>Group files that share (size, sha256) — a cheap, exact duplicate
+detector in the spirit of <code class="docutils literal notranslate"><span class="pre">fdupes</span></code>/<code class="docutils literal notranslate"><span class="pre">rdfind</span></code>.</p>
+<p>Files are first bucketed by size (free — already known from the walk);
+only files sharing a size bucket with &gt;= 2 members are hashed, so a
+tree with no same-size collisions costs zero hashing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Path</span></code></a>]]</span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scitex_storage.scan">
+<span class="sig-prename descclassname"><span class="pre">scitex_storage.</span></span><span class="sig-name descname"><span class="pre">scan</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">root</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">top</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dedupe</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exclude_dirs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">frozenset({'.eggs',</span> <span class="pre">'.git',</span> <span class="pre">'.mypy_cache',</span> <span class="pre">'.pytest_cache',</span> <span class="pre">'.ruff_cache',</span> <span class="pre">'.tox',</span> <span class="pre">'.venv',</span> <span class="pre">'__pycache__',</span> <span class="pre">'build',</span> <span class="pre">'dist',</span> <span class="pre">'env',</span> <span class="pre">'node_modules',</span> <span class="pre">'venv'})</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scitex_storage/_scan.html#scan"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scitex_storage.scan" title="Link to this definition"></a></dt>
+<dd><p>Scan <code class="docutils literal notranslate"><span class="pre">root</span></code> and return a <a class="reference internal" href="#scitex_storage.ScanResult" title="scitex_storage.ScanResult"><code class="xref py py-class docutils literal notranslate"><span class="pre">ScanResult</span></code></a>.</p>
+<p>Read-only: only stats and (for <code class="docutils literal notranslate"><span class="pre">dedupe</span></code>) reads file bytes. Never
+writes, moves, or deletes anything.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference internal" href="#scitex_storage.ScanResult" title="scitex_storage._scan.ScanResult"><code class="xref py py-class docutils literal notranslate"><span class="pre">ScanResult</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scitex_storage.walk_tree">
+<span class="sig-prename descclassname"><span class="pre">scitex_storage.</span></span><span class="sig-name descname"><span class="pre">walk_tree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">root</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exclude_dirs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">frozenset({'.eggs',</span> <span class="pre">'.git',</span> <span class="pre">'.mypy_cache',</span> <span class="pre">'.pytest_cache',</span> <span class="pre">'.ruff_cache',</span> <span class="pre">'.tox',</span> <span class="pre">'.venv',</span> <span class="pre">'__pycache__',</span> <span class="pre">'build',</span> <span class="pre">'dist',</span> <span class="pre">'env',</span> <span class="pre">'node_modules',</span> <span class="pre">'venv'})</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scitex_storage/_scan.html#walk_tree"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scitex_storage.walk_tree" title="Link to this definition"></a></dt>
+<dd><p>Walk <code class="docutils literal notranslate"><span class="pre">root</span></code>, returning <code class="docutils literal notranslate"><span class="pre">(entries,</span> <span class="pre">dirs_scanned,</span> <span class="pre">skipped_size)</span></code>.</p>
+<p>Directories whose <em>name</em> matches <code class="docutils literal notranslate"><span class="pre">exclude_dirs</span></code> are pruned entirely
+(never descended into); their on-disk size is best-effort summed into
+<code class="docutils literal notranslate"><span class="pre">skipped_size</span></code> for the report, but their contents are not scanned.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">tuple</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code></a>[<a class="reference internal" href="#scitex_storage.FileEntry" title="scitex_storage._scan.FileEntry"><code class="xref py py-class docutils literal notranslate"><span class="pre">FileEntry</span></code></a>], <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a>]</span></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../quickstart.html" class="btn btn-neutral float-left" title="Quickstart" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Yusuke Watanabe.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

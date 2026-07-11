@@ -1,0 +1,43 @@
+name: ci
+
+# Org-level reusable-workflow caller (scitex-ai/.github, fleet standard as of
+# 2026-07-10 — see scitex-container / scitex-todo for the same pattern).
+# Four thin `uses:` calls into scitex-ai/.github reusable workflows instead
+# of inlining the job bodies; centrally maintained.
+#
+# Job ids are chosen so the resulting required-status-check context is
+# predictable: "<job id> / <reusable job name>".
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 17 * * *" # nightly 17:00 UTC (~02:00 JST), off-peak
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest-matrix:
+    # Required-status-check context: "pytest-matrix / pytest-matrix-on-ubuntu-py<X.YY>"
+    uses: scitex-ai/.github/.github/workflows/pytest-matrix.yml@main
+    secrets: inherit
+
+  import-smoke:
+    # Required-status-check context: "import-smoke / import-smoke-on-ubuntu-py3-12"
+    uses: scitex-ai/.github/.github/workflows/import-smoke.yml@main
+    secrets: inherit
+
+  quality-audit:
+    # Required-status-check context: "quality-audit / audit"
+    uses: scitex-ai/.github/.github/workflows/quality-audit.yml@main
+    secrets: inherit
+
+  rtd-sphinx-build:
+    # Required-status-check context: "rtd-sphinx-build / docs-sphinx"
+    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@main
+    secrets: inherit
