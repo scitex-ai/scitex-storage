@@ -1,0 +1,70 @@
+{% extends "scitex_ui/standalone_shell.html" %}
+{% comment %}
+File: src/scitex_storage/_django/templates/scitex_storage/index.html
+
+Extends scitex-ui's shared workspace shell (verified against the real
+scitex_ui 0.6.3 package installed in a throwaway venv during this
+scaffold's build: block names below — extra_css / app_content / extra_js
+— are confirmed correct, not guessed; see
+src/scitex_storage/_django/templates/scitex_storage/../../README or the
+PR description for how this was verified).
+
+This is plain server-rendered Django HTML (frontend_type:
+"server-rendered" in manifest.json) — no React/Vite bridge yet. The
+disk-treemap UI (a later phase) will likely need one; this scaffold's
+job is only to prove real scan() data renders inside the hub shell.
+{% endcomment %}
+{% block extra_css %}
+    <style>
+        .stx-storage-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        .stx-storage-table th, .stx-storage-table td {
+            text-align: left; padding: 0.35rem 0.75rem; border-bottom: 1px solid var(--border-color, #444);
+        }
+        .stx-storage-table th { font-weight: 600; }
+        .stx-storage-table td.size, .stx-storage-table td.files { text-align: right; font-variant-numeric: tabular-nums; }
+        .stx-storage-summary { margin: 0.5rem 0 1rem; opacity: 0.85; }
+        .stx-storage-error { color: var(--danger-color, #e05252); padding: 0.75rem; border: 1px solid currentColor; border-radius: 4px; }
+        .stx-storage-path-form input[type="text"] { width: 32rem; max-width: 80%; }
+    </style>
+{% endblock %}
+{% block app_content %}
+    <div id="stx-storage-app" data-app-name="scitex_storage">
+        <h1>SciTeX Storage</h1>
+        <form class="stx-storage-path-form" method="get" action="">
+            <label for="stx-storage-path">Path</label>
+            <input type="text" id="stx-storage-path" name="path" value="{{ requested_path }}">
+            <button type="submit">Scan</button>
+        </form>
+
+        {% if error %}
+            <p class="stx-storage-error">{{ error }}</p>
+        {% else %}
+            <p class="stx-storage-summary">
+                {{ root }} &mdash; {{ total_size }} across {{ children|length }} top-level
+                {% if children|length == 1 %}entry{% else %}entries{% endif %}
+                ({{ total_files }} files total)
+            </p>
+            <table class="stx-storage-table">
+                <thead>
+                    <tr>
+                        <th>Child</th>
+                        <th class="size">Size</th>
+                        <th class="files">Files</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for child in children %}
+                        <tr>
+                            <td>{{ child.name }}{% if child.error %} <em>[{{ child.error }}]</em>{% endif %}</td>
+                            <td class="size">{{ child.size }}</td>
+                            <td class="files">{{ child.file_count }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="3">(empty)</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    </div>
+{% endblock %}
+{% block extra_js %}{% endblock %}
