@@ -10,21 +10,29 @@ an HTML table — not a placeholder. The full disk-treemap UI is a later
 phase (see the ``scitex-storage-gui-plugin-for-scitex-hub`` scitex-todo
 card).
 
-``?path=`` lets the caller point the scan anywhere; it defaults to the
-current user's home directory, which is always a safe, readable,
-bounded starting point (never ``/`` — a full-filesystem scan is exactly
-the kind of thing this tool is designed to avoid doing by accident).
+``?path=`` lets the caller point the scan anywhere. GET / with NO
+``?path=`` renders an empty landing page (the path form, no scan) --
+does NOT default to the user's home directory. That default was tried
+and found unsafe in practice: `scan()` is a synchronous, stat-only
+directory walk, but a real home directory can be enormous (a live
+production instance measured ~1TB, most of it in dotfiles/venv/build
+trees under no `.gitignore` boundary at `$HOME`) -- walking it
+synchronously inside a single Django request handler hangs the whole
+page load well past any reasonable client timeout, with nothing
+logged until (if ever) it completes, because Django's dev-server
+request-line log only fires after the view returns. Never scans on
+load; only scans once the caller explicitly submits a path.
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from django.http import HttpResponse
 from django.shortcuts import render
 
 from scitex_storage._report import format_count, format_size
 from scitex_storage._scan import MissingSystemDependencyError, scan
+
+from ._favicon import FAVICON_HREF
 
 
 def _app_label(base: str) -> str:
@@ -45,22 +53,29 @@ def index(request):
     """Render one directory's ``scan()`` result as an HTML table.
 
     Query params:
-        path: directory to scan (default: the user's home directory).
+        path: directory to scan. Omitted -> empty landing page (the
+            path form), no scan performed -- see module docstring for
+            why there is deliberately no default-to-home-directory
+            fallback.
 
     Errors (missing path, not a directory, ``fd`` not installed) render
     the same template with an ``error`` message instead of raising a
     bare 500 — this is a browser-facing page, not an API.
     """
-    raw_path = request.GET.get("path") or str(Path.home())
+    raw_path = request.GET.get("path")
     context = {
         "app_label": _app_label("SciTeX Storage"),
-        "requested_path": raw_path,
+        "favicon_href": FAVICON_HREF,
+        "requested_path": raw_path or "",
         "error": None,
         "root": None,
         "children": [],
         "total_size": None,
         "total_files": None,
     }
+
+    if raw_path is None:
+        return render(request, "scitex_storage/index.html", context)
 
     try:
         result = scan(raw_path)
