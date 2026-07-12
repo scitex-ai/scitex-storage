@@ -1,0 +1,27 @@
+{
+  "name": "storage_app",
+  "slug": "storage",
+  "label": "Storage",
+  "icon": "fas fa-hard-drive",
+  "subtitle": "Fleet disk-usage triage: scan, sweep, archive, find duplicates",
+  "about": "Browse per-directory disk usage across hosts, backed by scitex-storage's read-only scan(). First scaffold: proves the scitex-hub mounting contract works end-to-end with real data, not the full disk-treemap UI yet.",
+  "description": "SciTeX Storage is a fleet storage triage tool. This GUI plugin surfaces scitex-storage's read-only, stat-only directory scan as a browsable table (size + inode usage per top-level child of a path), the first step toward a full multi-host treemap view with agentic judgment (orphaned junk vs. legitimate data) layered on top.",
+  "author": "ywatanabe",
+  "license": "AGPL-3.0-only",
+  "pip_package": "scitex-storage",
+  "capabilities": [
+    "Browse per-directory size + inode usage (read-only scan)",
+    "Inspect any path via ?path= (defaults to the user's home directory)"
+  ],
+  "allowed_extensions": [],
+  "wip": false,
+  "standalone": true,
+  "standalone_command": "scitex-storage start-gui",
+  "standalone_port": 5051,
+  "frontend_type": "server-rendered",
+  "embedded_package": true,
+  "dependencies": {
+    "python": ["scitex-storage", "django", "scitex-app", "scitex-ui"],
+    "system": ["fd-find"]
+  }
+}

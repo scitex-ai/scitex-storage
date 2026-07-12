@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Cross-package integration gate (PS-140) — runtime import contract.
 
-scitex-storage's CLI/package imports four cross-package modules under
+scitex-storage's CLI/package imports several cross-package modules under
 ``src/``, all guarded (except ``scitex_ssh``) so a lean install (no
 ``[dev]`` extra) still works:
 
@@ -22,6 +22,15 @@ scitex-storage's CLI/package imports four cross-package modules under
   REQUIRED (a hard ``[project.dependencies]`` entry, unguarded) — archive
   tiering has no meaning without a transport, unlike the optional
   scitex-dev help/completion/system-deps niceties above.
+* ``scitex_app._django`` / ``scitex_app._standalone``
+  (``_django/_app_adapter.py``) — the (currently private) Django
+  AppConfig base class + standalone-server launcher every scitex-hub
+  plugin needs. OPTIONAL/guarded via the ``gui`` extra (see
+  ``pyproject.toml``) — imported ONLY from the isolated adapter module,
+  never elsewhere (see that module's docstring for why).
+* ``scitex_ui`` (``_django/settings.py`` / ``_django/_server.py``) —
+  supplies the shared workspace shell template + CSS/JS the GUI's
+  templates extend. OPTIONAL/guarded, same ``gui`` extra.
 
 This gate proves that when a listed package IS installed, the import
 actually resolves — catching a renamed/moved upstream API before it ships.
@@ -29,7 +38,8 @@ actually resolves — catching a renamed/moved upstream API before it ships.
 ``CROSS_PACKAGE_IMPORTS`` is the audited source of truth: it must list
 exactly the cross-package modules imported under ``src/`` (audit-project
 verifies it). Keep it in sync with the imports in ``_cli/_compat.py``,
-``_cli/__init__.py``, ``_system_deps.py``, and ``_archive.py``.
+``_cli/__init__.py``, ``_system_deps.py``, ``_archive.py``, and
+``_django/_app_adapter.py``.
 """
 
 from __future__ import annotations
@@ -44,6 +54,9 @@ CROSS_PACKAGE_IMPORTS = [
     "scitex_dev._cli._completion",
     "scitex_dev.system_deps",
     "scitex_ssh",
+    "scitex_app._django",
+    "scitex_app._standalone",
+    "scitex_ui",
 ]
 
 
@@ -86,6 +99,59 @@ def test_archive_module_resolves_sync_dir_from_scitex_ssh():
     # Act
     # Assert
     assert callable(_archive.sync_dir)
+
+
+def test_app_adapter_resolves_the_real_scitex_app_config_when_installed():
+    # Arrange — only meaningful once scitex-app + Django are on the path.
+    pytest.importorskip("django")
+    pytest.importorskip("scitex_app._django")
+    from scitex_app._django import ScitexAppConfig as RealScitexAppConfig
+
+    from scitex_storage._django._app_adapter import ScitexAppConfig
+
+    # Act
+    resolved = ScitexAppConfig
+    # Assert — the adapter must re-export the REAL base class (not the
+    # bare-AppConfig fallback) whenever scitex-app is actually installed.
+    assert resolved is RealScitexAppConfig
+
+
+def _boot_django_for_storage_gui():
+    """Shared helper -- NOT a test, does not itself need AAA markers."""
+    import os
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "scitex_storage._django.settings")
+    import django
+
+    django.setup()
+
+
+def test_storage_config_app_defaults_true_when_django_is_installed():
+    # Arrange — boot Django against the GUI's own standalone settings.
+    pytest.importorskip("django")
+    pytest.importorskip("scitex_app._django")
+    _boot_django_for_storage_gui()
+    from django.apps import apps
+
+    # Act
+    cfg = apps.get_app_config("scitex_storage_django")
+
+    # Assert — the collision-avoidance contract hub relies on (see apps.py).
+    assert cfg.default is True
+
+
+def test_storage_config_app_slug_matches_manifest_when_django_is_installed():
+    # Arrange — boot Django against the GUI's own standalone settings.
+    pytest.importorskip("django")
+    pytest.importorskip("scitex_app._django")
+    _boot_django_for_storage_gui()
+    from django.apps import apps
+
+    # Act
+    cfg = apps.get_app_config("scitex_storage_django")
+
+    # Assert
+    assert cfg.app_slug == "storage"
 
 
 # EOF
