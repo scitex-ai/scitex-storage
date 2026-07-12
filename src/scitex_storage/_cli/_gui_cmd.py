@@ -169,6 +169,7 @@ def gui_open_cmd(host: str) -> None:
     "status",
     **spec_command_kwargs(
         summary="Report whether the GUI server is running, and where.",
+        examples=((f"{{prog}} gui status", "print running/not-running + URL"),),
     ),
 )
 @click.pass_context
@@ -189,6 +190,7 @@ def gui_status_cmd(ctx: click.Context) -> None:
     "stop",
     **spec_command_kwargs(
         summary="Stop the running GUI server instance.",
+        examples=((f"{{prog}} gui stop", "stop it, if running"),),
     ),
 )
 def gui_stop_cmd() -> None:
@@ -206,6 +208,7 @@ def gui_stop_cmd() -> None:
     hidden=True,
     **spec_command_kwargs(
         summary="Deprecated -- use 'gui open'.",
+        examples=((f"{{prog}} gui open", "the replacement invocation"),),
     ),
 )
 @click.option("--host", default=FIXED_HOST, show_default=True)
