@@ -82,6 +82,35 @@ Check what scitex-storage needs system-wide any time with:
 python -m scitex_storage._system_deps
 ```
 
+### GUI plugin (optional)
+
+scitex-storage ships a minimal Django-based GUI plugin
+(`src/scitex_storage/_django/`) — a browsable view of `scan()` results,
+installable standalone (`scitex-storage start-gui`) or as a
+scitex-hub plugin mounted at `/storage/`, following the same
+scitex-app/scitex-ui convention as scitex-writer/scitex-scholar/
+scitex-todo/figrecipe. It is a **first scaffold** (proves the mounting
+contract; not the full disk-treemap UI yet) and is entirely optional:
+
+```bash
+pip install scitex-storage[gui]
+scitex-storage start-gui
+```
+
+#### Configuration
+
+Copy [`.env.example`](.env.example) to `.env` (gitignored) at your
+project root, then edit:
+
+```bash
+cp .env.example .env
+$EDITOR .env
+```
+
+CLI flags always override env vars. The full list of variables (with
+inline comments) lives in `.env.example` — both are consumed only by
+the optional GUI plugin above; the core CLI reads none of them.
+
 ## Quick Start
 
 ```bash
