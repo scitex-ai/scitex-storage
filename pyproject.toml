@@ -29,7 +29,7 @@ classifiers = [
 
 dependencies = [
     "click",
-    "scitex-ssh>=1.1.0",
+    "scitex-ssh>=1.2.0",
 ]
 # NOTE: `scan` and `find-duplicates` shell out to two Rust CLIs -- `fd`
 # (fd-find) for directory traversal and `fclones` for size+hash duplicate
