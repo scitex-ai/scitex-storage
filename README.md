@@ -6,7 +6,7 @@
   </a>
 </p>
 
-<p align="center"><b>Research-data storage triage — a read-only, stat-only scan that finds the biggest space and inode (file-count) consumers on your disk, safe rotation (referenced-file-aware for build artifacts, compute-node-only tar-in-place for HPC inode hogs), and copy-verify-then-remove tiering to NAS.</b></p>
+<p align="center"><b>Research-data storage triage — a read-only, stat-only scan (via <code>fd</code>) that finds the biggest space and inode (file-count) consumers on your disk, safe rotation (referenced-file-aware for build artifacts, compute-node-only tar-in-place for HPC inode hogs), copy-verify-then-remove tiering to NAS, and an opt-in exact-duplicate finder (via <code>fclones</code>).</b></p>
 
 <p align="center">
   <a href="https://scitex-storage.readthedocs.io/">Full Documentation</a> · <code>pip install scitex-storage</code>
@@ -29,16 +29,57 @@
 
 | # | Problem | Solution |
 |---|---------|----------|
-| 1 | **A disk hits 100% and you don't know which directory ate it** — `du -sh *` storms the filesystem and follows symlinks onto slow network mounts | **`scitex-storage scan`** — a read-only, stat-only walk that reports total **bytes per top-level child**, sorted biggest-first, never following symlinked dirs |
+| 1 | **A disk hits 100% and you don't know which directory ate it** — `du -sh *` storms the filesystem and follows symlinks onto slow network mounts | **`scitex-storage scan`** — a read-only, stat-only walk (via `fd`) that reports total **bytes per top-level child**, sorted biggest-first, never following symlinked dirs |
 | 2 | **Inodes run out (`No space left on device` with GBs free)** — `du` measures bytes, not the millions of tiny files starving an HPC quota | **The `FILES` column** — every child's inode count, and `--sort files` to rank by it, so an inode hog surfaces even when it's small on disk |
 | 3 | **A build directory fills up with dated images (SIFs, tarballs, ...) and an age-only cleanup deletes one still in use** — the currently-live file is often the *oldest*-looking one still symlinked in | **`scitex-storage images prune`** — rotates to the newest N, but a file any symlink in the directory currently resolves to is never a candidate, regardless of age. Dry-run by default |
 | 4 | **A GPFS/HPC fileset hits its inode quota from millions of small files** — deleting real data isn't an option, and the fix (tar it) reads file content, which is barred from HPC login nodes | **`scitex-storage sweep`** — tars an inode-hog directory in place (many files → one), compute-node-only (refuses without `$SLURM_JOB_ID`), explicit per-directory `--confirm`, freshness-excludes anything still active |
 | 5 | **Local disk fills up with directories that should move to NAS, but "just delete after copying" risks a partial/failed copy silently losing data** | **`scitex-storage archive --to nas\|nas2`** — copy-verify-then-remove over ssh (scitex-ssh's `sync_dir`), checksummed by default, manifest written before the local copy is removed, `restore` reads it back |
+| 6 | **Duplicated project copies waste space** (`dataset (1).zip`, `dataset_final_v2.zip`, ...) | **`scitex-storage find-duplicates`** — an explicitly opt-in, separate verb (via `fclones`) that hashes file contents to report exact-duplicate groups; kept out of `scan` on purpose (see below) |
 
 ## Installation
 
 ```bash
 pip install scitex-storage
+```
+
+### System dependencies
+
+`scan` and `find-duplicates` each shell out to one established, actively-
+maintained **Rust** CLI for their hot path instead of a hand-rolled Python
+walk/hash — a pure-Python `os.walk` or `hashlib` pass is far too slow once
+you point this at multi-terabyte, multi-million-file storage (this tool is
+built to scan things like a 4TB NVMe, a multi-TB NAS, or an HDD array).
+
+| Binary | Used by | Purpose | Project |
+|---|---|---|---|
+| `fd` (`fdfind` on Debian/Ubuntu) | `scan` | directory walk (replaces `os.walk`) | [sharkdp/fd](https://github.com/sharkdp/fd) |
+| `fclones` | `find-duplicates` | size+hash duplicate detection (replaces `hashlib`) | [pkolaczk/fclones](https://github.com/pkolaczk/fclones) |
+
+```bash
+# Debian / Ubuntu
+sudo apt install fd-find              # installs the binary as `fdfind`
+cargo install fclones                 # no apt package as of this writing
+
+# macOS (Homebrew)
+brew install fd fclones
+
+# cargo (any platform, if you have a Rust toolchain)
+cargo install fd-find fclones
+```
+
+Neither binary is required to **install** `scitex-storage` — `pip install
+scitex-storage` never needs them, and there is no PyPI package for either
+(they're not Python libraries). `fd` IS a hard **runtime** dependency of
+`scan`; `fclones` IS a hard runtime dependency of `find-duplicates`. If a
+binary is missing, the relevant command fails fast with a clear, actionable
+error (install instructions included) rather than silently falling back to
+a slow pure-Python walk/hash. `scan` never needs `fclones` — it doesn't
+read file contents at all (see below).
+
+Check what scitex-storage needs system-wide any time with:
+
+```bash
+python -m scitex_storage._system_deps
 ```
 
 ## Quick Start
@@ -66,9 +107,25 @@ scitex-storage scan  /home/user/.scitex
      88.4 GB     412,003  TOTAL
 ```
 
-Everything is **read-only**: `scan` only calls `os.stat`, never reads file
-contents, never follows symlinked directories, and never moves or deletes
-anything. It is safe to point at a nearly-full disk or an HPC login node.
+Everything is **read-only**: `scan` only stats, never reads file contents,
+never follows symlinked directories, and never moves or deletes anything.
+It is safe to point at a nearly-full disk or an HPC login node.
+
+```bash
+# Found something worth checking for exact duplicates? A SEPARATE,
+# explicitly opt-in command -- this one DOES read file contents to hash
+# them, so use --max-depth on a slow/nearly-full path.
+scitex-storage find-duplicates ~/proj/old-scan
+```
+
+```
+3 duplicate groups:
+
+  2 files, 5.0 GB each:
+    projects/2022-thesis/dataset.zip
+    projects/2022-thesis/dataset (1).zip
+  ...
+```
 
 ## 1 Interfaces
 
@@ -79,7 +136,10 @@ anything. It is safe to point at a nearly-full disk or an HPC login node.
 
 ```bash
 scitex-storage scan [PATH ...] [--top N] [--sort size|files] [--max-depth D] [--json]
+scitex-storage find-duplicates PATH [PATH ...] [--max-depth D] [--json]
 ```
+
+**`scan`** (stat-only, `fd`-backed — never reads file contents):
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -175,6 +235,14 @@ leaves `SOURCE` completely untouched and no manifest is written. The
 manifest (`~/.scitex/scitex-storage/runtime/archive-manifests/`) is what
 `restore` reads back — it never needs `SOURCE` to still exist.
 
+**`find-duplicates`** (`fclones`-backed — DOES read file contents to hash them; a separate, explicitly opt-in verb, never run implicitly by `scan`):
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `PATH ...` | *(required)* | One or more roots to search for exact duplicates |
+| `--max-depth D` | unlimited | Cap recursion depth (login-node / network-path safety) |
+| `--json` | off | Emit machine-readable JSON instead of the text report |
+
 Other top-level commands (ecosystem-standard, per every scitex-* CLI):
 `list-python-apis` (introspect the Python API), `mcp list-tools`
 (no MCP server shipped yet — reports zero tools), `--help-recursive`.
@@ -223,6 +291,11 @@ manifest = ss.apply_archive(archive_plan)  # sync, verify, write manifest, remov
 
 restore_plan = ss.plan_restore("~/proj/old-experiment")  # reads the manifest back
 ss.apply_restore(restore_plan)           # pulls it back; keeps the remote copy by default
+
+# Separate, explicitly opt-in -- reads file contents to hash them.
+groups = ss.find_duplicates(["~/proj/old-scan"])
+for group in groups:
+    print(len(group), "identical files:", group)
 ```
 
 </details>
@@ -232,7 +305,7 @@ ss.apply_restore(restore_plan)           # pulls it back; keeps the remote copy 
 ```mermaid
 flowchart LR
     A[PATH] -->|os.scandir top level| B[per-child]
-    B -->|os.walk, stat-only, no symlink follow| C[size + inode count]
+    B -->|fd, stat-only, no symlink follow| C[size + inode count]
     C --> D[by_size / by_file_count]
     D --> E[format_report / to_json_dict]
     E --> F[CLI stdout]
@@ -255,16 +328,28 @@ flowchart LR
     T --> V[format_archive_report / archive_plan_to_json_dict]
     U --> W[(archive-manifests/*.json)]
     W -->|plan_restore| X[apply_restore: sync_dir pull, optional delete_remote]
+
+    Y[PATH...] -->|fclones group: size+hash| Z[duplicate groups]
+    Z --> AA[format_duplicates_report / duplicates_to_json_dict]
+    AA --> F
 ```
+
+`scan`'s walk and `find-duplicates`'s hashing are both delegated to Rust
+CLIs for speed at multi-TB scale (see "System dependencies" above) instead
+of a hand-rolled `os.walk`/`hashlib` reimplementation. They are
+deliberately separate pipelines, not a shared one: `scan` must stay
+stat-only (safe to point at a 100%-full disk), and finding exact
+duplicates fundamentally requires reading bytes, which `scan` never does.
 
 ```
 scitex_storage/
-├── _scan.py     ← scan, scan_roots, ChildUsage, RootScan
-├── _images.py   ← plan_prune, apply_prune, PruneCandidate, PrunePlan
-├── _sweep.py    ← plan_sweep, apply_sweep, sweep_status, SweepPlan, SweepResult
-├── _archive.py  ← plan_archive, apply_archive, plan_restore, apply_restore, ArchiveManifest
-├── _report.py   ← format_report, to_json_dict, format_prune_report, format_sweep_report, format_archive_report, format_size
-└── _cli/        ← scan, images prune, sweep, sweep-status, archive, restore, list-python-apis, mcp list-tools
+├── _scan.py        ← scan, scan_roots, ChildUsage, RootScan (fd-backed)
+├── _duplicates.py  ← find_duplicates (fclones-backed)
+├── _images.py      ← plan_prune, apply_prune, PruneCandidate, PrunePlan
+├── _sweep.py       ← plan_sweep, apply_sweep, sweep_status, SweepPlan, SweepResult
+├── _archive.py     ← plan_archive, apply_archive, plan_restore, apply_restore, ArchiveManifest
+├── _report.py      ← format_report, format_duplicates_report, to_json_dict, format_prune_report, format_sweep_report, format_archive_report, format_size
+└── _cli/           ← scan, find-duplicates, images prune, sweep, sweep-status, archive, restore, list-python-apis, mcp list-tools
 ```
 
 ## Roadmap (not implemented)

@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 """Cross-package integration gate (PS-140) — runtime import contract.
 
-scitex-storage imports three cross-package modules under ``src/``:
+scitex-storage's CLI/package imports four cross-package modules under
+``src/``, all guarded (except ``scitex_ssh``) so a lean install (no
+``[dev]`` extra) still works:
 
 * ``scitex_dev.ecosystem`` (``_cli/_compat.py``) — the CliHelp /
   SpecCommand / SpecGroup help-spec helpers. OPTIONAL/guarded (a lean
@@ -10,11 +12,16 @@ scitex-storage imports three cross-package modules under ``src/``:
 * ``scitex_dev._cli._completion`` (``_cli/__init__.py``) —
   ``attach_shell_completion``, wiring ``install-shell-completion`` /
   ``print-shell-completion``. OPTIONAL/guarded, same reason.
+* ``scitex_dev.system_deps`` (``_system_deps.py``) — ``SystemDepSpec``,
+  used by the ``scitex_dev.system_deps`` entry-point provider that
+  declares scitex-storage's ``fd``/``fclones`` system dependencies to the
+  fleet-wide aggregator (``scitex-dev ecosystem system-deps``).
+  OPTIONAL/guarded, same reason.
 * ``scitex_ssh`` (``_archive.py``) — ``sync_dir`` / ``exec_remote`` /
   ``SSHResult``, the transport ``archive``/``restore`` are built on.
   REQUIRED (a hard ``[project.dependencies]`` entry, unguarded) — archive
-  tiering has no meaning without a transport, unlike the two optional
-  scitex-dev help/completion niceties above.
+  tiering has no meaning without a transport, unlike the optional
+  scitex-dev help/completion/system-deps niceties above.
 
 This gate proves that when a listed package IS installed, the import
 actually resolves — catching a renamed/moved upstream API before it ships.
@@ -22,7 +29,7 @@ actually resolves — catching a renamed/moved upstream API before it ships.
 ``CROSS_PACKAGE_IMPORTS`` is the audited source of truth: it must list
 exactly the cross-package modules imported under ``src/`` (audit-project
 verifies it). Keep it in sync with the imports in ``_cli/_compat.py``,
-``_cli/__init__.py``, and ``_archive.py``.
+``_cli/__init__.py``, ``_system_deps.py``, and ``_archive.py``.
 """
 
 from __future__ import annotations
@@ -35,6 +42,7 @@ import pytest
 CROSS_PACKAGE_IMPORTS = [
     "scitex_dev.ecosystem",
     "scitex_dev._cli._completion",
+    "scitex_dev.system_deps",
     "scitex_ssh",
 ]
 

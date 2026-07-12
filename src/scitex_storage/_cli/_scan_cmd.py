@@ -10,6 +10,7 @@ from pathlib import Path
 import click
 
 from .._report import format_report, to_json_dict
+from .._scan import MissingSystemDependencyError
 from .._scan import scan as _scan
 from ._compat import spec_command_kwargs
 
@@ -94,7 +95,12 @@ def scan_cmd(
     as_json: bool,
 ) -> None:
     roots = _resolve_roots(paths)
-    results = [_scan(p, max_depth=max_depth) for p in roots]
+    try:
+        results = [_scan(p, max_depth=max_depth) for p in roots]
+    except MissingSystemDependencyError as exc:
+        # Clean, actionable error -- never a raw traceback, and never a
+        # silent fallback to a slow pure-Python walk (see _scan.py).
+        raise click.ClickException(str(exc)) from exc
     if as_json:
         click.echo(json.dumps(to_json_dict(results, top=top, sort=sort), indent=2))
     else:

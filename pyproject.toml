@@ -29,8 +29,20 @@ classifiers = [
 
 dependencies = [
     "click",
-    "scitex-ssh>=1.1.0",
+    "scitex-ssh>=1.2.0",
 ]
+# NOTE: `scan` and `find-duplicates` shell out to two Rust CLIs -- `fd`
+# (fd-find) for directory traversal and `fclones` for size+hash duplicate
+# detection (see src/scitex_storage/_scan.py, _duplicates.py, and
+# _system_deps.py). Neither is a PyPI package, so neither belongs in
+# `dependencies` above; both are SYSTEM (non-pip) runtime dependencies of
+# their respective verb, declared to the scitex-dev system-deps federation
+# via the `scitex_dev.system_deps` entry-point below. `pip install
+# scitex-storage` never requires them -- each verb raises a clear
+# MissingSystemDependencyError (install instructions included) if its
+# binary is missing, rather than failing to install or silently falling
+# back to a slow pure-Python walk/hash. See README.md "Installation" for
+# platform-specific install commands.
 
 [project.optional-dependencies]
 dev = [
@@ -63,6 +75,9 @@ scitex-storage = "scitex_storage"
 
 [project.entry-points."scitex_dev.skills"]
 scitex-storage = "scitex_storage"
+
+[project.entry-points."scitex_dev.system_deps"]
+scitex-storage = "scitex_storage._system_deps:provide"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/scitex_storage"]
