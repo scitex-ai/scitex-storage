@@ -23,16 +23,13 @@ import threading
 import webbrowser
 
 
-def _find_available_port(host: str, start_port: int) -> int:
-    port = start_port
-    for _ in range(100):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind((host, port))
-                return port
-        except OSError:
-            port += 1
-    return start_port
+def _port_in_use(host: str, port: int) -> bool:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((host, port))
+    except OSError:
+        return True
+    return False
 
 
 def run(
@@ -46,10 +43,22 @@ def run(
     Tries ``_app_adapter.run_standalone`` first (gets the full workspace
     shell from scitex-ui via scitex-app). Falls back to a bare
     ``runserver`` bootstrap if scitex-app is not installed.
+
+    Fails loud if ``port`` is already taken -- never silently binds a
+    different one. ``gui serve``/``gui open`` bind the fleet's fixed
+    3129X-block port (19_gui-commands.md doctrine: "no incrementing on
+    repeated starts"); a server that silently drifts to a different
+    port is lying about where it is.
     """
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "scitex_storage._django.settings")
 
-    port = _find_available_port(host, port)
+    if _port_in_use(host, port):
+        raise RuntimeError(
+            f"Port {port} on {host} is already in use -- refusing to silently "
+            f"bind a different port. Stop whatever's using {port} (or run "
+            f"`scitex-storage gui status` to check if a previous instance is "
+            f"still up) and retry."
+        )
     print(f"SciTeX Storage GUI: http://{host}:{port}")
     print("Press Ctrl+C to stop")
 

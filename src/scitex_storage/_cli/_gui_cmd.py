@@ -119,6 +119,8 @@ def gui_serve_cmd(host: str, hot_reload: bool) -> None:
     runtime.write_state(os.getpid(), FIXED_PORT, host)
     try:
         run(port=FIXED_PORT, host=host, open_browser=False, hot_reload=hot_reload)
+    except RuntimeError as e:
+        raise click.ClickException(str(e)) from e
     finally:
         runtime.clear_state()
 
@@ -161,6 +163,8 @@ def gui_open_cmd(host: str) -> None:
     runtime.write_state(os.getpid(), FIXED_PORT, host)
     try:
         run(port=FIXED_PORT, host=host, open_browser=False, hot_reload=False)
+    except RuntimeError as e:
+        raise click.ClickException(str(e)) from e
     finally:
         runtime.clear_state()
 
