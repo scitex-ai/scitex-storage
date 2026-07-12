@@ -169,16 +169,19 @@ def gui_open_cmd(host: str) -> None:
     "status",
     **spec_command_kwargs(
         summary="Report whether the GUI server is running, and where.",
-        examples=((f"{{prog}} gui status", "print running/not-running + URL"),),
+        examples=(
+            (f"{{prog}} gui status", "print running/not-running + URL"),
+            (f"{{prog}} gui status --json", "machine-readable output"),
+        ),
     ),
 )
-@click.pass_context
-def gui_status_cmd(ctx: click.Context) -> None:
-    import json
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of text.")
+def gui_status_cmd(as_json: bool) -> None:
+    import json as json_mod
 
     state = _runtime().status()
-    if ctx.obj and ctx.obj.get("as_json"):
-        click.echo(json.dumps(state))
+    if as_json:
+        click.echo(json_mod.dumps(state))
         return
     if state.get("running"):
         click.echo(f"running: {state['url']} (pid {state['pid']})")
@@ -190,10 +193,35 @@ def gui_status_cmd(ctx: click.Context) -> None:
     "stop",
     **spec_command_kwargs(
         summary="Stop the running GUI server instance.",
-        examples=((f"{{prog}} gui stop", "stop it, if running"),),
+        examples=(
+            (f"{{prog}} gui stop", "stop it, if running"),
+            (f"{{prog}} gui stop --dry-run", "report what would be stopped, don't stop it"),
+        ),
     ),
 )
-def gui_stop_cmd() -> None:
+@click.option(
+    "--dry-run",
+    "dry_run",
+    is_flag=True,
+    help="Report what would be stopped, without stopping it.",
+)
+@click.option(
+    "--yes",
+    "-y",
+    "confirmed",
+    is_flag=True,
+    help="Bypass interactive confirmation (no-op today -- no prompt exists yet).",
+)
+def gui_stop_cmd(dry_run: bool, confirmed: bool) -> None:
+    del confirmed  # accepted for universal-flag conformance; no prompt to bypass yet
+    if dry_run:
+        state = _runtime().status()
+        if state.get("running"):
+            click.echo(f"Would stop: {state['url']} (pid {state['pid']})")
+        else:
+            click.echo("not running -- nothing to stop")
+        return
+
     result = _runtime().stop()
     if result.get("stopped"):
         click.echo(f"stopped (pid {result['pid']})")
