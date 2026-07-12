@@ -38,7 +38,7 @@ job is only to prove real scan() data renders inside the hub shell.
 
         {% if error %}
             <p class="stx-storage-error">{{ error }}</p>
-        {% else %}
+        {% elif root %}
             <p class="stx-storage-summary">
                 {{ root }} &mdash; {{ total_size }} across {{ children|length }} top-level
                 {% if children|length == 1 %}entry{% else %}entries{% endif %}
@@ -64,6 +64,8 @@ job is only to prove real scan() data renders inside the hub shell.
                     {% endfor %}
                 </tbody>
             </table>
+        {% else %}
+            <p class="stx-storage-summary">Enter a path above and click Scan.</p>
         {% endif %}
     </div>
 {% endblock %}

@@ -48,12 +48,12 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-cov",
-    "scitex-dev>=0.21.0",
+    "scitex-dev>=0.30.0",  # gui_runtime lives here since 0.30.0
     # Mirror the `gui` runtime extra so `pip install -e .[dev]` runs the
     # full suite. Tests import these unguarded; PS-210 audit invariant.
     "django>=5.0",
     "scitex-app>=0.3.0",
-    "scitex-ui",
+    "scitex-ui>=0.6.4",
 ]
 docs = [
     "sphinx>=7.0",
@@ -77,7 +77,8 @@ docs = [
 gui = [
     "django>=5.0",
     "scitex-app>=0.3.0",
-    "scitex-ui",
+    "scitex-ui>=0.6.4",
+    "scitex-dev>=0.30.0",  # gui_runtime, used by the gui {open,serve,status,stop} group at runtime
 ]
 all = [
     "scitex-storage[dev,docs,gui]",
