@@ -1,7 +1,7 @@
 {
   "name": "storage_app",
   "slug": "storage",
-  "label": "Storage",
+  "label": "SciTeX Storage",
   "icon": "fas fa-hard-drive",
   "subtitle": "Fleet disk-usage triage: scan, sweep, archive, find duplicates",
   "about": "Browse per-directory disk usage across hosts, backed by scitex-storage's read-only scan(). First scaffold: proves the scitex-hub mounting contract works end-to-end with real data, not the full disk-treemap UI yet.",
@@ -16,8 +16,8 @@
   "allowed_extensions": [],
   "wip": false,
   "standalone": true,
-  "standalone_command": "scitex-storage start-gui",
-  "standalone_port": 5051,
+  "standalone_command": "scitex-storage gui serve",
+  "standalone_port": 31290,
   "frontend_type": "server-rendered",
   "embedded_package": true,
   "dependencies": {

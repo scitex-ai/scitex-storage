@@ -31,6 +31,12 @@ scitex-storage's CLI/package imports several cross-package modules under
 * ``scitex_ui`` (``_django/settings.py`` / ``_django/_server.py``) —
   supplies the shared workspace shell template + CSS/JS the GUI's
   templates extend. OPTIONAL/guarded, same ``gui`` extra.
+* ``scitex_dev.gui_runtime`` (``_cli/_gui_cmd.py``) -- ``GuiRuntime``, the
+  package-agnostic pid/state-file lifecycle primitive behind
+  ``gui {open,serve,status,stop}``. OPTIONAL/guarded (imported lazily
+  inside ``_runtime()``, only at command-execution time, not at CLI
+  import time -- a lean install with no ``[dev]`` extra still works, the
+  ``gui`` subcommands just raise a clear error if actually invoked).
 
 This gate proves that when a listed package IS installed, the import
 actually resolves — catching a renamed/moved upstream API before it ships.
@@ -57,6 +63,7 @@ CROSS_PACKAGE_IMPORTS = [
     "scitex_app._django",
     "scitex_app._standalone",
     "scitex_ui",
+    "scitex_dev.gui_runtime",
 ]
 
 
