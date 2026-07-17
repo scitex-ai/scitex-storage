@@ -71,7 +71,41 @@ from pathlib import Path
 
 from scitex_ssh import SSHResult, exec_remote, sync_dir
 
-from ._scan import _measure_dir
+from ._scan import MissingSystemDependencyError, _measure_dir
+
+_RSYNC_INSTALL_HINT = """scitex-storage `archive`/`restore` require the `rsync` binary.
+
+Both verbs move data via scitex-ssh's `sync_dir`, which is a wrapper over
+`rsync -a` over ssh -- so the LOCAL rsync binary is a hard runtime
+dependency of the transport, exactly as `fd` is of `scan`. It was not
+found on PATH.
+
+Install it:
+  Debian/Ubuntu:  sudo apt install rsync
+  macOS:          brew install rsync   (or use the preinstalled /usr/bin/rsync)
+  other/manual:   https://rsync.samba.org/
+
+Note the REMOTE host needs rsync too -- but a missing remote binary fails
+differently (an ssh-side error naming rsync), so this message is only ever
+about the local side."""
+
+
+def _rsync_binary() -> str:
+    """Return the path to the local ``rsync``, or raise fail-loud.
+
+    Mirrors ``_scan.py``'s ``_fd_binary()``: raised at CALL time (never at
+    import time), never caught inside this package, and never degraded into
+    a silent fallback -- there is no meaningful fallback for a transport.
+
+    ``sync_dir`` would otherwise surface a bare ``FileNotFoundError`` from
+    inside a *sibling package* (scitex-ssh), naming a binary this package's
+    own docs never mentioned, leaving the caller to reverse-engineer
+    scitex-storage -> scitex-ssh -> rsync. Declared in ``_system_deps.py``.
+    """
+    found = shutil.which("rsync")
+    if found:
+        return found
+    raise MissingSystemDependencyError(_RSYNC_INSTALL_HINT)
 
 DESTINATIONS: tuple[str, ...] = ("nas", "nas2")
 DEFAULT_REMOTE_ROOT = "~/scitex-storage-archive"
@@ -150,6 +184,14 @@ def plan_archive(
     Read-only: stats ``source`` via the same walk :func:`~scitex_storage._scan.scan`
     uses, never touches the network. Fail-loud on a missing / non-directory
     ``source`` or an unrecognised ``destination``.
+
+    Deliberately does NOT require ``rsync``: planning is genuinely
+    transport-free, and the ``runner`` seam on :func:`apply_archive` means a
+    caller may legitimately plan here and transport by other means. The
+    binary is required by the code that actually invokes it (see
+    :func:`_rsync_binary`'s call sites) and, for the CLI's benefit, checked
+    up-front in ``_cli/_archive_cmd.py`` so the DEFAULT dry-run cannot
+    promise a run that could not start.
     """
     if destination not in DESTINATIONS:
         raise ValueError(
@@ -214,7 +256,14 @@ def apply_archive(
     ``exec_remote`` (the mkdir) and ``sync_dir`` (a ``subprocess.run``-
     shaped invoker) — the same real-transport-free test seam scitex-ssh
     itself exposes.
+
+    Requires ``rsync`` ONLY when ``runner is None`` — i.e. only when this
+    call will really shell out. An injected ``runner`` IS the transport, so
+    demanding a binary it will never invoke would make the seam
+    environment-dependent and fail honest callers for no reason.
     """
+    if runner is None:
+        _rsync_binary()
     remote_parent = posixpath.dirname(plan.remote_path)
     if remote_parent and remote_parent not in _UNSAFE_REMOTE_PATHS:
         mkdir_result = exec_remote(
@@ -300,7 +349,12 @@ def apply_restore(
     default, since restoring locally should not destroy the backup unless
     explicitly asked. ``runner`` is passed straight through to both
     ``sync_dir`` and ``exec_remote``.
+
+    Requires ``rsync`` only when ``runner is None`` — same reasoning as
+    :func:`apply_archive`.
     """
+    if runner is None:
+        _rsync_binary()
     manifest = plan.manifest
     source = Path(manifest.source)
     result: SSHResult = sync_dir(

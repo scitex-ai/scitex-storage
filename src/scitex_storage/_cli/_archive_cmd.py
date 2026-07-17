@@ -8,7 +8,15 @@ import json
 
 import click
 
-from .._archive import DESTINATIONS, apply_archive, apply_restore, plan_archive, plan_restore
+from .._archive import (
+    DESTINATIONS,
+    _rsync_binary,
+    apply_archive,
+    apply_restore,
+    plan_archive,
+    plan_restore,
+)
+from .._scan import MissingSystemDependencyError
 from .._report import (
     archive_plan_to_json_dict,
     format_archive_report,
@@ -16,6 +24,19 @@ from .._report import (
     restore_plan_to_json_dict,
 )
 from ._compat import spec_command_kwargs
+
+
+def _require_rsync() -> None:
+    """Fail loud + clean when the local rsync is missing.
+
+    Converts :class:`MissingSystemDependencyError` into a ClickException so
+    the user gets install instructions instead of a traceback -- the same
+    treatment `scan` gives a missing `fd` (see ``_scan_cmd.py``).
+    """
+    try:
+        _rsync_binary()
+    except MissingSystemDependencyError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 # "archive"/"restore" are ecosystem-canonical mutating verbs (scitex-dev
 # audit-cli §2 / the universal-flags convention doc), which requires a
@@ -100,6 +121,14 @@ def archive_cmd(
     confirmed: bool,
     as_json: bool,
 ) -> None:
+    # Check the transport BEFORE planning, even on a dry-run. The dry-run is
+    # this command's default, and its contract is to predict the real run --
+    # so "WOULD ARCHIVE 500 GB" on a box with no rsync is a confident claim
+    # about something never checked, and the user only finds out at `--yes`,
+    # exactly when they believed the question was settled. The CLI is always
+    # the real-transport path (it never injects a `runner`), so requiring the
+    # binary here is honest rather than over-strict.
+    _require_rsync()
     do_apply = confirmed and not dry_run
     plan = plan_archive(source, destination, remote_path=remote_path)
     manifest = (
@@ -165,6 +194,9 @@ def restore_cmd(
     confirmed: bool,
     as_json: bool,
 ) -> None:
+    # Same reasoning as `archive` -- a dry-run must not promise a pull the
+    # transport cannot start.
+    _require_rsync()
     do_apply = confirmed and not dry_run
     plan = plan_restore(source)
     restored_path = (
