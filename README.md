@@ -140,6 +140,54 @@ Everything is **read-only**: `scan` only stats, never reads file contents,
 never follows symlinked directories, and never moves or deletes anything.
 It is safe to point at a nearly-full disk or an HPC login node.
 
+### Are you about to run out of inodes?
+
+Different question, much cheaper answer. A filesystem can have terabytes
+free and still fail **every write** because it is out of *inodes* — and
+the jobs that die rarely say so. `check-inodes` is one `statvfs` per path:
+O(1) rather than O(files), no `fd`, no login shell, no module load.
+
+```bash
+# Am I about to hit the wall?
+scitex-storage check-inodes /data/gpfs/projects/punim0264
+```
+
+```
+scitex-storage check-inodes
+===========================
+   USED%          USED         TOTAL  MOUNT                 PATH
+  ------  ------------  ------------  --------------------  --------------------
+    96.2     6,731,073     7,000,000  /data/gpfs            /data/gpfs/projects/punim0264  <-- CRITICAL
+```
+
+That is a real reading (Spartan, 2026-07-17) — and that project was at
+**70% disk**. Space said fine; inodes were four percentage points from
+every write failing.
+
+On a GPFS **independent fileset** — how HPC per-project directories are
+usually carved out — `statvfs` reports *that project's quota*, so on those
+paths this answers the question that actually kills jobs, with no
+`mmlsquota` and no login shell.
+
+Verdicts are three-state and never conflated:
+
+| verdict | meaning |
+|---|---|
+| `measured` | real numbers from a real inode table |
+| `not-applicable` | btrfs/ZFS allocate inodes on demand and cannot run out — **never** rendered as a reassuring `0%` |
+| `could-not-look` | unreadable path or wedged mount — **never** rendered as `0%` either |
+
+Exit codes carry the same distinction, because unattended callers read
+the exit code and not the table: `0` measured and under `--warn-at`
+(default 90%), `1` at/over it, `2` could not look. `2` is deliberately not
+`0` — a monitor that cannot tell *healthy* from *never read it* will
+report healthy for filesystems it never looked at.
+
+```bash
+# Cron: alarm on trouble, and alarm just as loudly on blindness.
+scitex-storage check-inodes /data --json || notify "inode check failed ($?)"
+```
+
 ```bash
 # Found something worth checking for exact duplicates? A SEPARATE,
 # explicitly opt-in command -- this one DOES read file contents to hash

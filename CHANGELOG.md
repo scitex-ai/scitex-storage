@@ -7,6 +7,33 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- New `scitex-storage check-inodes [PATH ...]` — reports how close the mount
+  backing each path is to **inode exhaustion**, which fails every write
+  while `df` still shows free space (a Spartan project measured 96%
+  inodes at 70% disk). Deliberately the cheapest thing in the package:
+  one `statvfs` per path, so it is O(1) rather than O(files) — walking a
+  multi-million-file tree to count inodes is self-defeating when
+  metadata operations are already slow. It needs **no system binaries**
+  (unlike `scan`, which needs `fd`) and **no login shell**, so it works
+  from a bare job step, a cron line, or a container, i.e. when the
+  richer tooling cannot run.
+
+  Verdicts are three-state and never conflated: `measured`,
+  `not-applicable` (btrfs/ZFS allocate inodes dynamically and report
+  `f_files=0` — reported as such, *never* as a reassuring `0%`), and
+  `could-not-look` (unreadable path, wedged mount). Exit codes carry the
+  same distinction for unattended callers: `0` measured and under
+  threshold, `1` at/over `--warn-at` (default 90%), `2` could not look.
+  `2` is separate from `0` on purpose — a monitor that cannot tell
+  "healthy" from "never read it" reports healthy for filesystems it
+  never looked at.
+
+  On a GPFS **independent fileset** (how HPC per-project directories are
+  usually carved out) `statvfs` reports the *project's own quota*, so on
+  those paths this answers the question that actually kills jobs — with
+  no `mmlsquota` and no module load. Verified against Spartan's
+  `check_project_usage` to within 3 inodes, and against `df -i`.
+
 - `scan`'s directory walk now delegates to `fd` instead of Python
   `os.walk`, for multi-terabyte-scale performance. `fd` is a new
   **system** (non-PyPI) runtime dependency of `scan` only — see the
