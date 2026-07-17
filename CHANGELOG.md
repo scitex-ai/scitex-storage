@@ -7,6 +7,30 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- New `scitex-storage reclaim PATH...` / `reclaim-restore RUN_ID` — move a
+  path **aside into a reversible archive instead of deleting it**. This is
+  the operator's archive-instead-of-delete rule as a mechanism: because a
+  wrong call costs a `reclaim-restore` rather than lost data, a cleanup
+  decision is allowed to be *rough*, which is what lets it ship before its
+  classifier is perfect.
+
+  By default the archive is an adjacent `.old/<timestamp>/` beside each
+  source — same filesystem, so the move is an instant atomic rename. That
+  tidies a tree but does **not** free the source filesystem's inodes/space
+  (the files are merely relocated). Pass `--archive-root` at a *different*
+  filesystem to actually reclaim inodes/space; that move is a verified
+  copy-then-delete, not atomic, and is checked before the source is removed.
+  One mechanism, two jobs — the caller states the destination, because "free
+  this filesystem" and "tidy this directory" are different intents.
+
+  `reclaim --status` reports every run and the **restore rate** — the
+  fraction of runs later pulled back out — which is the honest accuracy
+  metric for whatever chose the paths, measured rather than guessed. No
+  data reports as `n/a`, never a reassuring `0%`. Deleting archived data is
+  a separate, later step; this verb never unlinks anything. Local-only, no
+  `rsync`/network/`fd`, so it is testable end-to-end over real temp dirs.
+  Defaults to a dry-run.
+
 - `archive` / `restore` now **declare and check `rsync`**, the transport they
   were always built on. Both delegate to scitex-ssh's `sync_dir` — "a thin,
   policy-free wrapper over `rsync -a`" — so the local `rsync` binary is as

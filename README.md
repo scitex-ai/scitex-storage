@@ -219,6 +219,17 @@ scitex-storage find-duplicates ~/proj/old-scan
   ...
 ```
 
+```bash
+# Move a path ASIDE into a reversible archive instead of deleting it, so a
+# rough cleanup call costs a `reclaim-restore`, not lost data. Dry-run by
+# default; --yes to act; `reclaim --status` shows the restore rate (the
+# accuracy metric). Default archive is an adjacent atomic `.old/<ts>/`
+# (tidies, doesn't free inodes); --archive-root on another filesystem frees
+# them. Deleting archived data is a separate, later step.
+scitex-storage reclaim ./node_modules ./build --yes
+scitex-storage reclaim-restore 2026-0717-154500-123456   # undo a run
+```
+
 ## Architecture
 
 ```mermaid

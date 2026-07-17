@@ -15,3 +15,10 @@ intransitive_verbs:
   - sweep  # why: matches standard filesystem-tool usage (e.g. `fstrim`-style
            # sweep tools use bare "sweep" as a leaf verb); the object is
            # always the DIRECTORY argument, not implied by the verb itself.
+  - reclaim  # why: "reclaim" is the standard storage verb for recovering
+             # space/inodes (cf. filesystem "reclaim", GC "reclaim", LVM
+             # thin-pool "reclaim"). Moby dual-classifies it noun+verb; the
+             # verb meaning is the one intended here, and the object is the
+             # PATH argument, exactly like `scan`/`sweep`. `reclaim-restore`
+             # is a compound whose head `restore` is already canonical, so
+             # only the bare `reclaim` leaf needs declaring.
