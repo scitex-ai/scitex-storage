@@ -204,6 +204,58 @@ scitex-storage find-duplicates ~/proj/old-scan
   ...
 ```
 
+## Architecture
+
+```mermaid
+flowchart LR
+    A[PATH] -->|os.scandir top level| B[per-child]
+    B -->|fd, stat-only, no symlink follow| C[size + inode count]
+    C --> D[by_size / by_file_count]
+    D --> E[format_report / to_json_dict]
+    E --> F[CLI stdout]
+
+    G[DIRECTORY] -->|os.scandir, resolve symlinks| H[referenced set]
+    G -->|os.scandir, match --pattern| I[candidates]
+    H --> J[plan_prune: referenced U newest-N excluded from remove]
+    I --> J
+    J -->|--apply| K[apply_prune: /proc-check then unlink, skip if open]
+    J --> L[format_prune_report / prune_plan_to_json_dict]
+
+    M[DIRECTORY] -->|scan, one walk incl. newest_mtime| N[candidates: threshold + fresh-enough]
+    N --> O[plan_sweep]
+    O -->|--apply, per --confirm NAME| P[apply_sweep: SLURM-only, walltime-aware, one at a time]
+    P --> Q[_sweep_one: tar to temp, verify non-empty, atomic rename, rmtree]
+    O --> R[format_sweep_report / sweep_plan_to_json_dict]
+
+    S[SOURCE] -->|_measure_dir| T[plan_archive: size + file_count]
+    T -->|--yes| U[apply_archive: sync_dir push, verify, write manifest, THEN rmtree]
+    T --> V[format_archive_report / archive_plan_to_json_dict]
+    U --> W[(archive-manifests/*.json)]
+    W -->|plan_restore| X[apply_restore: sync_dir pull, optional delete_remote]
+
+    Y[PATH...] -->|fclones group: size+hash| Z[duplicate groups]
+    Z --> AA[format_duplicates_report / duplicates_to_json_dict]
+    AA --> F
+```
+
+`scan`'s walk and `find-duplicates`'s hashing are both delegated to Rust
+CLIs for speed at multi-TB scale (see "System dependencies" above) instead
+of a hand-rolled `os.walk`/`hashlib` reimplementation. They are
+deliberately separate pipelines, not a shared one: `scan` must stay
+stat-only (safe to point at a 100%-full disk), and finding exact
+duplicates fundamentally requires reading bytes, which `scan` never does.
+
+```
+scitex_storage/
+├── _scan.py        ← scan, scan_roots, ChildUsage, RootScan (fd-backed)
+├── _duplicates.py  ← find_duplicates (fclones-backed)
+├── _images.py      ← plan_prune, apply_prune, PruneCandidate, PrunePlan
+├── _sweep.py       ← plan_sweep, apply_sweep, sweep_status, SweepPlan, SweepResult
+├── _archive.py     ← plan_archive, apply_archive, plan_restore, apply_restore, ArchiveManifest
+├── _report.py      ← format_report, format_duplicates_report, to_json_dict, format_prune_report, format_sweep_report, format_archive_report, format_size
+└── _cli/           ← scan, find-duplicates, images prune, sweep, sweep-status, archive, restore, list-python-apis, mcp list-tools
+```
+
 ## 1 Interfaces
 
 <details open>
@@ -376,58 +428,6 @@ for group in groups:
 ```
 
 </details>
-
-## Architecture
-
-```mermaid
-flowchart LR
-    A[PATH] -->|os.scandir top level| B[per-child]
-    B -->|fd, stat-only, no symlink follow| C[size + inode count]
-    C --> D[by_size / by_file_count]
-    D --> E[format_report / to_json_dict]
-    E --> F[CLI stdout]
-
-    G[DIRECTORY] -->|os.scandir, resolve symlinks| H[referenced set]
-    G -->|os.scandir, match --pattern| I[candidates]
-    H --> J[plan_prune: referenced U newest-N excluded from remove]
-    I --> J
-    J -->|--apply| K[apply_prune: /proc-check then unlink, skip if open]
-    J --> L[format_prune_report / prune_plan_to_json_dict]
-
-    M[DIRECTORY] -->|scan, one walk incl. newest_mtime| N[candidates: threshold + fresh-enough]
-    N --> O[plan_sweep]
-    O -->|--apply, per --confirm NAME| P[apply_sweep: SLURM-only, walltime-aware, one at a time]
-    P --> Q[_sweep_one: tar to temp, verify non-empty, atomic rename, rmtree]
-    O --> R[format_sweep_report / sweep_plan_to_json_dict]
-
-    S[SOURCE] -->|_measure_dir| T[plan_archive: size + file_count]
-    T -->|--yes| U[apply_archive: sync_dir push, verify, write manifest, THEN rmtree]
-    T --> V[format_archive_report / archive_plan_to_json_dict]
-    U --> W[(archive-manifests/*.json)]
-    W -->|plan_restore| X[apply_restore: sync_dir pull, optional delete_remote]
-
-    Y[PATH...] -->|fclones group: size+hash| Z[duplicate groups]
-    Z --> AA[format_duplicates_report / duplicates_to_json_dict]
-    AA --> F
-```
-
-`scan`'s walk and `find-duplicates`'s hashing are both delegated to Rust
-CLIs for speed at multi-TB scale (see "System dependencies" above) instead
-of a hand-rolled `os.walk`/`hashlib` reimplementation. They are
-deliberately separate pipelines, not a shared one: `scan` must stay
-stat-only (safe to point at a 100%-full disk), and finding exact
-duplicates fundamentally requires reading bytes, which `scan` never does.
-
-```
-scitex_storage/
-├── _scan.py        ← scan, scan_roots, ChildUsage, RootScan (fd-backed)
-├── _duplicates.py  ← find_duplicates (fclones-backed)
-├── _images.py      ← plan_prune, apply_prune, PruneCandidate, PrunePlan
-├── _sweep.py       ← plan_sweep, apply_sweep, sweep_status, SweepPlan, SweepResult
-├── _archive.py     ← plan_archive, apply_archive, plan_restore, apply_restore, ArchiveManifest
-├── _report.py      ← format_report, format_duplicates_report, to_json_dict, format_prune_report, format_sweep_report, format_archive_report, format_size
-└── _cli/           ← scan, find-duplicates, images prune, sweep, sweep-status, archive, restore, list-python-apis, mcp list-tools
-```
 
 ## Roadmap (not implemented)
 
