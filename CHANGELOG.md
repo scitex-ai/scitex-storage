@@ -7,7 +7,7 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-- New `scitex-storage check-inodes [PATH ...]` — reports how close the mount
+- New `scitex-storage validate-inodes [PATH ...]` — reports how close the mount
   backing each path is to **inode exhaustion**, which fails every write
   while `df` still shows free space (a Spartan project measured 96%
   inodes at 70% disk). Deliberately the cheapest thing in the package:

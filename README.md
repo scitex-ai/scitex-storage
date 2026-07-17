@@ -144,16 +144,16 @@ It is safe to point at a nearly-full disk or an HPC login node.
 
 Different question, much cheaper answer. A filesystem can have terabytes
 free and still fail **every write** because it is out of *inodes* — and
-the jobs that die rarely say so. `check-inodes` is one `statvfs` per path:
+the jobs that die rarely say so. `validate-inodes` is one `statvfs` per path:
 O(1) rather than O(files), no `fd`, no login shell, no module load.
 
 ```bash
 # Am I about to hit the wall?
-scitex-storage check-inodes /data/gpfs/projects/punim0264
+scitex-storage validate-inodes /data/gpfs/projects/punim0264
 ```
 
 ```
-scitex-storage check-inodes
+scitex-storage validate-inodes
 ===========================
    USED%          USED         TOTAL  MOUNT                 PATH
   ------  ------------  ------------  --------------------  --------------------
@@ -185,7 +185,7 @@ report healthy for filesystems it never looked at.
 
 ```bash
 # Cron: alarm on trouble, and alarm just as loudly on blindness.
-scitex-storage check-inodes /data --json || notify "inode check failed ($?)"
+scitex-storage validate-inodes /data --json || notify "inode check failed ($?)"
 ```
 
 ```bash

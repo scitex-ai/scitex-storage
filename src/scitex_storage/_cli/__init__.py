@@ -45,7 +45,7 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
             "read-only, stat-only directory walk (via `fd`) that reports "
             "the biggest space and inode (file-count) consumers per "
             "top-level child of a root -- no file contents are ever read. "
-            "`check-inodes` is the cheap counterpart: one statvfs per path, no "
+            "`validate-inodes` is the cheap counterpart: one statvfs per path, no "
             "walk and no system binaries, reporting how close a filesystem "
             "is to inode exhaustion (which fails every write while df still "
             "shows free space). "
@@ -75,7 +75,7 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
                 "Storage",
                 (
                     "scan",
-                    "check-inodes",
+                    "validate-inodes",
                     "find-duplicates",
                     "images",
                     "sweep",

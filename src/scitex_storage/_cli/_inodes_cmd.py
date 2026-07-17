@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""``scitex-storage check-inodes`` — inode capacity of the mount(s) backing PATH(s).
+"""``scitex-storage validate-inodes`` — inode capacity of the mount(s) backing PATH(s).
 
 EXIT CODES are the point of this command, not an afterthought. This verb
 exists to be run unattended (cron, a CI step, a job prologue), and an
@@ -61,7 +61,7 @@ def _usage_dict(u: InodeUsage) -> dict:
 
 def _format_report(usages: list[InodeUsage], warn_percent: float) -> str:
     lines: list[str] = []
-    header = "scitex-storage check-inodes"
+    header = "scitex-storage validate-inodes"
     lines.append(header)
     lines.append("=" * len(header))
     lines.append(
@@ -100,7 +100,7 @@ def _format_report(usages: list[InodeUsage], warn_percent: float) -> str:
 
 
 @click.command(
-    "check-inodes",
+    "validate-inodes",
     **spec_command_kwargs(
         summary="Report inode (file-count) capacity for the mount(s) backing PATH(s).",
         description=(
@@ -118,10 +118,10 @@ def _format_report(usages: list[InodeUsage], warn_percent: float) -> str:
             "and 2 when any could not be looked at.",
         ),
         examples=(
-            ("{prog} check-inodes", "check the current directory's filesystem"),
-            ("{prog} check-inodes / /home --json", "machine-readable, several paths"),
-            ("{prog} check-inodes /data --warn-at 80", "alarm earlier on a busy tree"),
-            ("{prog} check-inodes /data || echo ACT", "use the exit code from cron"),
+            ("{prog} validate-inodes", "check the current directory's filesystem"),
+            ("{prog} validate-inodes / /home --json", "machine-readable, several paths"),
+            ("{prog} validate-inodes /data --warn-at 80", "alarm earlier on a busy tree"),
+            ("{prog} validate-inodes /data || echo ACT", "use the exit code from cron"),
         ),
     ),
 )
