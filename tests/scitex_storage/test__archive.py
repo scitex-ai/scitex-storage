@@ -12,17 +12,25 @@ from dataclasses import dataclass
 
 import pytest
 
+import shutil
+
 from scitex_storage._archive import (
     ArchiveManifest,
     ArchivePlan,
     RestorePlan,
     _as_dir_contents,
     _quote_remote_path,
+    _rsync_binary,
     apply_archive,
     apply_restore,
     plan_archive,
     plan_restore,
 )
+from scitex_storage._scan import MissingSystemDependencyError
+
+# Resolved at collection time -- BEFORE any test's isolated_path_bin_dir
+# fixture swaps PATH out from under a later real `shutil.which()` call.
+_REAL_RSYNC_BIN = shutil.which("rsync")
 
 
 @dataclass
@@ -640,6 +648,101 @@ def test_apply_restore_refuses_to_delete_an_unsafe_remote_path(tmp_path):
     # Assert
     with pytest.raises(ValueError):
         apply_restore(plan, delete_remote=True, runner=_FakeRunner(returncode=0))
+
+
+# =============================================================================
+# rsync dependency -- missing-binary error handling
+#
+# `archive`/`restore` never spawn rsync themselves: they call scitex-ssh's
+# `sync_dir`, which is a wrapper over `rsync -a` over ssh. That makes the
+# LOCAL rsync binary a hard runtime dependency that is INVISIBLE from this
+# package's source -- the subprocess happens one package away. It was missed
+# until 2026-07-17, when `archive` turned out not to run in the container
+# scitex-storage ships to.
+#
+# Same no-mocks approach as `_scan.py`'s fd tests (STX-NM002 -- "production
+# talks to the real collaborator"): PATH is isolated via a real env-var
+# mutation, so the code under test still calls the real `shutil.which`.
+# =============================================================================
+
+
+@pytest.fixture
+def isolated_path_bin_dir(tmp_path):
+    """Replace PATH with a fresh, empty directory for the test's duration."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    original_path = os.environ["PATH"]
+    os.environ["PATH"] = str(bin_dir)
+    yield bin_dir
+    os.environ["PATH"] = original_path
+
+
+def test_rsync_binary_raises_missing_dependency_when_rsync_absent(
+    isolated_path_bin_dir,
+):
+    # Arrange -- PATH now contains no rsync.
+    # Act
+    # Assert
+    with pytest.raises(MissingSystemDependencyError):
+        _rsync_binary()
+
+
+def test_rsync_missing_dependency_names_an_actual_install_command(
+    isolated_path_bin_dir,
+):
+    # Arrange -- an error a user cannot act on is only half a fail-loud.
+    # Act
+    # Assert
+    with pytest.raises(MissingSystemDependencyError, match="apt install rsync"):
+        _rsync_binary()
+
+
+@pytest.mark.skipif(
+    _REAL_RSYNC_BIN is None, reason="requires a real `rsync` binary on PATH"
+)
+def test_rsync_binary_returns_the_real_binary_when_present():
+    # Arrange
+    # Act
+    found = _rsync_binary()
+    # Assert
+    assert found == _REAL_RSYNC_BIN
+
+
+def test_plan_archive_does_not_require_rsync(tmp_path, isolated_path_bin_dir):
+    # Arrange -- planning is genuinely transport-free, so it must not demand
+    # a binary it will never invoke. (`scan`'s fd IS still needed for the
+    # size walk, so this asserts only that the failure is not rsync's.)
+    source = tmp_path / "source"
+    source.mkdir()
+    # Act
+    # Assert
+    try:
+        plan_archive(source, "nas2")
+    except MissingSystemDependencyError as exc:
+        assert "rsync" not in str(exc)
+
+
+def test_apply_archive_with_an_injected_runner_does_not_require_rsync(
+    tmp_path, sandbox_home, isolated_path_bin_dir
+):
+    # Arrange -- an injected runner IS the transport, so requiring a binary
+    # it will never invoke would break the seam scitex-ssh deliberately
+    # exposes. PATH has no rsync; this must still succeed.
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "a.bin").write_bytes(b"\0")
+    plan = ArchivePlan(
+        source=source,
+        destination="nas2",
+        remote_path="~/scitex-storage-archive/probe",
+        size_bytes=1,
+        file_count=1,
+        manifest_path=sandbox_home / "manifest.json",
+    )
+    # Act
+    manifest = apply_archive(plan, runner=_FakeRunner(returncode=0))
+    # Assert
+    assert manifest.destination == "nas2"
 
 
 # EOF

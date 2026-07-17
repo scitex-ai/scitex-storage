@@ -31,18 +31,27 @@ dependencies = [
     "click",
     "scitex-ssh>=1.2.0",
 ]
-# NOTE: `scan` and `find-duplicates` shell out to two Rust CLIs -- `fd`
-# (fd-find) for directory traversal and `fclones` for size+hash duplicate
-# detection (see src/scitex_storage/_scan.py, _duplicates.py, and
-# _system_deps.py). Neither is a PyPI package, so neither belongs in
-# `dependencies` above; both are SYSTEM (non-pip) runtime dependencies of
-# their respective verb, declared to the scitex-dev system-deps federation
-# via the `scitex_dev.system_deps` entry-point below. `pip install
+# NOTE: three SYSTEM (non-pip) runtime dependencies, each required by ONE
+# verb: `fd` (fd-find) for `scan`'s directory traversal, `fclones` for
+# `find-duplicates`' size+hash detection, and `rsync` for `archive`/
+# `restore`'s transport (see src/scitex_storage/_scan.py, _duplicates.py,
+# _archive.py, and _system_deps.py). None is a PyPI package, so none belongs
+# in `dependencies` above; all are declared to the scitex-dev system-deps
+# federation via the `scitex_dev.system_deps` entry-point below. `pip install
 # scitex-storage` never requires them -- each verb raises a clear
-# MissingSystemDependencyError (install instructions included) if its
-# binary is missing, rather than failing to install or silently falling
-# back to a slow pure-Python walk/hash. See README.md "Installation" for
+# MissingSystemDependencyError (install instructions included) if its binary
+# is missing, rather than failing to install or silently falling back to a
+# slow pure-Python walk/hash. See README.md "Installation" for
 # platform-specific install commands.
+#
+# `scitex-ssh` below is a hard PyPI dependency because archive tiering has no
+# meaning without a transport -- but note it is the ADAPTER, not the
+# transport: its `sync_dir` is a wrapper over `rsync -a` over ssh. Declaring
+# the adapter while omitting the binary it adapts is how `rsync` went
+# undeclared until 2026-07-17, when `archive` turned out not to run in the
+# container this package ships to. An import gate cannot catch that class of
+# gap: `import scitex_ssh` resolves fine right up until the binary
+# underneath is missing.
 
 [project.optional-dependencies]
 dev = [

@@ -44,28 +44,43 @@ pip install scitex-storage
 
 ### System dependencies
 
-`scan` and `find-duplicates` each shell out to one established, actively-
+Three binaries, each a hard runtime dependency of **one verb** and nothing
+else. `scan` and `find-duplicates` shell out to an established, actively-
 maintained **Rust** CLI for their hot path instead of a hand-rolled Python
 walk/hash — a pure-Python `os.walk` or `hashlib` pass is far too slow once
 you point this at multi-terabyte, multi-million-file storage (this tool is
 built to scan things like a 4TB NVMe, a multi-TB NAS, or an HDD array).
+`archive`/`restore` need `rsync` because that *is* their transport.
 
 | Binary | Used by | Purpose | Project |
 |---|---|---|---|
 | `fd` (`fdfind` on Debian/Ubuntu) | `scan` | directory walk (replaces `os.walk`) | [sharkdp/fd](https://github.com/sharkdp/fd) |
 | `fclones` | `find-duplicates` | size+hash duplicate detection (replaces `hashlib`) | [pkolaczk/fclones](https://github.com/pkolaczk/fclones) |
+| `rsync` | `archive`, `restore` | the transport itself — both delegate to scitex-ssh's `sync_dir`, a wrapper over `rsync -a` over ssh | [rsync](https://rsync.samba.org/) |
 
 ```bash
 # Debian / Ubuntu
-sudo apt install fd-find              # installs the binary as `fdfind`
+sudo apt install fd-find rsync        # fd-find installs the binary as `fdfind`
 cargo install fclones                 # no apt package as of this writing
 
 # macOS (Homebrew)
-brew install fd fclones
+brew install fd fclones               # rsync ships with macOS
 
 # cargo (any platform, if you have a Rust toolchain)
 cargo install fd-find fclones
 ```
+
+None of these is needed to **install** scitex-storage — pip has no notion of
+a system binary. Each is required only when you run *its* verb, and a missing
+one raises a `MissingSystemDependencyError` naming the binary and how to get
+it, rather than a traceback or a silent slow fallback.
+
+`rsync` is the easy one to miss, and worth a word on why: nothing in this
+package spawns it. `archive` calls scitex-ssh's `sync_dir()` — an ordinary
+Python function from an ordinary declared dependency — and the subprocess
+happens one package away. The PyPI dependency is the *adapter*; `rsync` is
+the thing it adapts, and both need declaring. Your **remote** host needs
+rsync too, but a missing one there fails differently (an ssh-side error).
 
 Neither binary is required to **install** `scitex-storage` — `pip install
 scitex-storage` never needs them, and there is no PyPI package for either

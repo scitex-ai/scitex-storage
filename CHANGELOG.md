@@ -7,6 +7,35 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- `archive` / `restore` now **declare and check `rsync`**, the transport they
+  were always built on. Both delegate to scitex-ssh's `sync_dir` — "a thin,
+  policy-free wrapper over `rsync -a`" — so the local `rsync` binary is as
+  hard a runtime dependency of `archive` as `fd` is of `scan`. It was
+  declared nowhere and is absent from the container this package ships to,
+  so `archive` could not run there and failed with a raw traceback from
+  inside a *sibling package*, naming a binary our own docs never mentioned.
+
+  Now: declared in `_system_deps.py` (an ordinary apt package, unlike
+  `fclones`) so the fleet-wide `scitex-dev ecosystem system-deps` aggregator
+  sees it, and a missing binary raises `MissingSystemDependencyError` with
+  install instructions — the same contract `scan` gives a missing `fd`.
+
+  The check runs **before planning**, so the DEFAULT dry-run cannot promise a
+  run whose transport could not start: "WOULD ARCHIVE 500 GB" on a box with
+  no rsync is a confident claim about something never checked, discovered
+  only at `--yes`. The library stays honest in the other direction — an
+  injected `runner` *is* the transport, so `apply_archive`/`apply_restore`
+  require the binary only when `runner is None`, and `plan_archive` never
+  does.
+
+  Worth recording why it was missed: nothing in this package spawns rsync.
+  `_archive.py` calls `sync_dir()`, an ordinary function from an ordinary
+  declared dependency, and the subprocess happens one package away. The PyPI
+  dependency is the *adapter*; the binary it adapts needed declaring too. No
+  import gate can catch that — `import scitex_ssh` resolves right up until
+  the binary underneath is missing. Found by dogfooding, not by any check we
+  own.
+
 - New `scitex-storage validate-inodes [PATH ...]` — reports how close the mount
   backing each path is to **inode exhaustion**, which fails every write
   while `df` still shows free space (a Spartan project measured 96%
