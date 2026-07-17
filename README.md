@@ -140,6 +140,54 @@ Everything is **read-only**: `scan` only stats, never reads file contents,
 never follows symlinked directories, and never moves or deletes anything.
 It is safe to point at a nearly-full disk or an HPC login node.
 
+### Are you about to run out of inodes?
+
+Different question, much cheaper answer. A filesystem can have terabytes
+free and still fail **every write** because it is out of *inodes* — and
+the jobs that die rarely say so. `validate-inodes` is one `statvfs` per path:
+O(1) rather than O(files), no `fd`, no login shell, no module load.
+
+```bash
+# Am I about to hit the wall?
+scitex-storage validate-inodes /data/gpfs/projects/punim0264
+```
+
+```
+scitex-storage validate-inodes
+===========================
+   USED%          USED         TOTAL  MOUNT                 PATH
+  ------  ------------  ------------  --------------------  --------------------
+    96.2     6,731,073     7,000,000  /data/gpfs            /data/gpfs/projects/punim0264  <-- CRITICAL
+```
+
+That is a real reading (Spartan, 2026-07-17) — and that project was at
+**70% disk**. Space said fine; inodes were four percentage points from
+every write failing.
+
+On a GPFS **independent fileset** — how HPC per-project directories are
+usually carved out — `statvfs` reports *that project's quota*, so on those
+paths this answers the question that actually kills jobs, with no
+`mmlsquota` and no login shell.
+
+Verdicts are three-state and never conflated:
+
+| verdict | meaning |
+|---|---|
+| `measured` | real numbers from a real inode table |
+| `not-applicable` | btrfs/ZFS allocate inodes on demand and cannot run out — **never** rendered as a reassuring `0%` |
+| `could-not-look` | unreadable path or wedged mount — **never** rendered as `0%` either |
+
+Exit codes carry the same distinction, because unattended callers read
+the exit code and not the table: `0` measured and under `--warn-at`
+(default 90%), `1` at/over it, `2` could not look. `2` is deliberately not
+`0` — a monitor that cannot tell *healthy* from *never read it* will
+report healthy for filesystems it never looked at.
+
+```bash
+# Cron: alarm on trouble, and alarm just as loudly on blindness.
+scitex-storage validate-inodes /data --json || notify "inode check failed ($?)"
+```
+
 ```bash
 # Found something worth checking for exact duplicates? A SEPARATE,
 # explicitly opt-in command -- this one DOES read file contents to hash
@@ -154,6 +202,58 @@ scitex-storage find-duplicates ~/proj/old-scan
     projects/2022-thesis/dataset.zip
     projects/2022-thesis/dataset (1).zip
   ...
+```
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[PATH] -->|os.scandir top level| B[per-child]
+    B -->|fd, stat-only, no symlink follow| C[size + inode count]
+    C --> D[by_size / by_file_count]
+    D --> E[format_report / to_json_dict]
+    E --> F[CLI stdout]
+
+    G[DIRECTORY] -->|os.scandir, resolve symlinks| H[referenced set]
+    G -->|os.scandir, match --pattern| I[candidates]
+    H --> J[plan_prune: referenced U newest-N excluded from remove]
+    I --> J
+    J -->|--apply| K[apply_prune: /proc-check then unlink, skip if open]
+    J --> L[format_prune_report / prune_plan_to_json_dict]
+
+    M[DIRECTORY] -->|scan, one walk incl. newest_mtime| N[candidates: threshold + fresh-enough]
+    N --> O[plan_sweep]
+    O -->|--apply, per --confirm NAME| P[apply_sweep: SLURM-only, walltime-aware, one at a time]
+    P --> Q[_sweep_one: tar to temp, verify non-empty, atomic rename, rmtree]
+    O --> R[format_sweep_report / sweep_plan_to_json_dict]
+
+    S[SOURCE] -->|_measure_dir| T[plan_archive: size + file_count]
+    T -->|--yes| U[apply_archive: sync_dir push, verify, write manifest, THEN rmtree]
+    T --> V[format_archive_report / archive_plan_to_json_dict]
+    U --> W[(archive-manifests/*.json)]
+    W -->|plan_restore| X[apply_restore: sync_dir pull, optional delete_remote]
+
+    Y[PATH...] -->|fclones group: size+hash| Z[duplicate groups]
+    Z --> AA[format_duplicates_report / duplicates_to_json_dict]
+    AA --> F
+```
+
+`scan`'s walk and `find-duplicates`'s hashing are both delegated to Rust
+CLIs for speed at multi-TB scale (see "System dependencies" above) instead
+of a hand-rolled `os.walk`/`hashlib` reimplementation. They are
+deliberately separate pipelines, not a shared one: `scan` must stay
+stat-only (safe to point at a 100%-full disk), and finding exact
+duplicates fundamentally requires reading bytes, which `scan` never does.
+
+```
+scitex_storage/
+├── _scan.py        ← scan, scan_roots, ChildUsage, RootScan (fd-backed)
+├── _duplicates.py  ← find_duplicates (fclones-backed)
+├── _images.py      ← plan_prune, apply_prune, PruneCandidate, PrunePlan
+├── _sweep.py       ← plan_sweep, apply_sweep, sweep_status, SweepPlan, SweepResult
+├── _archive.py     ← plan_archive, apply_archive, plan_restore, apply_restore, ArchiveManifest
+├── _report.py      ← format_report, format_duplicates_report, to_json_dict, format_prune_report, format_sweep_report, format_archive_report, format_size
+└── _cli/           ← scan, find-duplicates, images prune, sweep, sweep-status, archive, restore, list-python-apis, mcp list-tools
 ```
 
 ## 1 Interfaces
@@ -328,58 +428,6 @@ for group in groups:
 ```
 
 </details>
-
-## Architecture
-
-```mermaid
-flowchart LR
-    A[PATH] -->|os.scandir top level| B[per-child]
-    B -->|fd, stat-only, no symlink follow| C[size + inode count]
-    C --> D[by_size / by_file_count]
-    D --> E[format_report / to_json_dict]
-    E --> F[CLI stdout]
-
-    G[DIRECTORY] -->|os.scandir, resolve symlinks| H[referenced set]
-    G -->|os.scandir, match --pattern| I[candidates]
-    H --> J[plan_prune: referenced U newest-N excluded from remove]
-    I --> J
-    J -->|--apply| K[apply_prune: /proc-check then unlink, skip if open]
-    J --> L[format_prune_report / prune_plan_to_json_dict]
-
-    M[DIRECTORY] -->|scan, one walk incl. newest_mtime| N[candidates: threshold + fresh-enough]
-    N --> O[plan_sweep]
-    O -->|--apply, per --confirm NAME| P[apply_sweep: SLURM-only, walltime-aware, one at a time]
-    P --> Q[_sweep_one: tar to temp, verify non-empty, atomic rename, rmtree]
-    O --> R[format_sweep_report / sweep_plan_to_json_dict]
-
-    S[SOURCE] -->|_measure_dir| T[plan_archive: size + file_count]
-    T -->|--yes| U[apply_archive: sync_dir push, verify, write manifest, THEN rmtree]
-    T --> V[format_archive_report / archive_plan_to_json_dict]
-    U --> W[(archive-manifests/*.json)]
-    W -->|plan_restore| X[apply_restore: sync_dir pull, optional delete_remote]
-
-    Y[PATH...] -->|fclones group: size+hash| Z[duplicate groups]
-    Z --> AA[format_duplicates_report / duplicates_to_json_dict]
-    AA --> F
-```
-
-`scan`'s walk and `find-duplicates`'s hashing are both delegated to Rust
-CLIs for speed at multi-TB scale (see "System dependencies" above) instead
-of a hand-rolled `os.walk`/`hashlib` reimplementation. They are
-deliberately separate pipelines, not a shared one: `scan` must stay
-stat-only (safe to point at a 100%-full disk), and finding exact
-duplicates fundamentally requires reading bytes, which `scan` never does.
-
-```
-scitex_storage/
-├── _scan.py        ← scan, scan_roots, ChildUsage, RootScan (fd-backed)
-├── _duplicates.py  ← find_duplicates (fclones-backed)
-├── _images.py      ← plan_prune, apply_prune, PruneCandidate, PrunePlan
-├── _sweep.py       ← plan_sweep, apply_sweep, sweep_status, SweepPlan, SweepResult
-├── _archive.py     ← plan_archive, apply_archive, plan_restore, apply_restore, ArchiveManifest
-├── _report.py      ← format_report, format_duplicates_report, to_json_dict, format_prune_report, format_sweep_report, format_archive_report, format_size
-└── _cli/           ← scan, find-duplicates, images prune, sweep, sweep-status, archive, restore, list-python-apis, mcp list-tools
-```
 
 ## Roadmap (not implemented)
 

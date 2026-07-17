@@ -1,6 +1,13 @@
 # cli-audit-dict.yaml — package-specific additions to the CLI-audit
 # noun/verb catalog (audit-cli §1). Additive only: never reclassifies or
 # overrides the canonical catalog.
+nouns:
+  - inode  # why: `inodes` is the standard filesystem term for the on-disk
+           # file-record objects a filesystem can run out of independently
+           # of free space (cf. `df -i`, whose own header column is
+           # "Inodes"). It is a term of art absent from general-English
+           # dictionaries, not a coinage. Declared singular: the auditor's
+           # own singularizer maps the plural back (inodes -> inode).
 intransitive_verbs:
   - scan  # why: matches the design doc's own command name
           # (`scitex-storage scan ~/projects`) and standard filesystem-tool

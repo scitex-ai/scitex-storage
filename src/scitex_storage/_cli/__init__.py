@@ -14,6 +14,7 @@ from ._compat import spec_group_kwargs
 from ._duplicates_cmd import find_duplicates_cmd
 from ._gui_cmd import gui_group, start_gui_cmd
 from ._images_cmd import images_group
+from ._inodes_cmd import inodes_cmd
 from ._introspect import list_python_apis
 from ._mcp_commands import mcp
 from ._scan_cmd import scan_cmd
@@ -44,6 +45,10 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
             "read-only, stat-only directory walk (via `fd`) that reports "
             "the biggest space and inode (file-count) consumers per "
             "top-level child of a root -- no file contents are ever read. "
+            "`validate-inodes` is the cheap counterpart: one statvfs per path, no "
+            "walk and no system binaries, reporting how close a filesystem "
+            "is to inode exhaustion (which fails every write while df still "
+            "shows free space). "
             "`find-duplicates` is a separate, explicitly opt-in verb (via "
             "`fclones`) that DOES read file contents (to hash them) to "
             "report exact-duplicate groups. `images prune` rotates a "
@@ -70,6 +75,7 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
                 "Storage",
                 (
                     "scan",
+                    "validate-inodes",
                     "find-duplicates",
                     "images",
                     "sweep",
@@ -114,6 +120,7 @@ def main(ctx: click.Context, help_recursive: bool, as_json: bool) -> None:
 
 
 main.add_command(scan_cmd)
+main.add_command(inodes_cmd)
 main.add_command(find_duplicates_cmd)
 main.add_command(images_group)
 main.add_command(sweep_cmd)
