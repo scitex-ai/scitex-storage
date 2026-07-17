@@ -17,6 +17,7 @@ from ._images_cmd import images_group
 from ._inodes_cmd import inodes_cmd
 from ._introspect import list_python_apis
 from ._mcp_commands import mcp
+from ._reclaim_cmd import reclaim_cmd, reclaim_restore_cmd
 from ._scan_cmd import scan_cmd
 from ._sweep_cmd import sweep_cmd, sweep_status_cmd
 
@@ -59,7 +60,12 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
             "gated on an explicit per-directory confirm. `archive` moves a "
             "directory to nas/nas2 over ssh (scitex-ssh's sync_dir), "
             "verifying before removing the local copy and writing a "
-            "manifest `restore` reads back. Every mutating command "
+            "manifest `restore` reads back. `reclaim` moves a path aside "
+            "into a reversible local archive (default adjacent `.old/`, or "
+            "--archive-root on another filesystem to free inodes) instead of "
+            "deleting it, so a rough cleanup call costs only a "
+            "`reclaim-restore`; the fraction of runs restored is reported as "
+            "the honest accuracy metric. Every mutating command "
             "defaults to a dry-run.",
         ),
         config_resolution=(
@@ -82,6 +88,8 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
                     "sweep-status",
                     "archive",
                     "restore",
+                    "reclaim",
+                    "reclaim-restore",
                 ),
             ),
             ("GUI", ("gui",)),
@@ -127,6 +135,8 @@ main.add_command(sweep_cmd)
 main.add_command(sweep_status_cmd)
 main.add_command(archive_cmd)
 main.add_command(restore_cmd)
+main.add_command(reclaim_cmd)
+main.add_command(reclaim_restore_cmd)
 main.add_command(list_python_apis)
 main.add_command(mcp)
 main.add_command(gui_group)
