@@ -37,6 +37,11 @@ scitex-storage's CLI/package imports several cross-package modules under
   inside ``_runtime()``, only at command-execution time, not at CLI
   import time -- a lean install with no ``[dev]`` extra still works, the
   ``gui`` subcommands just raise a clear error if actually invoked).
+* ``scitex_dev.hosts`` (``_fleet_status.py``) -- ``list_hosts``, the
+  shared host registry ``fleet-status`` reads per-host role/tier from.
+  OPTIONAL/guarded (imported lazily inside ``_host_roles()`` behind a
+  broad ``except``, so a lean install -- or a registry still mid-build --
+  falls back to the hardcoded ``DEFAULT_ROLES`` map rather than failing).
 
 This gate proves that when a listed package IS installed, the import
 actually resolves — catching a renamed/moved upstream API before it ships.
@@ -44,8 +49,8 @@ actually resolves — catching a renamed/moved upstream API before it ships.
 ``CROSS_PACKAGE_IMPORTS`` is the audited source of truth: it must list
 exactly the cross-package modules imported under ``src/`` (audit-project
 verifies it). Keep it in sync with the imports in ``_cli/_compat.py``,
-``_cli/__init__.py``, ``_system_deps.py``, ``_archive.py``, and
-``_django/_app_adapter.py``.
+``_cli/__init__.py``, ``_system_deps.py``, ``_archive.py``,
+``_django/_app_adapter.py``, and ``_fleet_status.py``.
 """
 
 from __future__ import annotations
@@ -64,6 +69,7 @@ CROSS_PACKAGE_IMPORTS = [
     "scitex_app._standalone",
     "scitex_ui",
     "scitex_dev.gui_runtime",
+    "scitex_dev.hosts",
 ]
 
 
