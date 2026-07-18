@@ -22,3 +22,9 @@ intransitive_verbs:
              # PATH argument, exactly like `scan`/`sweep`. `reclaim-restore`
              # is a compound whose head `restore` is already canonical, so
              # only the bare `reclaim` leaf needs declaring.
+  - run  # why: the `document-sorter run` leaf. "run" is the canonical verb
+         # for executing a pipeline once (cf. `airflow dags run`, `dbt run`,
+         # `snakemake`-style one-shot runs); the object is the configured
+         # inbox, supplied by the `document-sorter` group, not implied by the
+         # verb. Moby dual-classifies run noun+verb; the verb reading is the
+         # intended one here.

@@ -30,6 +30,13 @@ classifiers = [
 dependencies = [
     "click",
     "scitex-ssh>=1.2.0",
+    # `document-sorter` reads a searchable PDF's embedded text layer. pypdf is
+    # pure-Python (no system binary, unlike fd/fclones/rsync), so it belongs
+    # in the base install: `pip install scitex-storage` must be able to run
+    # the document pipeline. Chosen over pdfminer.six as the lighter reader
+    # for text-layer extraction (the only PDF operation this package does).
+    "pypdf>=4.0",
+    "pyyaml>=6.0",
 ]
 # NOTE: three SYSTEM (non-pip) runtime dependencies, each required by ONE
 # verb: `fd` (fd-find) for `scan`'s directory traversal, `fclones` for
