@@ -12,6 +12,7 @@ from .. import __version__
 from ._archive_cmd import archive_cmd, restore_cmd
 from ._compat import spec_group_kwargs
 from ._duplicates_cmd import find_duplicates_cmd
+from ._fleet_status_cmd import fleet_status_cmd
 from ._gui_cmd import gui_group, start_gui_cmd
 from ._images_cmd import images_group
 from ._inodes_cmd import inodes_cmd
@@ -65,8 +66,12 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
             "--archive-root on another filesystem to free inodes) instead of "
             "deleting it, so a rough cleanup call costs only a "
             "`reclaim-restore`; the fraction of runs restored is reported as "
-            "the honest accuracy metric. Every mutating command "
-            "defaults to a dry-run.",
+            "the honest accuracy metric. `fleet-status` renders a "
+            "self-contained HTML dashboard of every host's space% and inode% "
+            "grouped by role/tier, carrying the same three-state verdicts "
+            "(measured / not-applicable / could-not-look) so a filesystem it "
+            "could not read is never shown as a reassuring green 0%. Every "
+            "mutating command defaults to a dry-run.",
         ),
         config_resolution=(
             "scitex-storage has no configurable state yet — every command "
@@ -90,6 +95,7 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
                     "restore",
                     "reclaim",
                     "reclaim-restore",
+                    "fleet-status",
                 ),
             ),
             ("GUI", ("gui",)),
@@ -137,6 +143,7 @@ main.add_command(archive_cmd)
 main.add_command(restore_cmd)
 main.add_command(reclaim_cmd)
 main.add_command(reclaim_restore_cmd)
+main.add_command(fleet_status_cmd)
 main.add_command(list_python_apis)
 main.add_command(mcp)
 main.add_command(gui_group)
