@@ -7,13 +7,12 @@ constructing plain dataclass values, which is data, not a fake. The
 gatherer is exercised against the REAL local filesystem (a real statvfs
 on tmp_path, a really-missing path) -- no network, no ssh, no fakes.
 
-The cases pinned hardest are the ones a naive dashboard gets wrong in the
-direction of false reassurance: a filesystem that could not be read must
-render distinctly (grey em dash), never as a green 0%, and must be counted
-apart from both healthy and flagged rows.
+Each test makes exactly one assertion (STX-TQ007): the cases pinned
+hardest are the ones a naive dashboard gets wrong in the direction of
+false reassurance -- a filesystem that could not be read must render
+distinctly (grey em dash), never as a green 0%, and must be counted apart
+from both healthy and flagged rows.
 """
-
-from pathlib import Path
 
 from scitex_storage._fleet_status import (
     COULD_NOT_LOOK,
@@ -46,58 +45,74 @@ def _measured(**kw) -> HostStorage:
 def test_space_flag_fires_at_the_threshold():
     # Arrange -- exactly 85%.
     row = _measured(used_pct=85.0)
+    # Act
+    flagged = row.space_flagged
     # Assert
-    assert row.space_flagged is True
+    assert flagged is True
 
 
 def test_space_flag_is_quiet_below_the_threshold():
     # Arrange
     row = _measured(used_pct=84.9)
+    # Act
+    flagged = row.space_flagged
     # Assert
-    assert row.space_flagged is False
+    assert flagged is False
 
 
 def test_inode_flag_fires_at_the_threshold():
     # Arrange
     row = _measured(inode_used_pct=97.0)
+    # Act
+    flagged = row.inode_flagged
     # Assert
-    assert row.inode_flagged is True
+    assert flagged is True
 
 
 def test_a_row_is_flagged_when_only_space_is_over():
     # Arrange -- 96% space, 19% inodes (the ywata-note-win case).
     row = _measured(used_pct=96.0, inode_used_pct=19.0)
+    # Act
+    flagged = row.is_flagged
     # Assert
-    assert row.is_flagged is True
+    assert flagged is True
 
 
 def test_a_row_is_flagged_when_only_inodes_are_over():
     # Arrange -- 71% space, 97% inodes (the punim0264 case).
     row = _measured(used_pct=71.0, inode_used_pct=97.0)
+    # Act
+    flagged = row.is_flagged
     # Assert
-    assert row.is_flagged is True
+    assert flagged is True
 
 
 def test_a_healthy_row_is_not_flagged():
     # Arrange
     row = _measured(used_pct=27.0, inode_used_pct=2.0)
+    # Act
+    flagged = row.is_flagged
     # Assert
-    assert row.is_flagged is False
+    assert flagged is False
 
 
 def test_a_could_not_look_inode_never_flags():
     # Arrange -- an unknown is not an alarm.
     row = HostStorage(host="nas", role="tier1", mount="/v", verdict=COULD_NOT_LOOK,
                       used_pct=50.0, inode_used_pct=None)
+    # Act
+    flagged = row.inode_flagged
     # Assert
-    assert row.inode_flagged is False
+    assert flagged is False
 
 
 def test_could_not_look_predicate_reads_the_verdict():
     # Arrange
     row = HostStorage(host="nas", role="tier1", mount="/v", verdict=COULD_NOT_LOOK)
+    # Act
+    verdict_blind = row.could_not_look
     # Assert
-    assert row.could_not_look is True
+    assert verdict_blind is True
 
 
 # --------------------------------------------------------------------------
@@ -138,14 +153,18 @@ def test_space_pct_is_full_when_nothing_is_available():
 def test_role_for_uses_an_explicit_table():
     # Arrange
     table = {"spartan": "compute/tier1"}
-    # Act / Assert
-    assert role_for("spartan", table) == "compute/tier1"
+    # Act
+    role = role_for("spartan", table)
+    # Assert
+    assert role == "compute/tier1"
 
 
 def test_role_for_returns_unknown_for_an_unregistered_host():
     # Arrange -- a guessed tier would be worse than an honest "?".
-    # Act / Assert
-    assert role_for("mystery-box", {}) == UNKNOWN_ROLE
+    # Act
+    role = role_for("mystery-box", {})
+    # Assert
+    assert role == UNKNOWN_ROLE
 
 
 def test_host_roles_falls_back_to_the_default_map():
@@ -164,17 +183,25 @@ def test_host_roles_falls_back_to_the_default_map():
 def test_gather_measures_a_real_local_path(tmp_path):
     # Arrange -- a real directory on whatever filesystem the test host uses.
     # Act
-    snap = gather_fleet_snapshot([str(tmp_path)])
+    row = gather_fleet_snapshot([str(tmp_path)]).rows[0]
     # Assert -- both MEASURED and NOT_APPLICABLE (btrfs/ZFS) are valid.
-    assert snap.rows[0].verdict in (MEASURED, NOT_APPLICABLE)
+    assert row.verdict in (MEASURED, NOT_APPLICABLE)
 
 
-def test_gather_reports_a_real_space_percentage(tmp_path):
+def test_gather_reports_a_non_null_space_percentage(tmp_path):
+    # Arrange -- a real filesystem always has a measurable space figure.
+    # Act
+    row = gather_fleet_snapshot([str(tmp_path)]).rows[0]
+    # Assert
+    assert row.used_pct is not None
+
+
+def test_gather_space_percentage_is_within_bounds(tmp_path):
     # Arrange
     # Act
     row = gather_fleet_snapshot([str(tmp_path)]).rows[0]
-    # Assert -- a real filesystem is somewhere in [0, 100], never None here.
-    assert row.used_pct is not None and 0.0 <= row.used_pct <= 100.0
+    # Assert -- a real filesystem is somewhere in [0, 100].
+    assert 0.0 <= row.used_pct <= 100.0
 
 
 def test_gather_reports_could_not_look_for_a_missing_path(tmp_path):
@@ -186,13 +213,22 @@ def test_gather_reports_could_not_look_for_a_missing_path(tmp_path):
     assert row.verdict == COULD_NOT_LOOK
 
 
-def test_gather_does_not_invent_a_zero_for_a_missing_path(tmp_path):
+def test_gather_does_not_invent_a_zero_space_for_a_missing_path(tmp_path):
     # Arrange
     missing = tmp_path / "definitely-not-here"
     # Act
     row = gather_fleet_snapshot([str(missing)]).rows[0]
     # Assert
-    assert row.used_pct is None and row.inode_used_pct is None
+    assert row.used_pct is None
+
+
+def test_gather_does_not_invent_a_zero_inode_for_a_missing_path(tmp_path):
+    # Arrange
+    missing = tmp_path / "definitely-not-here"
+    # Act
+    row = gather_fleet_snapshot([str(missing)]).rows[0]
+    # Assert
+    assert row.inode_used_pct is None
 
 
 def test_gather_returns_one_row_per_path(tmp_path):
@@ -211,14 +247,16 @@ def test_gather_returns_one_row_per_path(tmp_path):
 
 
 def test_demo_snapshot_has_the_seven_seed_rows():
-    # Arrange / Act
+    # Arrange
+    # Act
     snap = demo_snapshot()
     # Assert
     assert snap.total_filesystems == 7
 
 
 def test_demo_snapshot_covers_all_three_verdicts():
-    # Arrange / Act
+    # Arrange
+    # Act
     verdicts = {r.verdict for r in demo_snapshot().rows}
     # Assert
     assert verdicts == {MEASURED, COULD_NOT_LOOK, NOT_APPLICABLE}
@@ -245,16 +283,25 @@ def test_demo_snapshot_flags_the_space_and_inode_emergencies():
 # --------------------------------------------------------------------------
 
 
-def test_dashboard_is_a_self_contained_document():
+def test_dashboard_is_a_complete_document():
     # Arrange
+    # Act
     html = build_dashboard_html(demo_snapshot())
-    # Assert -- a complete page with no external asset references.
+    # Assert -- a complete page, not a fragment.
     assert html.startswith("<!doctype html>")
-    assert "http://" not in html and "https://" not in html
+
+
+def test_dashboard_references_no_external_assets():
+    # Arrange
+    # Act
+    html = build_dashboard_html(demo_snapshot())
+    # Assert -- self-contained: no http(s) references to fetch.
+    assert "http" not in html
 
 
 def test_dashboard_is_dark_mode_by_default():
     # Arrange -- the operator's eyes are light-sensitive (constitution).
+    # Act
     html = build_dashboard_html(demo_snapshot())
     # Assert -- the dark background variable is present in the inline CSS.
     assert "--bg: #12151a" in html
@@ -278,7 +325,7 @@ def test_dashboard_does_not_flag_a_healthy_row():
     assert 'tr class="flagged"' not in html
 
 
-def test_dashboard_renders_could_not_look_as_an_em_dash_not_a_percent():
+def test_dashboard_renders_could_not_look_inode_as_an_em_dash():
     # Arrange -- the whole point: never a reassuring 0% for an unread mount.
     row = HostStorage(host="nas", role="tier1", mount="/v", verdict=COULD_NOT_LOOK,
                       used_pct=77.0, inode_used_pct=None)
@@ -286,6 +333,15 @@ def test_dashboard_renders_could_not_look_as_an_em_dash_not_a_percent():
     html = build_dashboard_html(FleetSnapshot(rows=[row]))
     # Assert
     assert "&mdash;" in html
+
+
+def test_dashboard_labels_a_could_not_look_verdict():
+    # Arrange
+    row = HostStorage(host="nas", role="tier1", mount="/v", verdict=COULD_NOT_LOOK,
+                      used_pct=77.0, inode_used_pct=None)
+    # Act
+    html = build_dashboard_html(FleetSnapshot(rows=[row]))
+    # Assert
     assert "could-not-look" in html
 
 
@@ -299,29 +355,55 @@ def test_dashboard_marks_a_not_applicable_inode_distinctly():
     assert "not-applicable" in html
 
 
-def test_dashboard_header_states_the_counts():
+def test_dashboard_header_names_the_could_not_look_count():
     # Arrange
+    # Act
     html = build_dashboard_html(demo_snapshot())
     # Assert -- the header must not silently disagree with the table.
-    assert "Could not look" in html and "Flagged" in html
+    assert "Could not look" in html
 
 
-def test_dashboard_groups_rows_by_role():
+def test_dashboard_header_names_the_flagged_count():
+    # Arrange
+    # Act
+    html = build_dashboard_html(demo_snapshot())
+    # Assert
+    assert "Flagged" in html
+
+
+def test_dashboard_renders_the_first_role_group():
     # Arrange -- two roles.
     rows = [_measured(host="a", role="tier1"), _measured(host="b", role="tier2")]
     # Act
     html = build_dashboard_html(FleetSnapshot(rows=rows))
     # Assert
-    assert "tier1" in html and "tier2" in html
+    assert "tier1" in html
 
 
-def test_dashboard_escapes_note_text():
+def test_dashboard_renders_the_second_role_group():
+    # Arrange -- two roles.
+    rows = [_measured(host="a", role="tier1"), _measured(host="b", role="tier2")]
+    # Act
+    html = build_dashboard_html(FleetSnapshot(rows=rows))
+    # Assert
+    assert "tier2" in html
+
+
+def test_dashboard_does_not_leak_raw_note_markup():
     # Arrange -- a note carrying HTML-special characters must not break out.
     row = _measured(host="h", note="<script>alert(1)</script>")
     # Act
     html = build_dashboard_html(FleetSnapshot(rows=[row]))
     # Assert
     assert "<script>alert(1)</script>" not in html
+
+
+def test_dashboard_escapes_note_markup():
+    # Arrange
+    row = _measured(host="h", note="<script>alert(1)</script>")
+    # Act
+    html = build_dashboard_html(FleetSnapshot(rows=[row]))
+    # Assert
     assert "&lt;script&gt;" in html
 
 
@@ -333,14 +415,24 @@ def test_dashboard_renders_an_empty_snapshot_without_crashing():
     assert "No filesystems" in html
 
 
-def test_flagged_count_ignores_could_not_look_rows():
+def test_flagged_count_ignores_a_could_not_look_row():
     # Arrange -- a could-not-look row is an unknown, not an alarm.
     rows = [HostStorage(host="nas", role="t", mount="/v", verdict=COULD_NOT_LOOK,
                         used_pct=None, inode_used_pct=None)]
     # Act
     snap = FleetSnapshot(rows=rows)
     # Assert
-    assert snap.flagged_count == 0 and snap.could_not_look_count == 1
+    assert snap.flagged_count == 0
+
+
+def test_could_not_look_count_sees_a_could_not_look_row():
+    # Arrange
+    rows = [HostStorage(host="nas", role="t", mount="/v", verdict=COULD_NOT_LOOK,
+                        used_pct=None, inode_used_pct=None)]
+    # Act
+    snap = FleetSnapshot(rows=rows)
+    # Assert
+    assert snap.could_not_look_count == 1
 
 
 # EOF
