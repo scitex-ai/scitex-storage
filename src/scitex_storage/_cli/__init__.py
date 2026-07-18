@@ -11,6 +11,7 @@ import click
 from .. import __version__
 from ._archive_cmd import archive_cmd, restore_cmd
 from ._compat import spec_group_kwargs
+from ._document_sorter_cmd import document_sorter_group
 from ._duplicates_cmd import find_duplicates_cmd
 from ._gui_cmd import gui_group, start_gui_cmd
 from ._images_cmd import images_group
@@ -92,6 +93,7 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
                     "reclaim-restore",
                 ),
             ),
+            ("Documents", ("document-sorter",)),
             ("GUI", ("gui",)),
             ("Introspection", ("list-python-apis", "mcp")),
         ),
@@ -137,6 +139,7 @@ main.add_command(archive_cmd)
 main.add_command(restore_cmd)
 main.add_command(reclaim_cmd)
 main.add_command(reclaim_restore_cmd)
+main.add_command(document_sorter_group)
 main.add_command(list_python_apis)
 main.add_command(mcp)
 main.add_command(gui_group)
