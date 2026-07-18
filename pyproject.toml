@@ -30,12 +30,20 @@ classifiers = [
 dependencies = [
     "click",
     "scitex-ssh>=1.2.0",
-    # `document-sorter` reads a searchable PDF's embedded text layer. pypdf is
-    # pure-Python (no system binary, unlike fd/fclones/rsync), so it belongs
-    # in the base install: `pip install scitex-storage` must be able to run
-    # the document pipeline. Chosen over pdfminer.six as the lighter reader
-    # for text-layer extraction (the only PDF operation this package does).
-    "pypdf>=4.0",
+    # `document-sorter` reads a PDF's text via scitex-io
+    # (`scitex_io.load(pdf, mode="text", ocr=...)`), which OWNS PDF reading
+    # for the ecosystem now -- storage dogfoods it instead of driving a PDF
+    # library directly. scitex-io reads the embedded text layer and, with
+    # ocr=True, renders + OCRs image-only pages through scitex-cv (an OPTIONAL
+    # extra scitex-io pulls only when OCR is actually wanted). This is why
+    # pypdf was dropped from storage's own deps: the sole in-repo user was
+    # `_document_pipeline/_extract.py`, and the PDF backend is now scitex-io's
+    # concern, not storage's.
+    # NOTE: the `ocr=` parameter landed in a scitex-io release above the
+    # 0.3.1 floor pinned here; bump this floor to that release once its
+    # version is cut so `pip install scitex-storage` cannot resolve an
+    # OCR-less scitex-io (mode="text" itself works at >=0.3.1).
+    "scitex-io>=0.3.1",
     "pyyaml>=6.0",
 ]
 # NOTE: three SYSTEM (non-pip) runtime dependencies, each required by ONE

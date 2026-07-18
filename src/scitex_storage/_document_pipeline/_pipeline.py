@@ -42,7 +42,11 @@ class DocumentOutcome:
 
     Serialised verbatim (via :meth:`to_record`) as one line of the index.
     ``archived_path``/``sorted_path`` are ``None`` for a dry-run (classified,
-    nothing moved).
+    nothing moved). ``text_source`` is a COARSE marker of how the text was
+    read: ``"io+ocr"`` when extraction ran through scitex-io with the OCR
+    fallback enabled, ``"io"`` when text-layer-only. scitex-io does not report
+    whether OCR actually fired vs the embedded layer, so this records the
+    configured extraction MODE, not an observed embedded-vs-OCR distinction.
     """
 
     doc_id: str
@@ -57,6 +61,7 @@ class DocumentOutcome:
     sha256: str
     archived_path: str | None
     sorted_path: str | None
+    text_source: str
 
     def to_record(self) -> dict:
         return asdict(self)
@@ -156,7 +161,7 @@ def process_document(
     reversible. Returns the :class:`DocumentOutcome` (also appended to the
     index).
     """
-    body = extract_text(raw.path) if text is None else text
+    body = extract_text(raw.path, ocr=config.ocr_enabled) if text is None else text
     verdict = classify(body, categories=config.categories)
     ko_type = detect_keep_original(body, config.keep_original)
 
@@ -192,16 +197,22 @@ def process_document(
         sha256=sha,
         archived_path=str(archived),
         sorted_path=str(dest),
+        text_source=_text_source(config),
     )
     _append_index(config.index_path, outcome)
     return outcome
+
+
+def _text_source(config: DocumentSorterConfig) -> str:
+    """Coarse text-provenance marker for the index (see DocumentOutcome)."""
+    return "io+ocr" if config.ocr_enabled else "io"
 
 
 def _classify_only(
     raw: RawDocument, config: DocumentSorterConfig, *, text: str | None = None
 ) -> DocumentOutcome:
     """Dry-run: classify + hash, move/copy/index NOTHING."""
-    body = extract_text(raw.path) if text is None else text
+    body = extract_text(raw.path, ocr=config.ocr_enabled) if text is None else text
     verdict = classify(body, categories=config.categories)
     ko_type = detect_keep_original(body, config.keep_original)
     return DocumentOutcome(
@@ -217,6 +228,7 @@ def _classify_only(
         sha256="",
         archived_path=None,
         sorted_path=None,
+        text_source=_text_source(config),
     )
 
 
