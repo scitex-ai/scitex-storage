@@ -5,10 +5,11 @@ because that is exactly what the extraction path reads -- and NO MOCKS
 (PA-306) means we generate a genuine PDF, not a stub. ``searchable_pdf`` is a
 dependency-free factory: it hand-writes a minimal single-page PDF whose
 content stream draws the given lines with a standard Helvetica font, so
-``pypdf`` extracts them back verbatim. Text is Latin-1 (ASCII) -- a
-hand-rolled simple-font PDF cannot carry CJK glyphs without a CID font, so
-the Japanese-classification cases are tested directly on strings in
-test__classify.py, while the PDF fixture proves the end-to-end read path.
+``scitex_io.load(pdf, mode="text")`` (the production read path) extracts them
+back verbatim. Text is Latin-1 (ASCII) -- a hand-rolled simple-font PDF cannot
+carry CJK glyphs without a CID font, so the Japanese-classification cases are
+tested directly on strings in test__classify.py, while the PDF fixture proves
+the end-to-end read path.
 """
 
 from __future__ import annotations

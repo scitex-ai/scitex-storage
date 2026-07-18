@@ -44,7 +44,12 @@ class DocumentSorterConfig:
     (archive-before-delete). ``categories`` is the closed set a document may
     be filed under (``misc`` is always the safe fallback). ``keep_original``
     lists the physical-document TYPES whose paper original must be kept even
-    after scanning (passport, mynumber_card, ...).
+    after scanning (passport, mynumber_card, ...). ``ocr_enabled`` (default
+    True — the sorter WANTS OCR on image-only scans) drives the ``ocr=`` flag
+    passed to ``scitex_io.load(pdf, mode="text", ocr=...)``: when the embedded
+    text layer is empty, scitex-io renders the pages and OCRs them via
+    scitex-cv. ``ocr_engine`` / ``ocr_languages`` remain the declared engine
+    knobs (scitex-io/scitex-cv default to EasyOCR ja+en).
     """
 
     inbox: Path
@@ -53,6 +58,7 @@ class DocumentSorterConfig:
     categories: tuple[str, ...] = _DEFAULT_CATEGORIES
     naming: str = _DEFAULT_NAMING
     keep_original: tuple[str, ...] = ()
+    ocr_enabled: bool = True
     ocr_engine: str = "easyocr"
     ocr_languages: tuple[str, ...] = ("ja", "en")
 
@@ -116,6 +122,7 @@ def load_config(config_path: str | Path | None = None) -> DocumentSorterConfig:
         categories=tuple(categories),
         naming=section.get("naming") or _DEFAULT_NAMING,
         keep_original=tuple(section.get("keep_original") or ()),
+        ocr_enabled=bool(ocr.get("enabled", True)),
         ocr_engine=str(ocr.get("engine", "easyocr")),
         ocr_languages=tuple(ocr.get("languages") or ("ja", "en")),
     )

@@ -22,6 +22,13 @@ scitex-storage's CLI/package imports several cross-package modules under
   REQUIRED (a hard ``[project.dependencies]`` entry, unguarded) — archive
   tiering has no meaning without a transport, unlike the optional
   scitex-dev help/completion/system-deps niceties above.
+* ``scitex_io`` (``_document_pipeline/_extract.py``) — ``load``, called as
+  ``scitex_io.load(pdf, mode="text", ocr=...)`` to read a PDF's text
+  (embedded layer, with an OCR fallback via scitex-cv). REQUIRED (a hard
+  ``[project.dependencies]`` entry) — scitex-io OWNS PDF reading for the
+  ecosystem now, so the document pipeline dogfoods it rather than driving a
+  PDF library directly. Imported lazily inside ``extract_text`` (not at
+  package-import time), but unguarded: there is no fallback reader.
 * ``scitex_app._django`` / ``scitex_app._standalone``
   (``_django/_app_adapter.py``) — the (currently private) Django
   AppConfig base class + standalone-server launcher every scitex-hub
@@ -50,7 +57,8 @@ actually resolves — catching a renamed/moved upstream API before it ships.
 exactly the cross-package modules imported under ``src/`` (audit-project
 verifies it). Keep it in sync with the imports in ``_cli/_compat.py``,
 ``_cli/__init__.py``, ``_system_deps.py``, ``_archive.py``,
-``_django/_app_adapter.py``, and ``_fleet_status.py``.
+``_document_pipeline/_extract.py``, ``_django/_app_adapter.py``, and
+``_fleet_status.py``.
 """
 
 from __future__ import annotations
@@ -65,6 +73,7 @@ CROSS_PACKAGE_IMPORTS = [
     "scitex_dev._cli._completion",
     "scitex_dev.system_deps",
     "scitex_ssh",
+    "scitex_io",
     "scitex_app._django",
     "scitex_app._standalone",
     "scitex_ui",

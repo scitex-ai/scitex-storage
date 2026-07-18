@@ -95,6 +95,31 @@ def test_load_config_parses_ocr_languages(tmp_path):
     assert cfg.ocr_languages == ("ja", "en")
 
 
+def test_load_config_ocr_enabled_defaults_true(tmp_path):
+    # Arrange -- the sorter WANTS OCR on image scans, so default is on.
+    path = _write(
+        tmp_path / "c.yaml",
+        f'document_sorter:\n  inbox: "{tmp_path}/in"\n  root: "{tmp_path}/s"\n',
+    )
+    # Act
+    cfg = load_config(path)
+    # Assert
+    assert cfg.ocr_enabled is True
+
+
+def test_load_config_ocr_enabled_can_be_disabled(tmp_path):
+    # Arrange
+    path = _write(
+        tmp_path / "c.yaml",
+        f'document_sorter:\n  inbox: "{tmp_path}/in"\n  root: "{tmp_path}/s"\n'
+        "  ocr:\n    enabled: false\n",
+    )
+    # Act
+    cfg = load_config(path)
+    # Assert
+    assert cfg.ocr_enabled is False
+
+
 def test_load_config_expands_tilde_in_root(tmp_path):
     # Arrange
     path = _write(
