@@ -87,7 +87,12 @@ def run(
             f"still up) and retry."
         )
     print(f"SciTeX Storage GUI: http://{host}:{port}")
-    print("Press Ctrl+C to stop")
+    # "Ctrl+C" is only useful while you still have the terminal. Name the
+    # commands that work AFTER it is gone -- the operator asked how to stop
+    # the GUI and the banner had no answer for the case that actually
+    # happens (started earlier, terminal closed, still listening).
+    print("Stop: Ctrl+C here, or `scitex-storage gui stop` from anywhere")
+    print("Check: `scitex-storage gui status`")
 
     import django
 
