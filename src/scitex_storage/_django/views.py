@@ -105,6 +105,27 @@ def index(request):
     return render(request, "scitex_storage/index.html", context)
 
 
+def fleet(request) -> HttpResponse:
+    """Serve the cached multi-host fleet dashboard.
+
+    Reads a snapshot rendered OUT OF BAND (``_observe.write_fleet_snapshot``)
+    and never gathers live: ``observe_fleet`` ssh-probes six hosts and
+    takes ~90s, which would hang this request handler exactly as a
+    scan-on-load hangs ``index`` (see that view's docstring). The gather
+    is a periodic job; this view only reads its output.
+
+    When no snapshot exists yet, returns a plain, honest placeholder that
+    names the command to produce one -- NOT a blank page and NOT a 500,
+    because "not gathered yet" is a real state a first-run user will hit.
+    """
+    from scitex_storage._observe import (
+        default_snapshot_path,
+        fleet_html_or_placeholder,
+    )
+
+    return HttpResponse(fleet_html_or_placeholder(default_snapshot_path()))
+
+
 def healthz(request) -> HttpResponse:
     """Trivial liveness check — not part of the manifest'd UI routes."""
     return HttpResponse("ok")

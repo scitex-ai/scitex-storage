@@ -29,7 +29,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
-from ._fleet_status import COULD_NOT_LOOK, MEASURED, NOT_APPLICABLE, HostStorage
+import os
+
+from ._fleet_status import COULD_NOT_LOOK, MEASURED, NOT_APPLICABLE, FleetSnapshot, HostStorage
 
 #: Device-name prefixes/names whose "100% full" is structural, not a
 #: warning. A read-only squashfs image (every `/snap/*`, every
@@ -394,5 +396,93 @@ def observe_fleet(
         keep = (keep_mounts_by_host or {}).get(rec.name)
         rows.extend(observe_host(rec.name, role, runner, keep))
     return rows
+
+
+# --------------------------------------------------------------------------
+# Snapshot cache -- the GUI reads this, NEVER gathers live in a request
+# --------------------------------------------------------------------------
+#
+# observe_fleet() ssh-probes six hosts and takes ~90s. Calling it inside a
+# Django request handler would hang the page well past any client timeout
+# -- the exact lesson _django/views.py already records about scan(). So the
+# gather runs OUT OF BAND (a periodic job) and writes a rendered snapshot
+# here; the view only ever reads this file.
+
+def default_snapshot_path() -> str:
+    """Where the rendered fleet dashboard is cached.
+
+    Under the storage runtime dir, honouring ``SCITEX_DIR`` when set so it
+    lands wherever the rest of scitex-storage's runtime state lives.
+    """
+    base = os.environ.get("SCITEX_DIR") or os.path.expanduser("~/.scitex")
+    return os.path.join(base, "scitex-storage", "runtime", "fleet-dashboard.html")
+
+
+#: Shown when no snapshot exists yet. A named next step, not a blank page.
+_NO_SNAPSHOT_HTML = (
+    "<!doctype html><html><body style='font-family:sans-serif;"
+    "background:#0d1117;color:#c9d1d9;padding:2rem'>"
+    "<h1>SciTeX Storage &mdash; fleet</h1>"
+    "<p>No fleet snapshot has been gathered yet.</p>"
+    "<p>Run <code>scitex-storage fleet-status --gather</code> "
+    "(or wait for the periodic job) to populate it.</p>"
+    "</body></html>"
+)
+
+
+def fleet_html_or_placeholder(path: str) -> str:
+    """Return the cached dashboard at ``path``, or a placeholder if absent.
+
+    Pure with respect to its argument -- takes the path explicitly rather
+    than resolving it -- so the read/placeholder branch is testable
+    without env manipulation or a running server. "Absent" is a real
+    first-run state (the gather has not run yet), so it yields a page
+    naming the fix, never a blank body and never an exception.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except FileNotFoundError:
+        return _NO_SNAPSHOT_HTML
+
+
+def write_fleet_snapshot(
+    path: str,
+    generated_at: str,
+    timeout_seconds: float = 30.0,
+) -> FleetSnapshot:
+    """Gather the whole fleet and write the rendered dashboard atomically.
+
+    ``generated_at`` is passed in rather than read from the clock so the
+    caller owns the timestamp (and the write is reproducible in a test).
+    Rendering is imported lazily so this module does not pull the HTML
+    layer into every import.
+
+    The write is atomic (temp + rename) because a reader -- the Django
+    view -- may hit this file at any instant, and a half-written
+    dashboard is worse than a stale one. Returns the snapshot so a caller
+    can inspect what was written without re-reading the file.
+    """
+    from ._fleet_status_render import build_dashboard_html
+
+    rows = observe_fleet(timeout_seconds=timeout_seconds)
+    flagged = sum(1 for r in rows if r.is_flagged)
+    could_not = sum(1 for r in rows if r.could_not_look)
+    snapshot = FleetSnapshot(
+        rows=rows,
+        generated_at=generated_at,
+        note=(
+            f"{len({r.host for r in rows})} hosts, {len(rows)} filesystems, "
+            f"{flagged} flagged, {could_not} could-not-look"
+        ),
+    )
+    html = build_dashboard_html(snapshot)
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(html)
+    os.replace(tmp, path)  # atomic on POSIX
+    return snapshot
 
 # EOF

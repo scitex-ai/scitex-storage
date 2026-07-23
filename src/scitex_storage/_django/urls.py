@@ -16,6 +16,7 @@ app_name = "scitex_storage"
 
 urlpatterns = [
     path("", views.index, name="index"),
+    path("fleet", views.fleet, name="fleet"),
     path("healthz", views.healthz, name="healthz"),
 ]
 
