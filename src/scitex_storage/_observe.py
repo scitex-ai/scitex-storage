@@ -199,6 +199,12 @@ def default_bubbles_path() -> str:
     return os.path.join(base, "scitex-storage", "runtime", "fleet-bubbles.html")
 
 
+def default_sunburst_path() -> str:
+    """Where the rendered capacity-sunburst page is cached (sibling of the others)."""
+    base = os.environ.get("SCITEX_DIR") or os.path.expanduser("~/.scitex")
+    return os.path.join(base, "scitex-storage", "runtime", "fleet-sunburst.html")
+
+
 #: Shown when no snapshot exists yet. A named next step, not a blank page.
 _NO_SNAPSHOT_HTML = (
     "<!doctype html><html><body style='font-family:sans-serif;"
@@ -246,6 +252,7 @@ def write_fleet_snapshot(
     """
     from ._bubble_render import build_bubbles_html
     from ._fleet_status_render import build_dashboard_html
+    from ._sunburst_render import build_sunburst_html
 
     rows = observe_fleet(timeout_seconds=timeout_seconds)
     flagged = sum(1 for r in rows if r.is_flagged)
@@ -263,6 +270,7 @@ def write_fleet_snapshot(
     # table and the bubble page never disagree about what was gathered.
     _atomic_write(path, build_dashboard_html(snapshot))
     _atomic_write(default_bubbles_path(), build_bubbles_html(snapshot))
+    _atomic_write(default_sunburst_path(), build_sunburst_html(snapshot))
     return snapshot
 
 

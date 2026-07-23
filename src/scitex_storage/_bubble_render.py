@@ -77,6 +77,14 @@ def aggregate_hosts(snapshot: FleetSnapshot) -> list[dict]:
                     "mount": row.mount,
                     "total_bytes": row.size_bytes,
                     "used_pct": round(row.used_pct, 1),
+                    # inode% is a SEPARATE exhaustion axis -- carried so a
+                    # view can colour by it. May be None even on a measured
+                    # row (a filesystem with no fixed inode table).
+                    "inode_pct": (
+                        round(row.inode_used_pct, 1)
+                        if row.inode_used_pct is not None
+                        else None
+                    ),
                 }
             )
 
@@ -87,6 +95,14 @@ def aggregate_hosts(snapshot: FleetSnapshot) -> list[dict]:
             if rec["total_bytes"] > 0
             else None
         )
+        # Host inode% is the WORST across its filesystems, not an average:
+        # inode exhaustion on ANY one filesystem breaks writes there, so
+        # the alarm is the max. This is the axis that silently took
+        # punim0264 to 97% while its space sat at 70%.
+        inode_vals = [
+            f["inode_pct"] for f in rec["filesystems"] if f["inode_pct"] is not None
+        ]
+        rec["inode_pct"] = max(inode_vals) if inode_vals else None
         rec["filesystems"].sort(key=lambda f: -f["total_bytes"])
     records.sort(key=lambda r: -r["total_bytes"])
     return records

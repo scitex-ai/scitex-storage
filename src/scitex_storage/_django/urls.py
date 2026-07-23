@@ -21,6 +21,7 @@ urlpatterns = [
     # 404 typing ``/fleet/`` against a slashless ``path("fleet", ...)``.
     path("fleet/", views.fleet, name="fleet"),
     path("bubbles/", views.bubbles, name="bubbles"),
+    path("sunburst/", views.sunburst, name="sunburst"),
     path("healthz", views.healthz, name="healthz"),
 ]
 

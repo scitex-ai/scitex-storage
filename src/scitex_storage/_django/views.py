@@ -140,6 +140,20 @@ def bubbles(request) -> HttpResponse:
     return HttpResponse(fleet_html_or_placeholder(default_bubbles_path()))
 
 
+def sunburst(request) -> HttpResponse:
+    """Serve the cached interactive capacity-sunburst page (Codecov-style).
+
+    Same cache-read discipline as :func:`fleet`: rendered out of band,
+    served verbatim, placeholder when absent.
+    """
+    from scitex_storage._observe import (
+        default_sunburst_path,
+        fleet_html_or_placeholder,
+    )
+
+    return HttpResponse(fleet_html_or_placeholder(default_sunburst_path()))
+
+
 def healthz(request) -> HttpResponse:
     """Trivial liveness check — not part of the manifest'd UI routes."""
     return HttpResponse("ok")
