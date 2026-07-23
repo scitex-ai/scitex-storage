@@ -193,6 +193,12 @@ def default_snapshot_path() -> str:
     return os.path.join(base, "scitex-storage", "runtime", "fleet-dashboard.html")
 
 
+def default_bubbles_path() -> str:
+    """Where the rendered capacity-bubble page is cached (sibling of the table)."""
+    base = os.environ.get("SCITEX_DIR") or os.path.expanduser("~/.scitex")
+    return os.path.join(base, "scitex-storage", "runtime", "fleet-bubbles.html")
+
+
 #: Shown when no snapshot exists yet. A named next step, not a blank page.
 _NO_SNAPSHOT_HTML = (
     "<!doctype html><html><body style='font-family:sans-serif;"
@@ -238,6 +244,7 @@ def write_fleet_snapshot(
     dashboard is worse than a stale one. Returns the snapshot so a caller
     can inspect what was written without re-reading the file.
     """
+    from ._bubble_render import build_bubbles_html
     from ._fleet_status_render import build_dashboard_html
 
     rows = observe_fleet(timeout_seconds=timeout_seconds)
@@ -251,13 +258,20 @@ def write_fleet_snapshot(
             f"{flagged} flagged, {could_not} could-not-look"
         ),
     )
-    html = build_dashboard_html(snapshot)
 
+    # Both views are pure renders of the same snapshot; write both so the
+    # table and the bubble page never disagree about what was gathered.
+    _atomic_write(path, build_dashboard_html(snapshot))
+    _atomic_write(default_bubbles_path(), build_bubbles_html(snapshot))
+    return snapshot
+
+
+def _atomic_write(path: str, text: str) -> None:
+    """Write ``text`` to ``path`` via temp+rename -- a reader never sees half."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = f"{path}.{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
-        fh.write(html)
+        fh.write(text)
     os.replace(tmp, path)  # atomic on POSIX
-    return snapshot
 
 # EOF

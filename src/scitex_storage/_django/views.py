@@ -126,6 +126,20 @@ def fleet(request) -> HttpResponse:
     return HttpResponse(fleet_html_or_placeholder(default_snapshot_path()))
 
 
+def bubbles(request) -> HttpResponse:
+    """Serve the cached interactive capacity-bubble page.
+
+    Same cache-read discipline as :func:`fleet`: rendered out of band from
+    the fleet snapshot, served verbatim here, placeholder when absent.
+    """
+    from scitex_storage._observe import (
+        default_bubbles_path,
+        fleet_html_or_placeholder,
+    )
+
+    return HttpResponse(fleet_html_or_placeholder(default_bubbles_path()))
+
+
 def healthz(request) -> HttpResponse:
     """Trivial liveness check — not part of the manifest'd UI routes."""
     return HttpResponse("ok")
