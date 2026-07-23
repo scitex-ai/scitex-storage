@@ -25,8 +25,37 @@ from __future__ import annotations
 
 import html
 import json
+import re
 
 from ._fleet_status import MEASURED, FleetSnapshot, HostStorage
+
+#: Strip a partition/slice suffix to get the physical container a source
+#: device belongs to. macOS APFS volumes ``/dev/disk3s1s1``,
+#: ``/dev/disk3s5`` ... all share container ``/dev/disk3``; Linux
+#: ``/dev/sda1`` -> ``/dev/sda``, ``/dev/nvme0n1p2`` -> ``/dev/nvme0n1``.
+#: On Linux each real filesystem has a distinct device, so this collapse
+#: is a no-op there and only folds the APFS case it exists for.
+_SLICE_RE = re.compile(r"^(/dev/disk\d+|/dev/nvme\d+n\d+|/dev/[a-z]+\d*[a-z]*)")
+
+
+def _container(source: str) -> str:
+    """The physical container a device belongs to, for de-duplication.
+
+    APFS presents one SSD as many volumes, each reporting the container's
+    full size; summing them multi-counts capacity (mba read 2.7T for a
+    245G disk). Folding by container counts each disk once. Falls back to
+    the raw source when the shape is unfamiliar -- an unknown device is
+    its own container, which never over-collapses.
+    """
+    m = _SLICE_RE.match(source)
+    if not m:
+        return source
+    base = m.group(1)
+    # /dev/sda1 -> /dev/sda (trailing partition digits), but keep
+    # /dev/nvme0n1 intact (handled by the alternation above).
+    if base.startswith("/dev/disk") or "nvme" in base:
+        return base
+    return re.sub(r"\d+$", "", base)
 
 
 def _usable(row: HostStorage) -> bool:
@@ -62,50 +91,89 @@ def aggregate_hosts(snapshot: FleetSnapshot) -> list[dict]:
             by_host[row.host] = {
                 "host": row.host,
                 "role": row.role,
-                "total_bytes": 0,
-                "used_bytes": 0,
-                "filesystems": [],
+                "containers": {},  # container-id -> folded record
             }
             order.append(row.host)
-        rec = by_host[row.host]
         if _usable(row):
-            used_bytes = int(row.size_bytes * (row.used_pct / 100.0))
-            rec["total_bytes"] += row.size_bytes
-            rec["used_bytes"] += used_bytes
-            rec["filesystems"].append(
-                {
-                    "mount": row.mount,
-                    "total_bytes": row.size_bytes,
-                    "used_pct": round(row.used_pct, 1),
-                    # inode% is a SEPARATE exhaustion axis -- carried so a
-                    # view can colour by it. May be None even on a measured
-                    # row (a filesystem with no fixed inode table).
-                    "inode_pct": (
-                        round(row.inode_used_pct, 1)
-                        if row.inode_used_pct is not None
-                        else None
-                    ),
-                }
-            )
+            _fold_into_container(by_host[row.host]["containers"], row)
 
-    records = [by_host[h] for h in order]
-    for rec in records:
-        rec["used_pct"] = (
-            round(100.0 * rec["used_bytes"] / rec["total_bytes"], 1)
-            if rec["total_bytes"] > 0
-            else None
-        )
+    records = []
+    for h in order:
+        rec = by_host[h]
+        filesystems = [_finalise_container(c) for c in rec["containers"].values()]
+        filesystems.sort(key=lambda f: -f["total_bytes"])
+        total_bytes = sum(f["total_bytes"] for f in filesystems)
+        used_bytes = sum(f["used_bytes"] for f in filesystems)
         # Host inode% is the WORST across its filesystems, not an average:
         # inode exhaustion on ANY one filesystem breaks writes there, so
         # the alarm is the max. This is the axis that silently took
         # punim0264 to 97% while its space sat at 70%.
-        inode_vals = [
-            f["inode_pct"] for f in rec["filesystems"] if f["inode_pct"] is not None
-        ]
-        rec["inode_pct"] = max(inode_vals) if inode_vals else None
-        rec["filesystems"].sort(key=lambda f: -f["total_bytes"])
+        inode_vals = [f["inode_pct"] for f in filesystems if f["inode_pct"] is not None]
+        records.append(
+            {
+                "host": rec["host"],
+                "role": rec["role"],
+                "total_bytes": total_bytes,
+                "used_bytes": used_bytes,
+                "used_pct": (
+                    round(100.0 * used_bytes / total_bytes, 1)
+                    if total_bytes > 0
+                    else None
+                ),
+                "inode_pct": max(inode_vals) if inode_vals else None,
+                "filesystems": [
+                    {k: f[k] for k in ("mount", "total_bytes", "used_pct", "inode_pct")}
+                    for f in filesystems
+                ],
+            }
+        )
     records.sort(key=lambda r: -r["total_bytes"])
     return records
+
+
+def _fold_into_container(containers: dict, row: HostStorage) -> None:
+    """Merge one filesystem row into its physical container.
+
+    APFS volumes that share a disk report the SAME total and available, so
+    the container is counted once: its capacity is that shared total, its
+    usage ``total - available`` (both identical across the volumes). Rows
+    without ``avail_bytes`` (older callers/tests) fall back to
+    ``size * used_pct``, and -- having distinct sources on Linux -- do not
+    collapse anyway. The representative mount is the shortest, which is the
+    recognisable one (``/`` over ``/System/Volumes/Data``).
+    """
+    cid = _container(row.source) if row.source else row.mount
+    c = containers.get(cid)
+    if c is None:
+        c = {"mount": row.mount, "total_bytes": 0, "avail_bytes": None,
+             "used_pct_row": row.used_pct, "inode_pcts": []}
+        containers[cid] = c
+    if len(row.mount) < len(c["mount"]):
+        c["mount"] = row.mount
+    # The container total is the shared size; guard against a rounding
+    # blip by keeping the max seen.
+    c["total_bytes"] = max(c["total_bytes"], row.size_bytes)
+    if row.avail_bytes is not None:
+        c["avail_bytes"] = row.avail_bytes
+    c["used_pct_row"] = row.used_pct
+    if row.inode_used_pct is not None:
+        c["inode_pcts"].append(row.inode_used_pct)
+
+
+def _finalise_container(c: dict) -> dict:
+    """Turn a folded container into a filesystem record with real bytes used."""
+    total = c["total_bytes"]
+    if c["avail_bytes"] is not None:
+        used = max(0, total - c["avail_bytes"])
+    else:
+        used = int(total * (c["used_pct_row"] / 100.0))
+    return {
+        "mount": c["mount"],
+        "total_bytes": total,
+        "used_bytes": used,
+        "used_pct": round(100.0 * used / total, 1) if total > 0 else None,
+        "inode_pct": max(c["inode_pcts"]) if c["inode_pcts"] else None,
+    }
 
 
 _PAGE = """\

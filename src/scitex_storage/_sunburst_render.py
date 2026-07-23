@@ -79,6 +79,8 @@ _PAGE = """\
 * {{ box-sizing:border-box; }}
 body {{ margin:0; padding:24px; background:var(--bg); color:var(--text);
   font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; text-align:center; }}
+svg text {{ user-select:none; -webkit-user-select:none; }}
+#sb {{ cursor:default; }}
 h1 {{ font-size:20px; margin:0 0 4px; }}
 .gen {{ color:var(--muted); font-size:12px; margin:0 0 10px; }}
 #modes {{ margin-bottom:8px; }}
@@ -168,7 +170,24 @@ function render(){{
     i===path.length-1?`<b>${{n.name}}</b>`:`<a data-i="${{i}}">${{n.name}}</a>`).join(' / ');
   crumb.querySelectorAll('a').forEach(a=>a.onclick=()=>{{
     const i=+a.dataset.i; path=path.slice(0,i+1); focus=path[i]; render();}});
+  // Reflect the location in the URL so a refresh or a shared link lands
+  // where the user was -- they can see WHERE they are, and bookmark it.
+  const want='#'+path.slice(1).map(n=>encodeURIComponent(n.name)).join('>');
+  if(location.hash!==want && !(location.hash===''&&want==='#')) {{
+    history.replaceState(null,'',want);
+  }}
 }}
+function restoreFromHash(){{
+  const raw=decodeURIComponent(location.hash.replace(/^#/,''));
+  path=[ROOT]; focus=ROOT;
+  if(!raw) return;
+  for(const name of raw.split('>').map(decodeURIComponent)){{
+    const kid=(focus.children||[]).find(c=>c.name===name);
+    if(!kid) break;
+    path.push(kid); focus=kid;
+  }}
+}}
+window.addEventListener('hashchange',()=>{{restoreFromHash(); render();}});
 function zoom(node){{ path.push(node); focus=node; render(); }}
 function setMetric(m){{
   metric=m;
@@ -178,6 +197,7 @@ function setMetric(m){{
 }}
 document.getElementById('m-usage').onclick=()=>setMetric('usage');
 document.getElementById('m-inode').onclick=()=>setMetric('inode');
+restoreFromHash();
 render();
 </script>
 </body></html>

@@ -110,7 +110,9 @@ def observe_host(
         mount = str(row["mount"])
         if keep_mounts is not None and mount not in keep_mounts:
             continue
-        total = int(row["total"])
+        blk = int(row.get("block_bytes", 1024))
+        total_bytes = int(row["total"]) * blk
+        avail_bytes = int(row["avail"]) * blk
         source = str(row["source"])
 
         if is_structural(source):
@@ -123,9 +125,11 @@ def observe_host(
                     role=role,
                     mount=mount,
                     verdict=NOT_APPLICABLE,
-                    size_bytes=total * 1024,
+                    size_bytes=total_bytes,
                     used_pct=None,
                     inode_used_pct=None,
+                    avail_bytes=avail_bytes,
+                    source=source,
                     note=f"{source}: read-only image or pseudo-fs, always full by design",
                 )
             )
@@ -141,9 +145,11 @@ def observe_host(
                     role=role,
                     mount=mount,
                     verdict=COULD_NOT_LOOK,
-                    size_bytes=total * 1024,
-                    used_pct=used_pct(total, int(row["used"])),
+                    size_bytes=total_bytes,
+                    used_pct=used_pct(int(row["total"]), int(row["used"])),
                     inode_used_pct=None,
+                    avail_bytes=avail_bytes,
+                    source=source,
                     note="inode figures unavailable on this host",
                 )
             )
@@ -154,9 +160,11 @@ def observe_host(
                 role=role,
                 mount=mount,
                 verdict=MEASURED,
-                size_bytes=total * 1024,
-                used_pct=used_pct(total, int(row["used"])),
+                size_bytes=total_bytes,
+                used_pct=used_pct(int(row["total"]), int(row["used"])),
                 inode_used_pct=used_pct(int(irow["total"]), int(irow["used"])),
+                avail_bytes=avail_bytes,
+                source=source,
             )
         )
 
@@ -246,6 +254,7 @@ def observe_hpc_projects(
             )
             continue
         s = srows[0]
+        blk = int(s.get("block_bytes", 1024))
         iu = (
             used_pct(int(irows[0]["total"]), int(irows[0]["used"]))
             if irows
@@ -257,9 +266,11 @@ def observe_hpc_projects(
                 role=role,
                 mount=path,  # the PROJECT path, not the shared parent mount
                 verdict=MEASURED if irows else COULD_NOT_LOOK,
-                size_bytes=int(s["total"]) * 1024,
+                size_bytes=int(s["total"]) * blk,
                 used_pct=used_pct(int(s["total"]), int(s["used"])),
                 inode_used_pct=iu,
+                avail_bytes=int(s["avail"]) * blk,
+                source=str(s["source"]),
                 note="" if irows else "inode figures unavailable for this fileset",
             )
         )

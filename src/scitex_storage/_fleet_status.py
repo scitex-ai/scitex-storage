@@ -92,6 +92,12 @@ class HostStorage:
     used_pct: float | None = None
     inode_used_pct: float | None = None
     note: str = ""
+    #: Available bytes and source device, used to fold APFS volumes that
+    #: SHARE one physical container into a single capacity rather than
+    #: counting each volume's copy of the container size. Optional so
+    #: rows built before this field (tests, older callers) still work.
+    avail_bytes: int | None = None
+    source: str = ""
 
     @property
     def space_flagged(self) -> bool:

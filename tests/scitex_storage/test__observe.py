@@ -65,6 +65,25 @@ def test_busybox_df_parses_identically():
     assert parse_df_posix(BUSYBOX_DF)[0]["mount"] == "/share/CACHEDEV1_DATA"
 
 
+def test_macos_512_byte_blocks_are_not_doubled():
+    # macOS `df -P` reports 512-byte blocks; assuming 1024 doubled every
+    # Mac size (mba read 2.7T for a 245G disk). block_bytes must be 512.
+    # Arrange
+    text = (
+        "Filesystem     512-blocks      Used Available Capacity  Mounted on\n"
+        "/dev/disk3s5    478724992 272132024 123368104     69%    /Data\n"
+    )
+    # Act
+    row = parse_df_posix(text)[0]
+    # Assert
+    assert row["block_bytes"] == 512
+
+
+def test_gnu_1024_byte_blocks_are_detected():
+    # Assert
+    assert parse_df_posix(GNU_DF)[0]["block_bytes"] == 1024
+
+
 def test_a_mount_point_containing_spaces_survives():
     # POSIX -P puts the mount LAST precisely because it may contain spaces.
     # Assert

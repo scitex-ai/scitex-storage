@@ -95,6 +95,7 @@ def parse_df_posix(text: str) -> list[dict[str, object]]:
     except ValueError:
         mount_idx = 5  # no recognisable header: fall back to the POSIX shape
 
+    block_bytes = _block_bytes(header)
     rows: list[dict[str, object]] = []
     for line in lines[1:]:
         parts = line.split()
@@ -114,10 +115,34 @@ def parse_df_posix(text: str) -> list[dict[str, object]]:
                 "total": total,
                 "used": used,
                 "avail": avail,
+                # The block UNIT differs by OS: GNU `df -P` uses 1024-byte
+                # blocks, macOS uses 512 (POSIX). Assuming 1024 everywhere
+                # doubled every macOS size -- so the unit is read from the
+                # header, and byte totals are computed from it, never from
+                # a hardcoded multiplier.
+                "block_bytes": block_bytes,
                 "mount": " ".join(parts[mount_idx:]),
             }
         )
     return rows
+
+
+def _block_bytes(header: list[str]) -> int:
+    """Bytes per block, read from the df header column name.
+
+    ``512-blocks`` -> 512 (macOS/POSIX); ``1024-blocks`` / ``1K-blocks``
+    -> 1024 (GNU). Inode output (``Inodes``) has no block column and the
+    value is irrelevant there; default 1024. A header we do not recognise
+    also defaults to 1024, matching GNU, the most common case.
+    """
+    for tok in header:
+        if tok.endswith("-blocks"):
+            num = tok[: -len("-blocks")]
+            if num.isdigit():
+                return int(num)
+            if num.upper() == "1K":
+                return 1024
+    return 1024
 
 
 def used_pct(total: int, used: int) -> float | None:

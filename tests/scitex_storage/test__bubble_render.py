@@ -93,6 +93,62 @@ def test_a_host_with_no_readable_filesystem_still_appears():
     assert len(recs) == 1
 
 
+def test_apfs_volumes_sharing_a_container_are_counted_once():
+    # macOS: six APFS volumes on /dev/disk3 each report the container's
+    # full 240G. Summing them read 2.7T for a 245G disk. Fold to one.
+    # Arrange -- three volumes, same disk, same total+avail.
+    rows = [
+        HostStorage(host="mba", role="r", mount="/", verdict=MEASURED,
+                    size_bytes=240 * GB, used_pct=25.0, avail_bytes=60 * GB,
+                    source="/dev/disk3s1s1"),
+        HostStorage(host="mba", role="r", mount="/System/Volumes/Data", verdict=MEASURED,
+                    size_bytes=240 * GB, used_pct=70.0, avail_bytes=60 * GB,
+                    source="/dev/disk3s5"),
+        HostStorage(host="mba", role="r", mount="/System/Volumes/VM", verdict=MEASURED,
+                    size_bytes=240 * GB, used_pct=3.0, avail_bytes=60 * GB,
+                    source="/dev/disk3s6"),
+    ]
+    # Act
+    rec = aggregate_hosts(_snap(rows))[0]
+    # Assert -- one container of 240G, not 720G.
+    assert rec["total_bytes"] == 240 * GB
+
+
+def test_a_folded_container_usage_is_total_minus_available():
+    # The honest container occupancy: 240G - 60G avail = 180G = 75%,
+    # not any single volume's 25/70/3%.
+    # Arrange
+    rows = [
+        HostStorage(host="mba", role="r", mount="/", verdict=MEASURED,
+                    size_bytes=240 * GB, used_pct=25.0, avail_bytes=60 * GB,
+                    source="/dev/disk3s1s1"),
+        HostStorage(host="mba", role="r", mount="/System/Volumes/Data", verdict=MEASURED,
+                    size_bytes=240 * GB, used_pct=70.0, avail_bytes=60 * GB,
+                    source="/dev/disk3s5"),
+    ]
+    # Act
+    rec = aggregate_hosts(_snap(rows))[0]
+    # Assert
+    assert rec["used_pct"] == 75.0
+
+
+def test_distinct_linux_devices_do_not_fold():
+    # Two real, separate filesystems on Linux must both count.
+    # Arrange
+    rows = [
+        HostStorage(host="h", role="r", mount="/", verdict=MEASURED,
+                    size_bytes=100 * GB, used_pct=50.0, avail_bytes=50 * GB,
+                    source="/dev/sda1"),
+        HostStorage(host="h", role="r", mount="/data", verdict=MEASURED,
+                    size_bytes=200 * GB, used_pct=50.0, avail_bytes=100 * GB,
+                    source="/dev/sdb1"),
+    ]
+    # Act
+    rec = aggregate_hosts(_snap(rows))[0]
+    # Assert
+    assert rec["total_bytes"] == 300 * GB
+
+
 def test_hosts_are_ordered_largest_capacity_first():
     # Arrange
     rows = [
