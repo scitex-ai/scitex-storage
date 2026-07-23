@@ -16,7 +16,9 @@ from scitex_storage._observe import (
     ProbeOutcome,
     is_structural,
     observe_host,
+    observe_hpc_projects,
     parse_df_posix,
+    parse_project_groups,
     subprocess_runner,
     used_pct,
 )
@@ -241,6 +243,90 @@ def test_a_nonzero_exit_with_no_output_is_still_a_failure():
 
     # Assert
     assert outcome.ok is False
+
+
+SPARTAN_GROUPS = "punim2354 punim0264 unix staff\n"
+GPFS_PROJECT_DF = """Filesystem 1024-blocks Used Available Capacity Mounted on
+project 9663676416 6871947673 2791728743 72% /data/gpfs
+"""
+GPFS_PROJECT_DF_I = """Filesystem Inodes IUsed IFree IUse% Mounted on
+project 7000000 6808212 191788 98% /data/gpfs
+"""
+
+
+# --- HPC project discovery -------------------------------------------------
+def test_project_groups_keep_only_allocation_groups():
+    # Arrange -- real Spartan groups: two projects plus system groups.
+    # Act
+    projects = parse_project_groups(SPARTAN_GROUPS)
+
+    # Assert
+    assert projects == ["punim2354", "punim0264"]
+
+
+def test_hpc_observes_one_row_per_project_allocation():
+    # The whole point: a login node's 200 infra mounts are noise; the
+    # user's TWO project allocations are the signal.
+    # Arrange
+    def run(host, command):
+        if command == "groups":
+            return ProbeOutcome(ok=True, stdout=SPARTAN_GROUPS)
+        if command.startswith("df -Pi"):
+            return ProbeOutcome(ok=True, stdout=GPFS_PROJECT_DF_I)
+        return ProbeOutcome(ok=True, stdout=GPFS_PROJECT_DF)
+
+    # Act
+    rows = observe_hpc_projects("spartan", "hpc-login", run)
+
+    # Assert
+    assert len(rows) == 2
+
+
+def test_hpc_row_mount_is_the_project_path_not_the_shared_parent():
+    # On GPFS the parent mount /data/gpfs is shared; the PROJECT path is
+    # what carries the per-allocation quota.
+    # Arrange
+    def run(host, command):
+        if command == "groups":
+            return ProbeOutcome(ok=True, stdout="punim0264\n")
+        if command.startswith("df -Pi"):
+            return ProbeOutcome(ok=True, stdout=GPFS_PROJECT_DF_I)
+        return ProbeOutcome(ok=True, stdout=GPFS_PROJECT_DF)
+
+    # Act
+    rows = observe_hpc_projects("spartan", "hpc-login", run)
+
+    # Assert
+    assert rows[0].mount == "/data/gpfs/projects/punim0264"
+
+
+def test_hpc_reads_the_fileset_inode_quota():
+    # punim0264 was 98% inodes -- exactly the alarm the global df hides.
+    # Arrange
+    def run(host, command):
+        if command == "groups":
+            return ProbeOutcome(ok=True, stdout="punim0264\n")
+        if command.startswith("df -Pi"):
+            return ProbeOutcome(ok=True, stdout=GPFS_PROJECT_DF_I)
+        return ProbeOutcome(ok=True, stdout=GPFS_PROJECT_DF)
+
+    # Act
+    rows = observe_hpc_projects("spartan", "hpc-login", run)
+
+    # Assert
+    assert rows[0].inode_used_pct == 97.3
+
+
+def test_hpc_with_unreadable_groups_is_could_not_look_not_empty():
+    # Arrange
+    def run(host, command):
+        return ProbeOutcome(ok=False, error="ssh timed out")
+
+    # Act
+    rows = observe_hpc_projects("spartan", "hpc-login", run)
+
+    # Assert
+    assert rows[0].verdict == COULD_NOT_LOOK
 
 
 def test_a_squashfs_image_is_structural_not_an_alarm():

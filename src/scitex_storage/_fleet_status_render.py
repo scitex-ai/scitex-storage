@@ -68,6 +68,15 @@ td.mount { color: var(--muted); font-family: ui-monospace, "SFMono-Regular",
 .pct { font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; }
 .pct.crit { color: var(--crit); font-weight: 600; }
 .na { color: var(--unknown); font-style: italic; }
+.donut-wrap { display: flex; align-items: center; justify-content: center; min-width: 60px; }
+.donut { transform: rotate(0deg); }
+.donut-bg { stroke: var(--panel-2); }
+.donut-arc { transition: none; }
+.donut-arc.ok { stroke: var(--ok); }
+.donut-arc.warn { stroke: var(--warn); }
+.donut-arc.crit { stroke: var(--crit); }
+.donut-label { font-size: 11px; font-weight: 600; fill: var(--text); font-variant-numeric: tabular-nums; }
+.donut-label.crit { fill: var(--crit); }
 .verdict { font-size: 12px; }
 .verdict.measured { color: var(--muted); }
 .verdict.could-not-look { color: var(--unknown); font-weight: 600; }
@@ -92,6 +101,39 @@ def _bar(pct: float | None, *, flagged: bool) -> str:
     )
 
 
+def _donut(pct: float | None, *, flagged: bool) -> str:
+    """A used-% donut cell as a self-contained inline SVG.
+
+    No JS and no charting library -- the dashboard must open offline
+    anywhere, so the chart is drawn with two SVG circles. The radius is
+    chosen so the circumference is exactly 100, which makes
+    ``stroke-dasharray="{used} {100-used}"`` map percent to arc length
+    1:1 with no arithmetic. ``stroke-dashoffset=25`` (a quarter of the
+    circumference) rotates the start to twelve o'clock.
+
+    ``None`` is a grey em dash, never a full or empty ring -- the same
+    three-state discipline as the bar: an unmeasured value is not a zero.
+    """
+    if pct is None:
+        return '<div class="donut-wrap"><span class="na">&mdash;</span></div>'
+    klass = "crit" if flagged else ("warn" if pct >= 70 else "ok")
+    used = max(0.0, min(100.0, pct))
+    return (
+        '<div class="donut-wrap">'
+        '<svg class="donut" viewBox="0 0 40 40" width="46" height="46" '
+        'role="img">'
+        '<circle class="donut-bg" cx="20" cy="20" r="15.915" fill="none" '
+        'stroke-width="5"/>'
+        f'<circle class="donut-arc {klass}" cx="20" cy="20" r="15.915" '
+        f'fill="none" stroke-width="5" stroke-dasharray="{used:.1f} '
+        f'{100.0 - used:.1f}" stroke-dashoffset="25" stroke-linecap="round"/>'
+        f'<text class="donut-label {klass}" x="20" y="21" text-anchor="middle" '
+        f'dominant-baseline="middle">{pct:.0f}%</text>'
+        "</svg>"
+        "</div>"
+    )
+
+
 _VERDICT_LABEL = {
     MEASURED: "measured",
     NOT_APPLICABLE: "n/a (no inode table)",
@@ -106,8 +148,8 @@ def _verdict_cell(row: HostStorage) -> str:
 
 def _row_html(row: HostStorage) -> str:
     tr_class = ' class="flagged"' if row.is_flagged else ""
-    space_cell = _bar(row.used_pct, flagged=row.space_flagged)
-    inode_cell = _bar(row.inode_used_pct, flagged=row.inode_flagged)
+    space_cell = _donut(row.used_pct, flagged=row.space_flagged)
+    inode_cell = _donut(row.inode_used_pct, flagged=row.inode_flagged)
     note = f'<div class="note">{html.escape(row.note)}</div>' if row.note else ""
     return (
         f"<tr{tr_class}>"
