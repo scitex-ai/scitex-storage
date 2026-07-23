@@ -19,7 +19,9 @@ import pytest
 
 pytest.importorskip("django")
 
-from scitex_storage._django._server import bare_django_warning
+import socket
+
+from scitex_storage._django._server import _port_in_use, bare_django_warning
 
 
 def test_warning_names_the_underlying_cause():
@@ -65,5 +67,37 @@ def test_warning_survives_a_missing_cause():
 
     # Assert
     assert "pip install scitex-app" in text
+
+
+def test_a_free_port_is_reported_available():
+    # Ask the OS for an ephemeral port, release it, then probe: it must
+    # read as free. A real socket, no mocks.
+    # Arrange
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+
+    # Act / Assert
+    assert _port_in_use("127.0.0.1", port) is False
+
+
+def test_a_port_held_by_a_live_listener_is_reported_in_use():
+    # A genuinely-bound LISTENING socket must read as in use -- the probe
+    # sets SO_REUSEADDR (to ignore TIME_WAIT), so this proves it still
+    # detects a real active listener rather than waving everything through.
+    # Arrange
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    # Act
+    result = _port_in_use("127.0.0.1", port)
+    listener.close()
+
+    # Assert
+    assert result is True
 
 # EOF

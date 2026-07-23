@@ -51,8 +51,19 @@ def bare_django_warning(cause: BaseException | None) -> str:
 
 
 def _port_in_use(host: str, port: int) -> bool:
+    """Whether ``port`` is genuinely unavailable to the server we launch.
+
+    Must set ``SO_REUSEADDR`` before the probe bind, because that is what
+    Django's ``runserver`` does. Without it, a socket left in ``TIME_WAIT``
+    by a JUST-stopped instance makes this probe report "in use" for ~60s
+    even though the real server WOULD bind successfully -- so a restart
+    right after a stop fails with a bogus "port in use", which is exactly
+    what a human hits when they stop and immediately start again. Matching
+    the flag makes the probe agree with the server it is guarding.
+    """
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((host, port))
     except OSError:
         return True
