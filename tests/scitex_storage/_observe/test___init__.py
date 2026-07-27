@@ -14,6 +14,7 @@ from __future__ import annotations
 from scitex_storage._fleet_status import COULD_NOT_LOOK, MEASURED, NOT_APPLICABLE
 from scitex_storage._observe import (
     ProbeOutcome,
+    fleet_html_or_placeholder,
     is_structural,
     observe_host,
     observe_hpc_projects,
@@ -54,15 +55,22 @@ def _runner_returning(mapping):
 
 # --- parse_df_posix --------------------------------------------------------
 def test_gnu_df_yields_one_row_per_real_filesystem():
+    # Arrange
+    # Act
+    rows = parse_df_posix(GNU_DF)
+
     # Assert
-    assert len(parse_df_posix(GNU_DF)) == 2
+    assert len(rows) == 2
 
 
 def test_busybox_df_parses_identically():
-    # The NAS units run BusyBox; a GNU-only parser would silently return
-    # nothing and read as "this NAS has no filesystems".
+    # Arrange -- the NAS units run BusyBox; a GNU-only parser would
+    # silently return nothing and read as "this NAS has no filesystems".
+    # Act
+    rows = parse_df_posix(BUSYBOX_DF)
+
     # Assert
-    assert parse_df_posix(BUSYBOX_DF)[0]["mount"] == "/share/CACHEDEV1_DATA"
+    assert rows[0]["mount"] == "/share/CACHEDEV1_DATA"
 
 
 def test_macos_512_byte_blocks_are_not_doubled():
@@ -80,14 +88,22 @@ def test_macos_512_byte_blocks_are_not_doubled():
 
 
 def test_gnu_1024_byte_blocks_are_detected():
+    # Arrange
+    # Act
+    row = parse_df_posix(GNU_DF)[0]
+
     # Assert
-    assert parse_df_posix(GNU_DF)[0]["block_bytes"] == 1024
+    assert row["block_bytes"] == 1024
 
 
 def test_a_mount_point_containing_spaces_survives():
-    # POSIX -P puts the mount LAST precisely because it may contain spaces.
+    # Arrange -- POSIX -P puts the mount LAST precisely because it may
+    # contain spaces.
+    # Act
+    row = parse_df_posix(MOUNT_WITH_SPACE)[0]
+
     # Assert
-    assert parse_df_posix(MOUNT_WITH_SPACE)[0]["mount"] == "/Volumes/My Backup Disk"
+    assert row["mount"] == "/Volumes/My Backup Disk"
 
 
 def test_macos_inode_output_with_nine_columns_keeps_the_right_mount():
@@ -101,29 +117,43 @@ def test_macos_inode_output_with_nine_columns_keeps_the_right_mount():
         "/dev/disk3s1  965595304 123456789 800000000     14%  501234 3900000000    0%   /System/Volumes/Data\n"
     )
 
+    # Act
+    row = parse_df_posix(text)[0]
+
     # Assert
-    assert parse_df_posix(text)[0]["mount"] == "/System/Volumes/Data"
+    assert row["mount"] == "/System/Volumes/Data"
 
 
 def test_unparseable_rows_are_dropped_rather_than_guessed():
     # Arrange
     text = "Filesystem 1024-blocks Used Available Capacity Mounted on\nmap -hosts - - - - /net\n"
 
+    # Act
+    rows = parse_df_posix(text)
+
     # Assert
-    assert parse_df_posix(text) == []
+    assert rows == []
 
 
 # --- used_pct --------------------------------------------------------------
 def test_an_empty_filesystem_table_is_none_not_zero():
-    # Zero means "nothing used"; None means "nothing to measure". Rendering
-    # the second as the first turns a dead mount into a green bar.
+    # Arrange -- zero means "nothing used"; None means "nothing to
+    # measure". Rendering the second as the first turns a dead mount into
+    # a green bar.
+    # Act
+    pct = used_pct(total=0, used=0)
+
     # Assert
-    assert used_pct(total=0, used=0) is None
+    assert pct is None
 
 
 def test_used_percentage_is_rounded_to_one_decimal():
+    # Arrange
+    # Act
+    pct = used_pct(total=1000, used=694)
+
     # Assert
-    assert used_pct(total=1000, used=694) == 69.4
+    assert pct == 69.4
 
 
 # --- observe_host ----------------------------------------------------------
@@ -349,29 +379,43 @@ def test_hpc_with_unreadable_groups_is_could_not_look_not_empty():
 
 
 def test_a_squashfs_image_is_structural_not_an_alarm():
-    # Every /snap/* mount is a read-only squashfs packed exactly full.
-    # A live run produced dozens of 100% rows from these alone.
+    # Arrange -- every /snap/* mount is a read-only squashfs packed
+    # exactly full. A live run produced dozens of 100% rows from these.
+    # Act
+    verdict = is_structural("/dev/loop12")
+
     # Assert
-    assert is_structural("/dev/loop12") is True
+    assert verdict is True
 
 
 def test_tmpfs_is_structural():
+    # Arrange
+    # Act
+    verdict = is_structural("tmpfs")
+
     # Assert
-    assert is_structural("tmpfs") is True
+    assert verdict is True
 
 
 def test_snapfuse_is_structural_too():
-    # The SAME concept reports differently per host: the NAS appliances
-    # show squashfs images as /dev/loop*, Ubuntu/WSL shows the identical
-    # thing as `snapfuse`. Covering only the first left 25 WSL snaps
-    # flagged in a live run.
+    # Arrange -- the SAME concept reports differently per host: the NAS
+    # appliances show squashfs images as /dev/loop*, Ubuntu/WSL shows the
+    # identical thing as `snapfuse`. Covering only the first left 25 WSL
+    # snaps flagged in a live run.
+    # Act
+    verdict = is_structural("snapfuse")
+
     # Assert
-    assert is_structural("snapfuse") is True
+    assert verdict is True
 
 
 def test_a_real_block_device_is_not_structural():
+    # Arrange
+    # Act
+    verdict = is_structural("/dev/sdd")
+
     # Assert
-    assert is_structural("/dev/sdd") is False
+    assert verdict is False
 
 
 def test_a_structural_filesystem_is_reported_but_not_measured():
@@ -415,5 +459,45 @@ def test_a_filter_matching_nothing_is_reported_rather_than_returning_empty():
 
     # Assert
     assert rows[0].verdict == COULD_NOT_LOOK
+
+
+# --- snapshot cache read (what the Django /fleet view serves) --------------
+# The view is a one-liner over fleet_html_or_placeholder; all the behaviour
+# is here. It must NEVER gather live -- observe_fleet ssh-probes six hosts
+# and takes ~90s, which would hang the request handler.
+
+
+def test_absent_snapshot_yields_a_placeholder_not_an_exception(tmp_path):
+    # Arrange -- "not gathered yet" is a real first-run state.
+    missing = str(tmp_path / "does-not-exist.html")
+
+    # Act
+    html = fleet_html_or_placeholder(missing)
+
+    # Assert
+    assert "No fleet snapshot" in html
+
+
+def test_absent_snapshot_names_the_command_to_fix_it(tmp_path):
+    # Arrange -- a dead end helps nobody; it must say what to run.
+    missing = str(tmp_path / "nope.html")
+
+    # Act
+    html = fleet_html_or_placeholder(missing)
+
+    # Assert
+    assert "fleet-status" in html
+
+
+def test_a_present_snapshot_is_returned_verbatim(tmp_path):
+    # Arrange
+    snap = tmp_path / "fleet.html"
+    snap.write_text("<html><body>FLEET-SENTINEL</body></html>", encoding="utf-8")
+
+    # Act
+    html = fleet_html_or_placeholder(str(snap))
+
+    # Assert
+    assert "FLEET-SENTINEL" in html
 
 # EOF

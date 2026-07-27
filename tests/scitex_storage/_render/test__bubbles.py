@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._bubble_render (capacity-bubble view).
+"""Unit tests for scitex_storage._render (capacity-bubble view).
 
 Pure renderer over dataclasses -- no mocks, no I/O. The aggregation rules
 are the substance: a host's circle must encode only capacity the probe
@@ -8,7 +8,7 @@ chart library) so it opens offline.
 
 from __future__ import annotations
 
-from scitex_storage._bubble_render import aggregate_hosts, build_bubbles_html
+from scitex_storage._render import aggregate_hosts, build_bubbles_html
 from scitex_storage._fleet_status import (
     COULD_NOT_LOOK,
     MEASURED,

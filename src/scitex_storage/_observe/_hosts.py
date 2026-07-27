@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# File: src/scitex_storage/_observe_hosts.py
+# File: src/scitex_storage/_observe/_hosts.py
 """Per-host observation and HPC project discovery.
 
 Split out of ``_observe`` (which re-exports these). The transport is
@@ -15,8 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
-from ._fleet_status import COULD_NOT_LOOK, MEASURED, NOT_APPLICABLE, HostStorage
-from ._observe_df import (
+from .._fleet_status import COULD_NOT_LOOK, MEASURED, NOT_APPLICABLE, HostStorage
+from ._df import (
     DF_INODE_CMD,
     DF_SPACE_CMD,
     index_by_mount,

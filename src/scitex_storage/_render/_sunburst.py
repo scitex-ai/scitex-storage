@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# File: src/scitex_storage/_sunburst_render.py
+# File: src/scitex_storage/_render/_sunburst.py
 """Codecov-style nested sunburst of fleet capacity.
 
 The operator showed Codecov's radial sunburst as the target: concentric
@@ -24,8 +24,8 @@ from __future__ import annotations
 import html
 import json
 
-from ._bubble_render import aggregate_hosts
-from ._fleet_status import FleetSnapshot
+from ._bubbles import aggregate_hosts
+from .._fleet_status import FleetSnapshot
 
 
 def build_hierarchy(snapshot: FleetSnapshot) -> dict:

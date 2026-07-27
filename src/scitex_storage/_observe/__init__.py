@@ -14,8 +14,8 @@ host still appears, rendered ``could-not-look``, with the reason -- the
 incident corpus is survivor-biased, so whatever surfaces health must not
 vanish with the thing it was watching.
 
-Parsing/classification lives in :mod:`._observe_df`; per-host probing and
-HPC project discovery in :mod:`._observe_hosts`. This module keeps the
+Parsing/classification lives in :mod:`._df`; per-host probing and
+HPC project discovery in :mod:`._hosts`. This module keeps the
 transport (``subprocess_runner``), the registry-driven fleet sweep
 (``observe_fleet``) and the snapshot cache the GUI reads, and re-exports
 the split-out names so ``from scitex_storage._observe import ...`` is
@@ -27,8 +27,8 @@ from __future__ import annotations
 import os
 from typing import Sequence
 
-from ._fleet_status import COULD_NOT_LOOK, FleetSnapshot, HostStorage
-from ._observe_df import (  # noqa: F401 -- re-exported public API
+from .._fleet_status import COULD_NOT_LOOK, FleetSnapshot, HostStorage
+from ._df import (  # noqa: F401 -- re-exported public API
     DF_INODE_CMD,
     DF_SPACE_CMD,
     IMAGE_SOURCE_PREFIXES,
@@ -38,7 +38,7 @@ from ._observe_df import (  # noqa: F401 -- re-exported public API
     parse_df_posix,
     used_pct,
 )
-from ._observe_hosts import (  # noqa: F401 -- re-exported public API
+from ._hosts import (  # noqa: F401 -- re-exported public API
     HPC_PROJECT_GROUP_PREFIXES,
     HPC_PROJECT_ROOT,
     ProbeOutcome,
@@ -250,9 +250,9 @@ def write_fleet_snapshot(
     dashboard is worse than a stale one. Returns the snapshot so a caller
     can inspect what was written without re-reading the file.
     """
-    from ._bubble_render import build_bubbles_html
-    from ._fleet_status_render import build_dashboard_html
-    from ._sunburst_render import build_sunburst_html
+    from .._render import build_bubbles_html
+    from .._render import build_dashboard_html
+    from .._render import build_sunburst_html
 
     rows = observe_fleet(timeout_seconds=timeout_seconds)
     flagged = sum(1 for r in rows if r.is_flagged)

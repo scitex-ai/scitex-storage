@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# File: src/scitex_storage/_bubble_render.py
+# File: src/scitex_storage/_render/_bubbles.py
 """Capacity-bubble view: one circle per host, area = capacity, fill = usage%.
 
 The operator's brief (2026-07-23): a Codecov-style interactive picture,
@@ -27,7 +27,7 @@ import html
 import json
 import re
 
-from ._fleet_status import MEASURED, FleetSnapshot, HostStorage
+from .._fleet_status import MEASURED, FleetSnapshot, HostStorage
 
 #: Strip a partition/slice suffix to get the physical container a source
 #: device belongs to. macOS APFS volumes ``/dev/disk3s1s1``,

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# File: src/scitex_storage/_observe_df.py
+# File: src/scitex_storage/_observe/_df.py
 """Parsing and classification of ``df`` output -- no I/O.
 
 Split out of ``_observe`` (which re-exports these). Portability is the
