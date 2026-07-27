@@ -10,6 +10,13 @@ scitex.ai/apps/storage). Falls back to a bare Django ``runserver`` if
 scitex-app is not installed — mirrors scitex-writer's documented
 fallback pattern exactly (``scitex_writer._django._server``).
 
+The fallback is LOUD. It used to be silent (``except ImportError: pass``
+wrapped around the ``run_standalone`` CALL), which meant a missing
+scitex-app served an unstyled page with no explanation — reported as
+"this looks weird" rather than as a missing dependency, because the page
+rendered. Degrading is fine; degrading quietly is not, and a page that
+renders hides its own degradation far better than one that fails.
+
 Cloud/hub deployments do NOT use this module at all — they mount
 ``scitex_storage._django.urls`` into their own Django project (see
 ``urls.py``'s docstring).
@@ -19,13 +26,44 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
 import threading
 import webbrowser
 
 
+def bare_django_warning(cause: BaseException | None) -> str:
+    """Render the warning shown when the scitex-app shell is unavailable.
+
+    Pure so the wording is testable without standing up a server. The
+    text must name the CAUSE, the EFFECT, and the REMEDY: a degraded
+    page that renders is harder to notice than one that fails, so the
+    warning is the only thing distinguishing "unstyled because broken"
+    from "unstyled because that is how it looks".
+    """
+    return (
+        "\n"
+        "  WARNING: serving BARE DJANGO -- the scitex-app shell is unavailable.\n"
+        f"    cause:  {cause}\n"
+        "    effect: the page renders UNSTYLED -- no workspace shell, no theme,\n"
+        "            no favicon. It looks broken because it IS degraded.\n"
+        "    remedy: pip install scitex-app\n"
+    )
+
+
 def _port_in_use(host: str, port: int) -> bool:
+    """Whether ``port`` is genuinely unavailable to the server we launch.
+
+    Must set ``SO_REUSEADDR`` before the probe bind, because that is what
+    Django's ``runserver`` does. Without it, a socket left in ``TIME_WAIT``
+    by a JUST-stopped instance makes this probe report "in use" for ~60s
+    even though the real server WOULD bind successfully -- so a restart
+    right after a stop fails with a bogus "port in use", which is exactly
+    what a human hits when they stop and immediately start again. Matching
+    the flag makes the probe agree with the server it is guarding.
+    """
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((host, port))
     except OSError:
         return True
@@ -60,34 +98,52 @@ def run(
             f"still up) and retry."
         )
     print(f"SciTeX Storage GUI: http://{host}:{port}")
-    print("Press Ctrl+C to stop")
+    # "Ctrl+C" is only useful while you still have the terminal. Name the
+    # commands that work AFTER it is gone -- the operator asked how to stop
+    # the GUI and the banner had no answer for the case that actually
+    # happens (started earlier, terminal closed, still listening).
+    print("Stop: Ctrl+C here, or `scitex-storage gui stop` from anywhere")
+    print("Check: `scitex-storage gui status`")
 
-    try:
-        import django
-
-        django.setup()
-
-        from django.core.management import call_command
-
-        call_command("migrate", "--run-syncdb", verbosity=0)
-
-        from ._app_adapter import run_standalone
-
-        run_standalone(
-            app_module="scitex_storage._django",
-            port=port,
-            host=host,
-            open_browser=open_browser,
-            hot_reload=hot_reload,
-        )
-        return
-    except ImportError:
-        pass
-
-    # Fallback: no scitex-app available, run bare Django.
     import django
 
     django.setup()
+
+    from django.core.management import call_command
+
+    call_command("migrate", "--run-syncdb", verbosity=0)
+
+    # The adapter imports cleanly even when scitex-app is absent -- it defers
+    # the ImportError to CALL time on purpose. So both the import and the call
+    # have to be caught, and neither may be swallowed: the whole point of that
+    # deferral is defeated by a bare ``except ImportError: pass`` around the
+    # call, which is what shipped and is why an unstyled page looked like a
+    # working one.
+    shell_unavailable: ImportError | None = None
+    try:
+        from ._app_adapter import run_standalone
+    except ImportError as exc:  # adapter itself missing
+        shell_unavailable = exc
+    else:
+        try:
+            run_standalone(
+                app_module="scitex_storage._django",
+                port=port,
+                host=host,
+                open_browser=open_browser,
+                hot_reload=hot_reload,
+            )
+            return
+        except ImportError as exc:  # scitex-app missing, raised on call
+            shell_unavailable = exc
+
+    # Fallback: no scitex-app available, run bare Django -- LOUDLY.
+    #
+    # This module already refuses to silently bind a different port (see the
+    # RuntimeError above); serving a silently unstyled page is the same class
+    # of lie about what you are getting, and it is harder to notice because
+    # the page renders. Degrading is acceptable; degrading QUIETLY is not.
+    print(bare_django_warning(shell_unavailable), file=sys.stderr)
 
     if open_browser:
         threading.Timer(1.0, webbrowser.open, args=[f"http://{host}:{port}"]).start()
