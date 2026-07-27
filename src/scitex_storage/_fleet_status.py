@@ -12,7 +12,7 @@ TWO HALVES, deliberately split (PA-306: no mocks, ever). The interesting
 behaviour is rendering and classification, not I/O, so:
 
 * :func:`build_dashboard_html` (defined in
-  :mod:`scitex_storage._fleet_status_render`, re-exported here) is
+  :mod:`scitex_storage._render`, re-exported here) is
   **pure** — snapshot dataclasses in, an HTML string out, zero I/O. Every
   threshold / three-state / dark-mode case is exercised by constructing
   plain dataclasses, which is data, not a mock.
@@ -92,6 +92,12 @@ class HostStorage:
     used_pct: float | None = None
     inode_used_pct: float | None = None
     note: str = ""
+    #: Available bytes and source device, used to fold APFS volumes that
+    #: SHARE one physical container into a single capacity rather than
+    #: counting each volume's copy of the container size. Optional so
+    #: rows built before this field (tests, older callers) still work.
+    avail_bytes: int | None = None
+    source: str = ""
 
     @property
     def space_flagged(self) -> bool:
@@ -328,12 +334,24 @@ def demo_snapshot() -> FleetSnapshot:
     )
 
 
-# The pure renderer lives in its own module to keep this file under the
-# size limit; re-exported so ``build_dashboard_html`` imports cleanly from
-# ``scitex_storage._fleet_status`` (its documented home). This import sits
-# at the bottom, after the model above is defined, so the render module
-# (which imports that model) sees fully-built classes — no import cycle.
-from ._fleet_status_render import build_dashboard_html  # noqa: E402
+# ``build_dashboard_html`` is re-exported here because this module is its
+# documented home, but it LIVES in ``scitex_storage._render`` (grouped with
+# the bubble and sunburst renderers, which share its one responsibility).
+#
+# The re-export is LAZY, via PEP 562, and that is load-bearing rather than
+# stylistic. The renderers import the model defined above, so a plain
+# bottom-of-file import works only when ``_fleet_status`` is imported
+# FIRST: importing ``_render`` first re-enters this module, reaches the
+# bottom import, and finds ``_render`` half-built with the name not yet
+# bound -- an ImportError that depends on which module the caller happened
+# to touch first. Deferring to attribute-access time removes the cycle
+# entirely, so both import orders work.
+def __getattr__(name: str):  # noqa: D401 - module-level PEP 562 hook
+    if name == "build_dashboard_html":
+        from ._render import build_dashboard_html
+
+        return build_dashboard_html
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "FLAG_PERCENT",
