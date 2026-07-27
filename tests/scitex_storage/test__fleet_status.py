@@ -435,4 +435,58 @@ def test_could_not_look_count_sees_a_could_not_look_row():
     assert snap.could_not_look_count == 1
 
 
+# --------------------------------------------------------------------------
+# Donut chart cells -- the pie-style indicator, self-contained SVG.
+# --------------------------------------------------------------------------
+
+
+def test_a_measured_value_renders_a_donut_svg():
+    # Arrange
+    row = _measured(used_pct=63.0, inode_used_pct=11.0)
+    # Act
+    html = build_dashboard_html(FleetSnapshot(rows=[row]))
+    # Assert
+    assert "donut-arc" in html
+
+
+def test_the_donut_arc_length_encodes_the_percentage():
+    # The radius makes circumference == 100, so dasharray maps 1:1 to %.
+    # Arrange
+    row = _measured(used_pct=63.0)
+    # Act
+    html = build_dashboard_html(FleetSnapshot(rows=[row]))
+    # Assert
+    assert 'stroke-dasharray="63.0 37.0"' in html
+
+
+def test_a_flagged_donut_uses_the_crit_colour_class():
+    # Arrange
+    row = _measured(used_pct=92.0)
+    # Act
+    html = build_dashboard_html(FleetSnapshot(rows=[row]))
+    # Assert
+    assert "donut-arc crit" in html
+
+
+def test_an_unmeasured_donut_is_an_em_dash_not_an_empty_ring():
+    # Same three-state discipline as the bar: None is not zero.
+    # Arrange
+    row = HostStorage(host="nas", role="tier1", mount="/v",
+                      verdict=COULD_NOT_LOOK, used_pct=None, inode_used_pct=None)
+    # Act
+    html = build_dashboard_html(FleetSnapshot(rows=[row]))
+    # Assert
+    assert "&mdash;" in html
+
+
+def test_the_dashboard_needs_no_external_chart_library():
+    # The whole point of SVG donuts: it must open offline anywhere.
+    # Arrange
+    row = _measured(used_pct=50.0)
+    # Act
+    html = build_dashboard_html(FleetSnapshot(rows=[row]))
+    # Assert
+    assert "<script" not in html
+
+
 # EOF
