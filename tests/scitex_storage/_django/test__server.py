@@ -36,6 +36,7 @@ def test_warning_names_the_underlying_cause():
 
 
 def test_warning_names_the_remedy():
+    # Arrange
     # Act
     text = bare_django_warning(ImportError("boom"))
 
@@ -44,6 +45,7 @@ def test_warning_names_the_remedy():
 
 
 def test_warning_states_the_page_is_unstyled():
+    # Arrange
     # Act
     text = bare_django_warning(ImportError("boom"))
 
@@ -52,6 +54,7 @@ def test_warning_states_the_page_is_unstyled():
 
 
 def test_warning_states_which_server_is_actually_serving():
+    # Arrange
     # Act
     text = bare_django_warning(ImportError("boom"))
 
@@ -62,6 +65,7 @@ def test_warning_states_which_server_is_actually_serving():
 def test_warning_survives_a_missing_cause():
     # A None cause must still produce a usable warning rather than
     # raising while reporting a failure.
+    # Arrange
     # Act
     text = bare_django_warning(None)
 
@@ -78,8 +82,11 @@ def test_a_free_port_is_reported_available():
     port = probe.getsockname()[1]
     probe.close()
 
-    # Act / Assert
-    assert _port_in_use("127.0.0.1", port) is False
+    # Act
+    in_use = _port_in_use("127.0.0.1", port)
+
+    # Assert
+    assert in_use is False
 
 
 def test_a_port_held_by_a_live_listener_is_reported_in_use():
