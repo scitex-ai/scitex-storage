@@ -39,8 +39,12 @@ NOW = 1_000_000_000.0
 
 # --- combine ---------------------------------------------------------------
 def test_no_signals_is_not_a_clean_bill_of_health():
+    # Arrange
+    # Act
+    verdict = combine([])
+
     # Assert
-    assert combine([]) == COULD_NOT_LOOK
+    assert verdict == COULD_NOT_LOOK
 
 
 def test_a_single_could_not_look_poisons_the_verdict():
@@ -50,8 +54,11 @@ def test_a_single_could_not_look_poisons_the_verdict():
         Signal("b", COULD_NOT_LOOK, "probe did not run"),
     ]
 
+    # Act
+    verdict = combine(signals)
+
     # Assert
-    assert combine(signals) == COULD_NOT_LOOK
+    assert verdict == COULD_NOT_LOOK
 
 
 def test_one_holder_outranks_any_number_of_agreements():
@@ -62,29 +69,46 @@ def test_one_holder_outranks_any_number_of_agreements():
         Signal("c", NOT_MOVABLE, "something is standing on it"),
     ]
 
+    # Act
+    verdict = combine(signals)
+
     # Assert
-    assert combine(signals) == NOT_MOVABLE
+    assert verdict == NOT_MOVABLE
 
 
 def test_unanimous_agreement_is_movable():
     # Arrange
     signals = [Signal("a", MOVABLE, "fine"), Signal("b", MOVABLE, "fine")]
 
+    # Act
+    verdict = combine(signals)
+
     # Assert
-    assert combine(signals) == MOVABLE
+    assert verdict == MOVABLE
 
 
 def test_a_verdict_without_evidence_is_refused():
-    # A verdict that cannot be audited is not a measurement.
-    # Act / Assert
-    with pytest.raises(ValueError):
-        Signal("a", MOVABLE, "   ")
+    # Arrange -- a verdict that cannot be audited is not a measurement.
+    blank_evidence = "   "
+
+    # Act
+    raised = pytest.raises(ValueError)
+
+    # Assert
+    with raised:
+        Signal("a", MOVABLE, blank_evidence)
 
 
 def test_an_unknown_verdict_is_refused():
-    # Act / Assert
-    with pytest.raises(ValueError):
-        Signal("a", "probably-fine", "hand-wave")
+    # Arrange
+    bogus_verdict = "probably-fine"
+
+    # Act
+    raised = pytest.raises(ValueError)
+
+    # Assert
+    with raised:
+        Signal("a", bogus_verdict, "hand-wave")
 
 
 def test_classification_reports_the_deciding_signal():
@@ -104,6 +128,7 @@ def test_classification_reports_the_deciding_signal():
 # --- S1 coldness -----------------------------------------------------------
 def test_a_recent_read_blocks_the_move_even_when_writes_are_ancient():
     # The ai-for-science case: 15 days without a write, READ 11h ago.
+    # Arrange
     # Act
     signal = coldness_signal(
         newest_mtime=NOW - 15 * DAY,
@@ -117,6 +142,7 @@ def test_a_recent_read_blocks_the_move_even_when_writes_are_ancient():
 
 
 def test_the_recent_read_evidence_names_the_reader_problem():
+    # Arrange
     # Act
     signal = coldness_signal(NOW - 15 * DAY, NOW - 0.5 * DAY, NOW, 7 * DAY)
 
@@ -125,6 +151,7 @@ def test_the_recent_read_evidence_names_the_reader_problem():
 
 
 def test_old_writes_and_old_reads_are_movable():
+    # Arrange
     # Act
     signal = coldness_signal(NOW - 300 * DAY, NOW - 300 * DAY, NOW, 7 * DAY)
 
@@ -133,6 +160,7 @@ def test_old_writes_and_old_reads_are_movable():
 
 
 def test_a_missing_atime_is_not_treated_as_old():
+    # Arrange
     # Act
     signal = coldness_signal(NOW - 300 * DAY, None, NOW, 7 * DAY)
 
@@ -143,6 +171,7 @@ def test_a_missing_atime_is_not_treated_as_old():
 # --- S3 destination --------------------------------------------------------
 def test_a_destination_absent_from_proc_mounts_is_refused():
     # /mnt/nas2 as a bare directory on the full root filesystem.
+    # Arrange
     # Act
     signal = destination_signal(dest_fsid=1, source_fsid=2, dest_in_mounts=False)
 
@@ -151,6 +180,7 @@ def test_a_destination_absent_from_proc_mounts_is_refused():
 
 
 def test_a_destination_on_the_source_filesystem_frees_nothing():
+    # Arrange
     # Act
     signal = destination_signal(dest_fsid=7, source_fsid=7, dest_in_mounts=True)
 
@@ -159,6 +189,7 @@ def test_a_destination_on_the_source_filesystem_frees_nothing():
 
 
 def test_a_distinct_mounted_filesystem_is_accepted():
+    # Arrange
     # Act
     signal = destination_signal(dest_fsid=7, source_fsid=9, dest_in_mounts=True)
 
@@ -169,6 +200,7 @@ def test_a_distinct_mounted_filesystem_is_accepted():
 # --- S4 free space ---------------------------------------------------------
 def test_an_artifact_larger_than_the_destination_is_refused():
     # The sweep bug: a 187 GiB tar onto 2.3 GB of free space.
+    # Arrange
     # Act
     signal = free_space_signal(needed_bytes=200_000_000_000, available_bytes=2_300_000_000)
 
@@ -177,6 +209,7 @@ def test_an_artifact_larger_than_the_destination_is_refused():
 
 
 def test_the_shortfall_is_named_rather_than_just_refused():
+    # Arrange
     # Act
     signal = free_space_signal(200_000_000_000, 2_300_000_000)
 
@@ -185,6 +218,7 @@ def test_the_shortfall_is_named_rather_than_just_refused():
 
 
 def test_an_unknown_destination_size_is_not_assumed_roomy():
+    # Arrange
     # Act
     signal = free_space_signal(needed_bytes=10, available_bytes=None)
 
@@ -193,6 +227,7 @@ def test_an_unknown_destination_size_is_not_assumed_roomy():
 
 
 def test_sufficient_space_is_accepted():
+    # Arrange
     # Act
     signal = free_space_signal(1_000_000_000, 500_000_000_000)
 
@@ -203,6 +238,7 @@ def test_sufficient_space_is_accepted():
 # --- S6 clustering ---------------------------------------------------------
 def test_timestamps_inside_one_minute_are_one_event_not_many_facts():
     # 37 overlays "written 0.3d ago" -- a single hook push.
+    # Arrange
     # Act
     signal = clustering_signal([NOW, NOW + 1, NOW + 2, NOW + 3])
 
@@ -211,6 +247,7 @@ def test_timestamps_inside_one_minute_are_one_event_not_many_facts():
 
 
 def test_genuinely_spread_timestamps_are_usable():
+    # Arrange
     # Act
     signal = clustering_signal([NOW, NOW + 5 * DAY, NOW + 40 * DAY])
 
@@ -219,6 +256,7 @@ def test_genuinely_spread_timestamps_are_usable():
 
 
 def test_too_few_timestamps_to_cluster_is_not_an_obstacle():
+    # Arrange
     # Act
     signal = clustering_signal([NOW, NOW + 1])
 
@@ -228,6 +266,7 @@ def test_too_few_timestamps_to_cluster_is_not_an_obstacle():
 
 # --- S8 readability --------------------------------------------------------
 def test_a_readable_directory_is_reported_readable(tmp_path):
+    # Arrange
     # Act
     signal = readability_signal(str(tmp_path))
 
@@ -236,6 +275,7 @@ def test_a_readable_directory_is_reported_readable(tmp_path):
 
 
 def test_a_missing_path_is_could_not_look(tmp_path):
+    # Arrange
     # Act
     signal = readability_signal(str(tmp_path / "does-not-exist"))
 
