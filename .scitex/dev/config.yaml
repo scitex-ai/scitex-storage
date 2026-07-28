@@ -2,3 +2,25 @@
 # No project-type declared: scitex-storage is a general-purpose CLI tool,
 # not a `research` (figure/provenance-gated) checkout — the default
 # (non-research) rule set applies.
+
+audit:
+  # ONE rule, deferred deliberately, with the reason in writing — the
+  # constitution's sanctioned form for inherited debt. NOT a blanket
+  # flag: every other rule still fails the build, and audit-all prints a
+  # MASKED INVENTORY naming this rule and this reason on every run, so
+  # the deferral stays visible rather than becoming green-by-absence.
+  skip-rules:
+    - rule: PS-224
+      reason: >-
+        CI job `fd-fclones-integration` targets ubuntu-latest, which no
+        registered runner serves. The finding is REAL and is not being
+        dismissed — tracked on card
+        ci-fd-fclones-job-targets-unregistered-runner-20260728. Deferred
+        rather than fixed because the correct remedy is genuinely unknown
+        to me: that job needs the `fd` and `fclones` binaries, which is
+        plausibly why it sits on a hosted runner, so moving it to the
+        registered spartan labels without confirming those binaries exist
+        there would trade a silent-queue risk for a missing-binary
+        failure on every PR. Blocked on scitex-hpc (owns the Spartan
+        runner environment) or scitex-dev (owns the host registry).
+        Remove this entry as soon as that question is answered.
