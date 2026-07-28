@@ -71,7 +71,21 @@ from pathlib import Path
 
 from scitex_ssh import SSHResult, exec_remote, sync_dir
 
+from ._archive_transport import (
+    DEFAULT_REMOTE_ROOT,
+    DESTINATIONS,
+    _UNSAFE_REMOTE_PATHS,
+    _as_dir_contents,
+    _default_remote_path,
+    _manifest_dir,
+    _manifest_path,
+    _quote_remote_path,
+    _rsync_binary,
+)
+from ._restore import RestorePlan, apply_restore, plan_restore
 from ._scan import MissingSystemDependencyError, _measure_dir
+from ._space import remote_free_bytes
+from ._sweep import InsufficientSpaceError, check_space
 from ._verify import (
     REMOTE_TALLY_CMD,
     RemoteTally,
@@ -90,93 +104,6 @@ class ArchiveNotVerifiedError(RuntimeError):
     already reached the destination.
     """
 
-_RSYNC_INSTALL_HINT = """scitex-storage `archive`/`restore` require the `rsync` binary.
-
-Both verbs move data via scitex-ssh's `sync_dir`, which is a wrapper over
-`rsync -a` over ssh -- so the LOCAL rsync binary is a hard runtime
-dependency of the transport, exactly as `fd` is of `scan`. It was not
-found on PATH.
-
-Install it:
-  Debian/Ubuntu:  sudo apt install rsync
-  macOS:          brew install rsync   (or use the preinstalled /usr/bin/rsync)
-  other/manual:   https://rsync.samba.org/
-
-Note the REMOTE host needs rsync too -- but a missing remote binary fails
-differently (an ssh-side error naming rsync), so this message is only ever
-about the local side."""
-
-
-def _rsync_binary() -> str:
-    """Return the path to the local ``rsync``, or raise fail-loud.
-
-    Mirrors ``_scan.py``'s ``_fd_binary()``: raised at CALL time (never at
-    import time), never caught inside this package, and never degraded into
-    a silent fallback -- there is no meaningful fallback for a transport.
-
-    ``sync_dir`` would otherwise surface a bare ``FileNotFoundError`` from
-    inside a *sibling package* (scitex-ssh), naming a binary this package's
-    own docs never mentioned, leaving the caller to reverse-engineer
-    scitex-storage -> scitex-ssh -> rsync. Declared in ``_system_deps.py``.
-    """
-    found = shutil.which("rsync")
-    if found:
-        return found
-    raise MissingSystemDependencyError(_RSYNC_INSTALL_HINT)
-
-DESTINATIONS: tuple[str, ...] = ("nas", "nas2")
-DEFAULT_REMOTE_ROOT = "~/scitex-storage-archive"
-
-# Remote paths this dangerous are never a legitimate archive/restore target
-# -- a real path always has more structure than this after flattening a
-# real local absolute path under DEFAULT_REMOTE_ROOT.
-_UNSAFE_REMOTE_PATHS = {"", "/", "~", "."}
-
-
-def _quote_remote_path(path: str) -> str:
-    """shlex.quote ``path`` for a remote shell without breaking a leading
-    ``~`` home-dir shortcut.
-
-    Shell tilde-expansion only applies to an UNQUOTED (or quote-adjacent)
-    leading ``~`` -- naively wrapping the whole string in single quotes (a
-    bare ``shlex.quote(path)``) turns ``~`` into a literal character, so
-    ``mkdir -p '~/scitex-storage-archive/x'`` creates a bogus directory
-    literally named ``~`` instead of expanding to ``$HOME``. Confirmed via
-    scitex-ssh smoke-testing a real ``mkdir`` on nas2 (2026-07-11) -- the
-    stray ``~`` dir was found sitting in the remote home directory.
-    """
-    if path == "~":
-        return "~"
-    if path.startswith("~/"):
-        return "~/" + shlex.quote(path[2:])
-    return shlex.quote(path)
-
-
-def _as_dir_contents(path: str) -> str:
-    """Append a trailing ``/`` (idempotent) so rsync copies ``path``'s
-    CONTENTS into the destination rather than nesting ``path`` itself one
-    level deeper as a subdirectory -- see the module docstring's trailing-
-    slash bullet."""
-    return path.rstrip("/") + "/"
-
-
-def _manifest_dir() -> Path:
-    """Resolved fresh on every call (not a module-level constant) so tests
-    can sandbox it by setting ``$HOME`` before calling in — matching the
-    pattern already used for ``scan``'s default roots."""
-    return Path("~/.scitex/scitex-storage/runtime/archive-manifests").expanduser()
-
-
-def _default_remote_path(source: Path, remote_root: str = DEFAULT_REMOTE_ROOT) -> str:
-    """Mirror ``source``'s absolute path under ``remote_root``, flattened."""
-    flattened = str(source).lstrip("/")
-    return f"{remote_root.rstrip('/')}/{flattened}"
-
-
-def _manifest_path(source: Path) -> Path:
-    """Deterministic manifest filename for ``source`` (so restore can find it)."""
-    flattened = str(source).lstrip("/").replace("/", "--")
-    return _manifest_dir() / f"{flattened}.json"
 
 
 @dataclass
@@ -324,6 +251,34 @@ def apply_archive(
                 f"--- stderr ---\n{mkdir_result.stderr}"
             )
 
+    # FREE-SPACE PREFLIGHT, before a single byte moves. Two-sided: we
+    # already know the artifact size (plan.size_bytes), and this asks the
+    # DESTINATION what it actually has. An estimate with no destination
+    # probe passes on a full disk; a destination probe with no estimate
+    # cannot say whether what is free is enough. Neither half is optional.
+    #
+    # "The NAS is roomy" is a capability claim, and a capability claim is
+    # a measurement -- so it is asked, not assumed.
+    available = remote_free_bytes(
+        plan.destination, _quote_remote_path(remote_parent or plan.remote_path),
+        runner=runner,
+    )
+    space = check_space(plan.size_bytes, available)
+    if space.ok is False:
+        raise InsufficientSpaceError(
+            f"refusing to archive to {plan.destination}:{plan.remote_path} -- "
+            f"{space.detail}\nSource left completely untouched. Free space on "
+            f"the destination, or choose another one."
+        )
+    # space.ok is None means the probe could not answer. That is NOT
+    # treated as a refusal: unlike sweep (which writes into the very
+    # filesystem it is relieving, so an unmeasured destination is the
+    # defect), archive writes to a REMOTE host and leaves the source
+    # intact until the post-transfer read-back passes. A failed df on an
+    # otherwise healthy destination should not block a migration that
+    # will still be verified before anything is deleted. It is recorded
+    # in the manifest so the gap is visible rather than silent.
+
     extra_opts: tuple[str, ...] = ("--checksum",) if checksum else ()
     result: SSHResult = sync_dir(
         plan.destination,
@@ -402,83 +357,6 @@ def apply_archive(
     return manifest
 
 
-@dataclass
-class RestorePlan:
-    """The result of :func:`plan_restore` — never touches the network."""
-
-    manifest: ArchiveManifest
-    manifest_path: Path
-
-
-def plan_restore(source: str | Path) -> RestorePlan:
-    """Load the manifest for ``source`` — read-only, never touches the network.
-
-    ``source`` need not currently exist (it typically doesn't — archiving
-    removed it). Fail-loud if no manifest was ever written for this path.
-    """
-    resolved = Path(source).expanduser().resolve()
-    manifest_path = _manifest_path(resolved)
-    if not manifest_path.exists():
-        raise FileNotFoundError(
-            f"no archive manifest found for {resolved} at {manifest_path} "
-            "-- was this directory ever archived from here?"
-        )
-    manifest = ArchiveManifest.from_dict(json.loads(manifest_path.read_text()))
-    return RestorePlan(manifest=manifest, manifest_path=manifest_path)
-
-
-def apply_restore(
-    plan: RestorePlan, *, delete_remote: bool = False, runner=None
-) -> Path:
-    """Pull the archived directory back to its original local path.
-
-    Verifies via rsync's own exit code; raises loud on failure (nothing is
-    removed remotely in that case, regardless of ``delete_remote``). The
-    remote copy is only removed when ``delete_remote=True`` — off by
-    default, since restoring locally should not destroy the backup unless
-    explicitly asked. ``runner`` is passed straight through to both
-    ``sync_dir`` and ``exec_remote``.
-
-    Requires ``rsync`` only when ``runner is None`` — same reasoning as
-    :func:`apply_archive`.
-    """
-    if runner is None:
-        _rsync_binary()
-    manifest = plan.manifest
-    source = Path(manifest.source)
-    result: SSHResult = sync_dir(
-        manifest.destination,
-        str(source),
-        _as_dir_contents(manifest.remote_path),
-        direction="pull",
-        runner=runner,
-    )
-    if not result.success:
-        raise RuntimeError(
-            f"restore pull from {manifest.destination}:{manifest.remote_path} "
-            f"failed (exit {result.returncode}) -- remote copy untouched.\n"
-            f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-        )
-
-    if delete_remote:
-        if manifest.remote_path.strip() in _UNSAFE_REMOTE_PATHS:
-            raise ValueError(
-                f"refusing to delete an unsafe remote path: {manifest.remote_path!r}"
-            )
-        rm_result = exec_remote(
-            manifest.destination,
-            f"rm -rf -- {_quote_remote_path(manifest.remote_path)}",
-            runner=runner,
-        )
-        if not rm_result.success:
-            raise RuntimeError(
-                f"local restore succeeded, but removing the remote copy at "
-                f"{manifest.destination}:{manifest.remote_path} failed "
-                f"(exit {rm_result.returncode}) -- remote copy still present.\n"
-                f"--- stdout ---\n{rm_result.stdout}\n--- stderr ---\n{rm_result.stderr}"
-            )
-
-    return source
 
 
 # EOF
