@@ -5,7 +5,224 @@ All notable changes to `scitex-storage` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-07-28
+
+### The movability classifier — Layer 1, complete
+
+Eight mechanical signals, each encoding a specific way the 2026-07-22
+ywata-note-win incident's reasoning went wrong. That night five reclaim
+candidates were proposed and all five were withdrawn under measurement,
+while the real 681 GB sat in a directory nobody could read. These are
+those corrections as code rather than as a checklist someone remembers.
+
+- **S1 coldness** pairs `mtime` **with** `atime`. A READER LEAVES NO
+  MTIME: a corpus read daily is byte-identical to an abandoned one under
+  an mtime-only probe. A 187 GiB proposal was withdrawn when atime showed
+  the tree had been read 11 hours earlier.
+- **S2 open-handle check** (`/proc/<pid>/fd` **and** `maps`, so an mmap'd
+  file counts as a holder) — the only signal that answers "is anything
+  standing on this RIGHT NOW". It **requires a positive control** and
+  returns `could-not-look` without one: an empty `/proc` scan and a blind
+  one are indistinguishable, and the blind one produces the answer you
+  were hoping for. Its verdict states its own coverage limit — other
+  users, other namespaces and remote clients are not enumerated.
+- **S3 destination reality** — the path must appear in `/proc/mounts` and
+  its fsid must differ from the source's. `/mnt/nas2` was a bare
+  directory on the dying root filesystem; writing "to the NAS" would have
+  poured data onto the disk being relieved while every signal reported
+  success.
+- **S4 two-sided free-space preflight** — an estimate with no destination
+  probe passes on a full disk; a destination probe with no estimate
+  cannot say whether what is free is *enough*.
+- **S5 accounting audit** — `sum(measured)` vs `df`. IF MEASURED <<
+  REPORTED, SUSPECT SCOPE BEFORE PRECISION. It **refuses** rather than
+  warns while a residual is unexplained, because the failure being
+  prevented is continuing to reason confidently inside a scope that does
+  not contain the answer, and a warning is what a confident reasoner
+  walks past. An allowance requires a *written* reason.
+- **S6 timestamp clustering** — N items sharing a timestamp are ONE
+  event, not N facts. 37 overlays "written 0.3d ago" was a single hook
+  push.
+- **S7 duplicate detection** as a signal — the only class that frees
+  space at zero risk and zero loss. It never returns `not-movable`: a
+  duplicate is not a holder, and treating one as an obstacle would block
+  the safest reclaim there is.
+- **S8 permission-stub detection** — a `du` result equal to a
+  directory's own size with no readable children is a *could-not-look*,
+  not an empty directory. That is exactly how the 681 GB hid.
+
+`combine()` is deliberately **not a vote**: any `could-not-look` poisons
+the verdict, and one "something is standing on this" outranks any number
+of agreements. A `Signal` refuses to exist without evidence.
+
+### Regenerability — a separate axis from movability
+
+"Can this move?" and "does deleting this lose anything?" are different
+questions. `_regenerable` answers the second, **structurally**: detection
+keys on `pyvenv.cfg`, `conda-meta`, `renv/library`, `site-packages` and
+top-level `*.dist-info/` — never on a directory's name. Eight distinct
+environment directory names were observed in one real project
+(`rsandbox`, `mamba`, `pylibs`, `myenv`, `mmroot`, `mm_root`, `venv`,
+`renv`), and one directory named `renv` turned out to be a full conda
+prefix. A name-based rule under-matches and leaves the quota unmoved,
+which is the failure that *looks* like success.
+
+- A tree counts as regenerable **only if the recipe that rebuilds it
+  still exists**. A `site-packages` with no spec above it is the only
+  copy, not a cache. The validator refuses to construct that verdict
+  without naming the spec file.
+- **`cache`** is a third class, added after real capsule trees showed the
+  largest consumers were neither environments nor non-environments. A
+  CACHE IS REGENERABLE WITH NO SPEC, BECAUSE THE RECIPE IS THE NETWORK.
+  Granted only by a marker the *writing tool* chose — `CACHEDIR.TAG`, or
+  a conda root holding only `pkgs/` — never by absence of evidence.
+- `extra_spec_paths` lets a caller **name** a recipe an ancestor walk
+  cannot reach (a sibling corpus). Only *discovery* is relaxed: each
+  named path is verified on disk, a directory does not count, the first
+  *existing* candidate wins, a discovered recipe still beats a supplied
+  one, and the verdict records which it was.
+- `could-not-look` now carries a `reason` — `not-a-directory` / `absent`
+  / `unreadable`. A file is routine and skippable; an ABSENT path means
+  the caller's inventory is stale. A deletion sweep must treat those
+  oppositely.
+
+### `find-recipe` — the detector, reachable
+
+New `scitex-storage find-recipe PATH [--stop-at DIR] [--spec PATH ...]
+[--json]`. A Python API is not a capability for a bash caller in another
+container; this verb is the contract across that boundary.
+
+Fixed JSON shape (every key present, `null` where inapplicable), and
+**declared exit codes that a missing binary cannot forge**: `0`
+regenerable/cache, `10` not-regenerable, `11` could-not-look. `1` and `2`
+already mean generic-failure and usage-error everywhere, so spending them
+on domain meanings lets "not installed" impersonate a verdict — measured
+the day this shipped. The lazy reading (`if cmd; then rm; fi`) is also
+the safe one, since a cache is disposable by definition.
+
+The verb never deletes anything. Whether something *may* be deleted is a
+policy decision for the caller, who knows what the record consists of.
+
+### Safer moves
+
+- **`archive` reads the destination back before removing the original.**
+  Its docstring had promised "push, verify, write manifest, THEN remove
+  source" while the body verified nothing — rsync's exit code says the
+  transfer it attempted succeeded, not that the destination holds what
+  the source held. A mismatch *or* an unanswerable probe raises
+  `ArchiveNotVerifiedError`, leaves the source intact, and records the
+  verdict in the manifest so a refusal is auditable.
+  The baseline is measured with the **same semantics on both sides** — a
+  count drawn from the inode model excludes symlinks-to-directories that
+  `rsync -a` writes, which produced a 20,492-member false alarm once.
+  A *surplus* is disqualifying too: looking better than expected means
+  the baseline is wrong.
+- **`archive` and `reclaim` now measure the destination before moving
+  data.** A real `df -Pk` probe over ssh (POSIX-portable, because the NAS
+  units run BusyBox), returning `None` rather than `0` when unparseable —
+  zero is a measurement meaning "full". "The NAS is roomy" is a
+  capability claim, and a capability claim is a measurement.
+- **`sweep` refuses rather than filling the disk it was called to
+  relieve**, and its help now says so: it writes the tar beside the
+  source, so it needs free space to free space, and is unusable on a
+  filesystem already out of room — which is exactly when someone reaches
+  for a cleanup tool. The help names what to use instead.
+
+### Fleet observation
+
+- Multi-host `observe` via scitex-dev's host registry (no second host
+  list), with a `redundancy` model that ships **no default policy** — the
+  caller supplies the classes and RPO/RTO, and `assess_all` raises rather
+  than inventing a standard and then reporting compliance against it.
+- Live-run fixes the unit tests could not catch, because both were
+  written from the same GNU output the code assumed: macOS `df -Pi`
+  emits nine columns against GNU's six (every Mac filesystem reported
+  "inodes unavailable"), and `df` exits non-zero when *any one* mount is
+  unreadable, so a single stale share made two whole hosts report
+  could-not-look. Partial success is success.
+- The GUI's bare-Django fallback is loud instead of silent.
+
 ## [Unreleased]
+
+- New `scitex-storage reclaim PATH...` / `reclaim-restore RUN_ID` — move a
+  path **aside into a reversible archive instead of deleting it**. This is
+  the operator's archive-instead-of-delete rule as a mechanism: because a
+  wrong call costs a `reclaim-restore` rather than lost data, a cleanup
+  decision is allowed to be *rough*, which is what lets it ship before its
+  classifier is perfect.
+
+  By default the archive is an adjacent `.old/<timestamp>/` beside each
+  source — same filesystem, so the move is an instant atomic rename. That
+  tidies a tree but does **not** free the source filesystem's inodes/space
+  (the files are merely relocated). Pass `--archive-root` at a *different*
+  filesystem to actually reclaim inodes/space; that move is a verified
+  copy-then-delete, not atomic, and is checked before the source is removed.
+  One mechanism, two jobs — the caller states the destination, because "free
+  this filesystem" and "tidy this directory" are different intents.
+
+  `reclaim --status` reports every run and the **restore rate** — the
+  fraction of runs later pulled back out — which is the honest accuracy
+  metric for whatever chose the paths, measured rather than guessed. No
+  data reports as `n/a`, never a reassuring `0%`. Deleting archived data is
+  a separate, later step; this verb never unlinks anything. Local-only, no
+  `rsync`/network/`fd`, so it is testable end-to-end over real temp dirs.
+  Defaults to a dry-run.
+
+- `archive` / `restore` now **declare and check `rsync`**, the transport they
+  were always built on. Both delegate to scitex-ssh's `sync_dir` — "a thin,
+  policy-free wrapper over `rsync -a`" — so the local `rsync` binary is as
+  hard a runtime dependency of `archive` as `fd` is of `scan`. It was
+  declared nowhere and is absent from the container this package ships to,
+  so `archive` could not run there and failed with a raw traceback from
+  inside a *sibling package*, naming a binary our own docs never mentioned.
+
+  Now: declared in `_system_deps.py` (an ordinary apt package, unlike
+  `fclones`) so the fleet-wide `scitex-dev ecosystem system-deps` aggregator
+  sees it, and a missing binary raises `MissingSystemDependencyError` with
+  install instructions — the same contract `scan` gives a missing `fd`.
+
+  The check runs **before planning**, so the DEFAULT dry-run cannot promise a
+  run whose transport could not start: "WOULD ARCHIVE 500 GB" on a box with
+  no rsync is a confident claim about something never checked, discovered
+  only at `--yes`. The library stays honest in the other direction — an
+  injected `runner` *is* the transport, so `apply_archive`/`apply_restore`
+  require the binary only when `runner is None`, and `plan_archive` never
+  does.
+
+  Worth recording why it was missed: nothing in this package spawns rsync.
+  `_archive.py` calls `sync_dir()`, an ordinary function from an ordinary
+  declared dependency, and the subprocess happens one package away. The PyPI
+  dependency is the *adapter*; the binary it adapts needed declaring too. No
+  import gate can catch that — `import scitex_ssh` resolves right up until
+  the binary underneath is missing. Found by dogfooding, not by any check we
+  own.
+
+- New `scitex-storage validate-inodes [PATH ...]` — reports how close the mount
+  backing each path is to **inode exhaustion**, which fails every write
+  while `df` still shows free space (a Spartan project measured 96%
+  inodes at 70% disk). Deliberately the cheapest thing in the package:
+  one `statvfs` per path, so it is O(1) rather than O(files) — walking a
+  multi-million-file tree to count inodes is self-defeating when
+  metadata operations are already slow. It needs **no system binaries**
+  (unlike `scan`, which needs `fd`) and **no login shell**, so it works
+  from a bare job step, a cron line, or a container, i.e. when the
+  richer tooling cannot run.
+
+  Verdicts are three-state and never conflated: `measured`,
+  `not-applicable` (btrfs/ZFS allocate inodes dynamically and report
+  `f_files=0` — reported as such, *never* as a reassuring `0%`), and
+  `could-not-look` (unreadable path, wedged mount). Exit codes carry the
+  same distinction for unattended callers: `0` measured and under
+  threshold, `1` at/over `--warn-at` (default 90%), `2` could not look.
+  `2` is separate from `0` on purpose — a monitor that cannot tell
+  "healthy" from "never read it" reports healthy for filesystems it
+  never looked at.
+
+  On a GPFS **independent fileset** (how HPC per-project directories are
+  usually carved out) `statvfs` reports the *project's own quota*, so on
+  those paths this answers the question that actually kills jobs — with
+  no `mmlsquota` and no module load. Verified against Spartan's
+  `check_project_usage` to within 3 inodes, and against `df -i`.
 
 - `scan`'s directory walk now delegates to `fd` instead of Python
   `os.walk`, for multi-terabyte-scale performance. `fd` is a new

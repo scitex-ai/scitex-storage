@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # File: src/scitex_storage/_system_deps.py
-"""scitex-storage's system (non-apt / cargo-or-release-binary) dependency provider.
+"""scitex-storage's system (non-pip) dependency provider.
 
-Two verbs shell out to Rust CLIs for their hot paths instead of
+Three binaries. Two are Rust CLIs the hot paths shell out to instead of
 reimplementing a directory walk or a size+hash duplicate pass in Python
 (see ``_scan.py`` and ``_duplicates.py``'s module docstrings for the full
-rationale):
+rationale); the third is the transport ``archive``/``restore`` are built on:
 
 * ``fd`` (fd-find) — ``scan``'s directory traversal, replacing ``os.walk``.
   Packaged as ``fd-find`` on Debian/Ubuntu (apt package name differs from
@@ -17,17 +17,33 @@ rationale):
   Ubuntu's default apt repos as of this writing (unlike ``fd-find``);
   install via ``cargo install fclones``, Homebrew, or a prebuilt release
   binary — see https://github.com/pkolaczk/fclones#installation.
+* ``rsync`` — the transport under ``archive``/``restore``. Neither verb
+  talks to a network itself: both delegate to scitex-ssh's ``sync_dir``,
+  which is "a thin, policy-free wrapper over ``rsync -a``" over ssh. So the
+  LOCAL rsync binary is as hard a runtime dependency of ``archive`` as
+  ``fd`` is of ``scan`` — scitex-ssh is the declared PyPI dependency, but it
+  is an ADAPTER, and the thing it adapts needs declaring too. Ordinary apt
+  package (``apt install rsync``), unlike ``fclones``.
+
+  Missed until 2026-07-17, and worth recording why rather than just fixing:
+  the dependency is INVISIBLE FROM THIS PACKAGE'S SOURCE. Nothing here
+  spawns rsync; ``_archive.py`` calls ``sync_dir()``, a normal Python
+  function from a normal declared dependency, and the subprocess happens one
+  package away. A cross-package import gate cannot catch that either — it
+  proves ``import scitex_ssh`` resolves, which it does, right up until the
+  binary underneath is missing. Found by dogfooding (``archive`` could not
+  run in the container scitex-storage ships to), not by any check we own.
 
 Registered under the same ``scitex_dev.system_deps`` entry-point federation
 every leaf uses (see ``scitex_dev.system_deps`` and e.g.
 ``scitex_writer._core._system_deps`` / ``scitex_dev._system_deps`` for the
 same pattern), so ``scitex-dev ecosystem system-deps`` aggregates it
-fleet-wide. Neither binary is required to *install* scitex-storage (no
-PyPI package for either exists, and pip has no notion of a system binary
-dependency) — ``fd`` is a hard *runtime* dependency of ``scan``, and
-``fclones`` of ``find-duplicates``, only. A missing binary raises
-``MissingSystemDependencyError`` with install instructions rather than a
-build failure or a silent slow fallback.
+fleet-wide. No binary here is required to *install* scitex-storage (pip has
+no notion of a system binary dependency) — each is a hard *runtime*
+dependency of its own verb, and of nothing else: ``fd`` of ``scan``,
+``fclones`` of ``find-duplicates``, ``rsync`` of ``archive``/``restore``. A
+missing binary raises ``MissingSystemDependencyError`` with install
+instructions rather than a build failure or a silent slow fallback.
 
 ``fclones`` has no apt package, so ``SystemDepSpec.apt_repo`` cannot express
 its install; that gap is intentional -- ``apt_repo`` only covers "extra apt
@@ -55,6 +71,13 @@ _PACKAGES: list[tuple[str, str]] = [
         "find-duplicates` (no Debian/Ubuntu apt package -- install via "
         "`cargo install fclones`, Homebrew, or a release binary) -- "
         "replaces a hashlib pass",
+    ),
+    (
+        "rsync",
+        "the transport under `scitex-storage archive` / `restore` -- both "
+        "delegate to scitex-ssh's `sync_dir`, a wrapper over `rsync -a` "
+        "over ssh, so the LOCAL rsync binary is required (the remote host "
+        "needs one too, but that fails ssh-side). Ordinary apt package.",
     ),
 ]
 

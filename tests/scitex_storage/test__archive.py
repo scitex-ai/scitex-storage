@@ -12,17 +12,29 @@ from dataclasses import dataclass
 
 import pytest
 
+import shutil
+
 from scitex_storage._archive import (
+    DEFAULT_REMOTE_ROOT,
     ArchiveManifest,
+    ArchiveNotVerifiedError,
     ArchivePlan,
     RestorePlan,
     _as_dir_contents,
     _quote_remote_path,
+    _rsync_binary,
     apply_archive,
     apply_restore,
     plan_archive,
     plan_restore,
 )
+from scitex_storage._scan import MissingSystemDependencyError
+from scitex_storage._sweep import InsufficientSpaceError
+from scitex_storage._verify import local_tally
+
+# Resolved at collection time -- BEFORE any test's isolated_path_bin_dir
+# fixture swaps PATH out from under a later real `shutil.which()` call.
+_REAL_RSYNC_BIN = shutil.which("rsync")
 
 
 @dataclass
@@ -32,10 +44,71 @@ class _FakeCompletedProcess:
     stderr: str = ""
 
 
+def _rsync_call(runner):
+    """The recorded rsync argv, located by CONTENT rather than by position.
+
+    These assertions used to read ``runner.calls[-1]``, which was true only
+    while rsync happened to be the last thing apply_archive did. It is not
+    any more: the destination read-back probe runs after it. An assertion
+    that depends on incidental ordering breaks on an unrelated change and
+    says nothing about what it meant to check, so it is pinned to the call
+    that actually is rsync.
+    """
+    # Matched on argv[0] being the rsync BINARY, not on "rsync" appearing
+    # anywhere in the argv: the ssh calls carry a remote path that can
+    # contain the substring, and a loose match silently picks the wrong
+    # call and then asserts against the wrong argv.
+    for cmd in reversed(runner.calls):
+        if cmd and str(cmd[0]).rsplit("/", 1)[-1] == "rsync":
+            return cmd
+    raise AssertionError(f"no rsync call recorded; got {runner.calls!r}")
+
+
+def _looks_like_tally(cmd) -> bool:
+    """True when ``cmd`` is apply_archive's destination read-back probe."""
+    joined = " ".join(cmd) if isinstance(cmd, (list, tuple)) else str(cmd)
+    return "! -type d" in joined and "wc -c" in joined
+
+
+def _simulated_destination_tally(calls) -> str:
+    """Answer the read-back probe as a destination that received EVERYTHING.
+
+    ``apply_archive`` now reads the destination back before removing the
+    source, so a runner that stays silent is an INCOMPLETE double, not a
+    passing one -- it reads as "the probe did not run", which correctly
+    refuses to delete. Rather than teach every call site about the probe,
+    the double reports the real tally of the tree rsync was asked to send.
+
+    The source is taken from the RECORDED RSYNC ARGV, not reconstructed
+    from the remote path. The first attempt did the latter -- inverting
+    DEFAULT_REMOTE_ROOT -- and broke the moment a test passed an explicit
+    ``remote_path``, because that convention only holds for the default.
+    The rsync argv carries the source directly and holds in every case.
+
+    This models the honest success case. The FAILURE cases -- short count,
+    surplus count, truncated bytes, unanswerable probe -- live at the unit
+    level in test__verify.py, where they can be stated exactly instead of
+    being simulated through a transport.
+    """
+    for cmd in reversed(calls):
+        if cmd and str(cmd[0]).rsplit("/", 1)[-1] == "rsync" and len(cmd) >= 2:
+            tally = local_tally(str(cmd[-2]).rstrip("/"))
+            if tally.entry_count is None:
+                return ""
+            return f"{tally.entry_count}\n{tally.size_bytes}\n"
+    return ""
+
+
 class _FakeRunner:
     """Records every argv it's called with; returns the SAME scripted result
     for every call (mkdir and rsync alike -- use _StagedRunner to make only
-    one of them fail)."""
+    one of them fail).
+
+    EXCEPT the destination read-back probe, which is answered as a
+    destination that faithfully received the source -- see
+    :func:`_simulated_destination_tally`. A scripted FAILURE
+    (``returncode != 0``) is still honoured for the probe too, so the
+    "transport is broken" tests keep working unchanged."""
 
     def __init__(self, returncode=0, stdout="", stderr=""):
         self.returncode = returncode
@@ -45,7 +118,52 @@ class _FakeRunner:
 
     def __call__(self, cmd, **kwargs):
         self.calls.append(cmd)
+        if self.returncode == 0 and _looks_like_tally(cmd):
+            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
         return _FakeCompletedProcess(self.returncode, self.stdout, self.stderr)
+
+
+class _LyingTallyRunner:
+    """Succeeds at mkdir and rsync, then reports a destination tally of
+    ``tally`` -- used to prove the read-back actually REFUSES, rather than
+    only proving the happy path still passes. A guard that has never been
+    seen to fire is indistinguishable from one that cannot."""
+
+    def __init__(self, tally: str):
+        self.tally = tally
+        self.calls = []
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        if _looks_like_tally(cmd):
+            return _FakeCompletedProcess(0, self.tally, "")
+        return _FakeCompletedProcess(0, "", "")
+
+
+class _FullDestinationRunner:
+    """Succeeds at everything except `df`, which reports a destination with
+    ``avail_kb`` 1-KiB blocks free -- so the preflight can be seen to
+    REFUSE. Without this, every test would hit the could-not-look branch
+    (the plain fake returns no df output at all) and the guard would never
+    be observed firing."""
+
+    def __init__(self, avail_kb: int = 0):
+        self.avail_kb = avail_kb
+        self.calls = []
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        joined = " ".join(cmd) if isinstance(cmd, (list, tuple)) else str(cmd)
+        if "df -Pk" in joined:
+            return _FakeCompletedProcess(
+                0,
+                "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+                f"/dev/sda1 1000000 999999 {self.avail_kb} 100% /share\n",
+                "",
+            )
+        if _looks_like_tally(cmd):
+            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
+        return _FakeCompletedProcess(0, "", "")
 
 
 class _StagedRunner:
@@ -342,8 +460,8 @@ def test_apply_archive_rsync_source_has_a_trailing_slash(tmp_path, sandbox_home)
     runner = _FakeRunner(returncode=0)
     # Act
     apply_archive(plan, runner=runner)
-    # Assert -- the rsync call (calls[-1]) has src as the second-to-last argv
-    assert runner.calls[-1][-2] == f"{plan.source}/"
+    # Assert -- the rsync call has src as the second-to-last argv
+    assert _rsync_call(runner)[-2] == f"{plan.source}/"
 
 
 def test_apply_archive_mkdir_runs_before_the_rsync_call(tmp_path, sandbox_home):
@@ -354,8 +472,10 @@ def test_apply_archive_mkdir_runs_before_the_rsync_call(tmp_path, sandbox_home):
     runner = _FakeRunner(returncode=0)
     # Act
     apply_archive(plan, runner=runner)
-    # Assert
-    assert len(runner.calls) == 2
+    # Assert -- mkdir first, then rsync. (A third call, the destination
+    # read-back probe, now follows both; this test is about the ORDER of
+    # the first two, not the total.)
+    assert runner.calls.index(_rsync_call(runner)) > 0
 
 
 # A uniform-failure runner fails BOTH the mkdir and the rsync call, so it
@@ -442,8 +562,8 @@ def test_apply_archive_checksum_true_adds_the_rsync_flag(tmp_path, sandbox_home)
     runner = _FakeRunner(returncode=0)
     # Act
     apply_archive(plan, checksum=True, runner=runner)
-    # Assert -- calls[-1] is the rsync argv (mkdir runs first, at calls[0])
-    assert "--checksum" in runner.calls[-1]
+    # Assert
+    assert "--checksum" in _rsync_call(runner)
 
 
 def test_apply_archive_checksum_false_omits_the_rsync_flag(tmp_path, sandbox_home):
@@ -455,7 +575,7 @@ def test_apply_archive_checksum_false_omits_the_rsync_flag(tmp_path, sandbox_hom
     # Act
     apply_archive(plan, checksum=False, runner=runner)
     # Assert
-    assert "--checksum" not in runner.calls[-1]
+    assert "--checksum" not in _rsync_call(runner)
 
 
 def test_apply_archive_passes_exclude_patterns_through(tmp_path, sandbox_home):
@@ -467,7 +587,7 @@ def test_apply_archive_passes_exclude_patterns_through(tmp_path, sandbox_home):
     # Act
     apply_archive(plan, exclude=("*.tmp",), runner=runner)
     # Assert
-    assert "--exclude=*.tmp" in runner.calls[-1]
+    assert "--exclude=*.tmp" in _rsync_call(runner)
 
 
 def test_apply_archive_returns_an_archivemanifest_instance(tmp_path, sandbox_home):
@@ -640,6 +760,243 @@ def test_apply_restore_refuses_to_delete_an_unsafe_remote_path(tmp_path):
     # Assert
     with pytest.raises(ValueError):
         apply_restore(plan, delete_remote=True, runner=_FakeRunner(returncode=0))
+
+
+# =============================================================================
+# rsync dependency -- missing-binary error handling
+#
+# `archive`/`restore` never spawn rsync themselves: they call scitex-ssh's
+# `sync_dir`, which is a wrapper over `rsync -a` over ssh. That makes the
+# LOCAL rsync binary a hard runtime dependency that is INVISIBLE from this
+# package's source -- the subprocess happens one package away. It was missed
+# until 2026-07-17, when `archive` turned out not to run in the container
+# scitex-storage ships to.
+#
+# Same no-mocks approach as `_scan.py`'s fd tests (STX-NM002 -- "production
+# talks to the real collaborator"): PATH is isolated via a real env-var
+# mutation, so the code under test still calls the real `shutil.which`.
+# =============================================================================
+
+
+@pytest.fixture
+def isolated_path_bin_dir(tmp_path):
+    """Replace PATH with a fresh, empty directory for the test's duration."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    original_path = os.environ["PATH"]
+    os.environ["PATH"] = str(bin_dir)
+    yield bin_dir
+    os.environ["PATH"] = original_path
+
+
+def test_rsync_binary_raises_missing_dependency_when_rsync_absent(
+    isolated_path_bin_dir,
+):
+    # Arrange -- PATH now contains no rsync.
+    # Act
+    # Assert
+    with pytest.raises(MissingSystemDependencyError):
+        _rsync_binary()
+
+
+def test_rsync_missing_dependency_names_an_actual_install_command(
+    isolated_path_bin_dir,
+):
+    # Arrange -- an error a user cannot act on is only half a fail-loud.
+    # Act
+    # Assert
+    with pytest.raises(MissingSystemDependencyError, match="apt install rsync"):
+        _rsync_binary()
+
+
+@pytest.mark.skipif(
+    _REAL_RSYNC_BIN is None, reason="requires a real `rsync` binary on PATH"
+)
+def test_rsync_binary_returns_the_real_binary_when_present():
+    # Arrange
+    # Act
+    found = _rsync_binary()
+    # Assert
+    assert found == _REAL_RSYNC_BIN
+
+
+def test_plan_archive_does_not_require_rsync(tmp_path, isolated_path_bin_dir):
+    # Arrange -- planning is genuinely transport-free, so it must not demand
+    # a binary it will never invoke. (`scan`'s fd IS still needed for the
+    # size walk, so this asserts only that the failure is not rsync's.)
+    source = tmp_path / "source"
+    source.mkdir()
+    # Act
+    # Assert
+    try:
+        plan_archive(source, "nas2")
+    except MissingSystemDependencyError as exc:
+        assert "rsync" not in str(exc)
+
+
+def test_apply_archive_with_an_injected_runner_does_not_require_rsync(
+    tmp_path, sandbox_home, isolated_path_bin_dir
+):
+    # Arrange -- an injected runner IS the transport, so requiring a binary
+    # it will never invoke would break the seam scitex-ssh deliberately
+    # exposes. PATH has no rsync; this must still succeed.
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "a.bin").write_bytes(b"\0")
+    plan = ArchivePlan(
+        source=source,
+        destination="nas2",
+        remote_path="~/scitex-storage-archive/probe",
+        size_bytes=1,
+        file_count=1,
+        manifest_path=sandbox_home / "manifest.json",
+    )
+    # Act
+    manifest = apply_archive(plan, runner=_FakeRunner(returncode=0))
+    # Assert
+    assert manifest.destination == "nas2"
+
+
+# --- the destination read-back actually refuses ---------------------------
+# These exist because a guard that has never been OBSERVED to fire is
+# indistinguishable from one that cannot. The happy-path tests above prove
+# the verb still works; only these prove it still protects anything.
+def _plan_with_two_files(tmp_path, sandbox_home):
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    _touch(source / "b.bin")
+    return plan_archive(source, "nas")
+
+
+def test_a_short_destination_tally_refuses_and_raises(tmp_path, sandbox_home):
+    # Arrange -- destination reports 1 entry where the source has 2.
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    raised = pytest.raises(ArchiveNotVerifiedError)
+
+    # Assert
+    with raised:
+        apply_archive(plan, runner=_LyingTallyRunner("1\n999999\n"))
+
+
+def test_a_short_destination_tally_LEAVES_THE_SOURCE_INTACT(tmp_path, sandbox_home):
+    # The consequence that matters: refusing is worthless if it deleted first.
+    # Arrange
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    try:
+        apply_archive(plan, runner=_LyingTallyRunner("1\n999999\n"))
+    except ArchiveNotVerifiedError:
+        pass
+
+    # Assert
+    assert plan.source.exists()
+
+
+def test_an_unanswerable_probe_LEAVES_THE_SOURCE_INTACT(tmp_path, sandbox_home):
+    # "I could not check" must block the delete exactly as firmly as
+    # "the check failed" -- for a destructive action they have the same
+    # consequence, and treating unknown as permission is the whole defect.
+    # Arrange
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    try:
+        apply_archive(plan, runner=_LyingTallyRunner(""))
+    except ArchiveNotVerifiedError:
+        pass
+
+    # Assert
+    assert plan.source.exists()
+
+
+def test_a_refused_archive_still_records_the_verdict_in_the_manifest(
+    tmp_path, sandbox_home
+):
+    # A refusal that lives only in the raiser's terminal is not auditable.
+    # Arrange
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    try:
+        apply_archive(plan, runner=_LyingTallyRunner("1\n999999\n"))
+    except ArchiveNotVerifiedError:
+        pass
+
+    # Assert
+    assert "mismatch" in plan.manifest_path.read_text()
+
+
+def test_a_full_destination_refuses_before_transferring(tmp_path, sandbox_home):
+    # The sweep lesson applied to archive: a verb that moves data OFF a
+    # full filesystem must measure the destination it is moving TO.
+    # Arrange -- destination reports zero blocks free.
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    raised = pytest.raises(InsufficientSpaceError)
+
+    # Assert
+    with raised:
+        apply_archive(plan, runner=_FullDestinationRunner(avail_kb=0))
+
+
+def test_a_full_destination_LEAVES_THE_SOURCE_INTACT(tmp_path, sandbox_home):
+    # Arrange
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    try:
+        apply_archive(plan, runner=_FullDestinationRunner(avail_kb=0))
+    except InsufficientSpaceError:
+        pass
+
+    # Assert
+    assert plan.source.exists()
+
+
+def test_a_full_destination_TRANSFERS_NOTHING(tmp_path, sandbox_home):
+    # Refusing after pushing the data would defeat the point: the preflight
+    # exists to avoid filling a destination, not to report it afterwards.
+    # Arrange
+    runner = _FullDestinationRunner(avail_kb=0)
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    try:
+        apply_archive(plan, runner=runner)
+    except InsufficientSpaceError:
+        pass
+
+    # Assert -- no rsync was ever invoked
+    assert not any(
+        cmd and str(cmd[0]).rsplit("/", 1)[-1] == "rsync" for cmd in runner.calls
+    )
+
+
+def test_a_roomy_destination_proceeds(tmp_path, sandbox_home):
+    # The guard must not block the ordinary case: 1 TiB free.
+    # Arrange
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    manifest = apply_archive(plan, runner=_FullDestinationRunner(avail_kb=1073741824))
+
+    # Assert
+    assert manifest.verified == "verified"
+
+
+def test_a_verified_archive_records_verified_in_the_manifest(tmp_path, sandbox_home):
+    # Arrange
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    manifest = apply_archive(plan, runner=_FakeRunner(returncode=0))
+
+    # Assert
+    assert manifest.verified == "verified"
 
 
 # EOF

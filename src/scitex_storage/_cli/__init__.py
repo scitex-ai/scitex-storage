@@ -11,11 +11,16 @@ import click
 from .. import __version__
 from ._archive_cmd import archive_cmd, restore_cmd
 from ._compat import spec_group_kwargs
+from ._document_sorter_cmd import document_sorter_group
 from ._duplicates_cmd import find_duplicates_cmd
+from ._fleet_status_cmd import fleet_status_cmd
 from ._gui_cmd import gui_group, start_gui_cmd
 from ._images_cmd import images_group
+from ._inodes_cmd import inodes_cmd
 from ._introspect import list_python_apis
 from ._mcp_commands import mcp
+from ._reclaim_cmd import reclaim_cmd, reclaim_restore_cmd
+from ._regenerable_cmd import regenerable_cmd
 from ._scan_cmd import scan_cmd
 from ._sweep_cmd import sweep_cmd, sweep_status_cmd
 
@@ -44,6 +49,10 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
             "read-only, stat-only directory walk (via `fd`) that reports "
             "the biggest space and inode (file-count) consumers per "
             "top-level child of a root -- no file contents are ever read. "
+            "`validate-inodes` is the cheap counterpart: one statvfs per path, no "
+            "walk and no system binaries, reporting how close a filesystem "
+            "is to inode exhaustion (which fails every write while df still "
+            "shows free space). "
             "`find-duplicates` is a separate, explicitly opt-in verb (via "
             "`fclones`) that DOES read file contents (to hash them) to "
             "report exact-duplicate groups. `images prune` rotates a "
@@ -54,8 +63,17 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
             "gated on an explicit per-directory confirm. `archive` moves a "
             "directory to nas/nas2 over ssh (scitex-ssh's sync_dir), "
             "verifying before removing the local copy and writing a "
-            "manifest `restore` reads back. Every mutating command "
-            "defaults to a dry-run.",
+            "manifest `restore` reads back. `reclaim` moves a path aside "
+            "into a reversible local archive (default adjacent `.old/`, or "
+            "--archive-root on another filesystem to free inodes) instead of "
+            "deleting it, so a rough cleanup call costs only a "
+            "`reclaim-restore`; the fraction of runs restored is reported as "
+            "the honest accuracy metric. `fleet-status` renders a "
+            "self-contained HTML dashboard of every host's space% and inode% "
+            "grouped by role/tier, carrying the same three-state verdicts "
+            "(measured / not-applicable / could-not-look) so a filesystem it "
+            "could not read is never shown as a reassuring green 0%. Every "
+            "mutating command defaults to a dry-run.",
         ),
         config_resolution=(
             "scitex-storage has no configurable state yet — every command "
@@ -70,14 +88,19 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
                 "Storage",
                 (
                     "scan",
+                    "validate-inodes",
                     "find-duplicates",
                     "images",
                     "sweep",
                     "sweep-status",
                     "archive",
                     "restore",
+                    "reclaim",
+                    "reclaim-restore",
+                    "fleet-status",
                 ),
             ),
+            ("Documents", ("document-sorter",)),
             ("GUI", ("gui",)),
             ("Introspection", ("list-python-apis", "mcp")),
         ),
@@ -114,12 +137,18 @@ def main(ctx: click.Context, help_recursive: bool, as_json: bool) -> None:
 
 
 main.add_command(scan_cmd)
+main.add_command(inodes_cmd)
 main.add_command(find_duplicates_cmd)
+main.add_command(regenerable_cmd)
 main.add_command(images_group)
 main.add_command(sweep_cmd)
 main.add_command(sweep_status_cmd)
 main.add_command(archive_cmd)
 main.add_command(restore_cmd)
+main.add_command(reclaim_cmd)
+main.add_command(reclaim_restore_cmd)
+main.add_command(document_sorter_group)
+main.add_command(fleet_status_cmd)
 main.add_command(list_python_apis)
 main.add_command(mcp)
 main.add_command(gui_group)

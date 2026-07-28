@@ -1,6 +1,13 @@
 # cli-audit-dict.yaml — package-specific additions to the CLI-audit
 # noun/verb catalog (audit-cli §1). Additive only: never reclassifies or
 # overrides the canonical catalog.
+nouns:
+  - inode  # why: `inodes` is the standard filesystem term for the on-disk
+           # file-record objects a filesystem can run out of independently
+           # of free space (cf. `df -i`, whose own header column is
+           # "Inodes"). It is a term of art absent from general-English
+           # dictionaries, not a coinage. Declared singular: the auditor's
+           # own singularizer maps the plural back (inodes -> inode).
 intransitive_verbs:
   - scan  # why: matches the design doc's own command name
           # (`scitex-storage scan ~/projects`) and standard filesystem-tool
@@ -8,3 +15,16 @@ intransitive_verbs:
   - sweep  # why: matches standard filesystem-tool usage (e.g. `fstrim`-style
            # sweep tools use bare "sweep" as a leaf verb); the object is
            # always the DIRECTORY argument, not implied by the verb itself.
+  - reclaim  # why: "reclaim" is the standard storage verb for recovering
+             # space/inodes (cf. filesystem "reclaim", GC "reclaim", LVM
+             # thin-pool "reclaim"). Moby dual-classifies it noun+verb; the
+             # verb meaning is the one intended here, and the object is the
+             # PATH argument, exactly like `scan`/`sweep`. `reclaim-restore`
+             # is a compound whose head `restore` is already canonical, so
+             # only the bare `reclaim` leaf needs declaring.
+  - run  # why: the `document-sorter run` leaf. "run" is the canonical verb
+         # for executing a pipeline once (cf. `airflow dags run`, `dbt run`,
+         # `snakemake`-style one-shot runs); the object is the configured
+         # inbox, supplied by the `document-sorter` group, not implied by the
+         # verb. Moby dual-classifies run noun+verb; the verb reading is the
+         # intended one here.

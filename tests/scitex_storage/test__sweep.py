@@ -6,11 +6,16 @@ import time
 import pytest
 
 from scitex_storage._sweep import (
+    InsufficientSpaceError,
+    SweepCandidate,
     SweepPlan,
     SweepResult,
     SweptEntry,
     _parse_slurm_remaining,
+    _sweep_one,
     apply_sweep,
+    check_space,
+    free_bytes,
     plan_sweep,
     sweep_status,
 )
@@ -428,5 +433,161 @@ def test_sweep_status_returns_sweptentry_instances(tmp_path):
     # Assert
     assert isinstance(entries[0], SweptEntry)
 
+
+# --------------------------------------------------------------------------
+# Free-space preflight. `sweep` writes its tar BESIDE the source, i.e. onto
+# the very filesystem it was invoked to relieve. Without this gate the verb
+# is inverted -- most dangerous exactly where it is most needed. These cases
+# are the ones a small fixture on a roomy disk cannot see, so they drive
+# check_space directly with the numbers a full disk produces.
+# --------------------------------------------------------------------------
+
+
+def test_an_artifact_larger_than_free_space_is_refused():
+    # Arrange -- the real shape: a 187 GiB tar onto 2.3 GB free.
+    needed, available = 200_000_000_000, 2_300_000_000
+
+    # Act
+    verdict = check_space(needed, available)
+
+    # Assert
+    assert verdict.ok is False
+
+
+def test_the_refusal_names_the_shortfall():
+    # Arrange -- "not enough space" is not actionable; the gap is.
+    needed, available = 200_000_000_000, 2_300_000_000
+
+    # Act
+    verdict = check_space(needed, available)
+
+    # Assert
+    assert "short by" in verdict.detail
+
+
+def test_an_artifact_that_fits_with_headroom_is_allowed():
+    # Arrange
+    needed, available = 1_000_000_000, 500_000_000_000
+
+    # Act
+    verdict = check_space(needed, available)
+
+    # Assert
+    assert verdict.ok is True
+
+
+def test_an_exact_fit_is_refused_because_zero_free_breaks_other_writers():
+    # Arrange -- filling a filesystem to 0 bytes breaks every other writer
+    # on it, including the card board every agent writes to.
+    needed = 1_000_000
+
+    # Act
+    verdict = check_space(needed, needed)
+
+    # Assert
+    assert verdict.ok is False
+
+
+def test_an_unknown_destination_size_is_not_an_optimistic_pass():
+    # Arrange -- could-not-look must not read as "room available".
+    needed = 10
+
+    # Act
+    verdict = check_space(needed, None)
+
+    # Assert
+    assert verdict.ok is None
+
+
+def test_an_unknown_artifact_size_is_not_an_optimistic_pass():
+    # Arrange
+    available = 10_000_000_000
+
+    # Act
+    verdict = check_space(None, available)
+
+    # Assert
+    assert verdict.ok is None
+
+
+def test_free_bytes_reads_a_real_filesystem(tmp_path):
+    # Arrange -- a real statvfs, no mocks.
+    # Act
+    got = free_bytes(tmp_path)
+
+    # Assert
+    assert got is not None and got > 0
+
+
+def test_free_bytes_on_a_missing_path_is_unknown_not_zero(tmp_path):
+    # Arrange -- zero would mean "measured: full"; None means "not measured".
+    missing = tmp_path / "no-such-dir"
+
+    # Act
+    got = free_bytes(missing)
+
+    # Assert
+    assert got is None
+
+
+# --- the gate in the REAL sweep path, not just the pure helper ------------
+# A gate proven once by hand regresses silently. These drive _sweep_one
+# itself with a candidate declared larger than the whole filesystem, which
+# is how a full disk looks to it, using real files and a real statvfs.
+
+
+def _oversized_candidate(tmp_path):
+    src = tmp_path / "bigdir"
+    src.mkdir()
+    (src / "f").write_bytes(b"x" * 100)
+    return SweepCandidate(
+        name="bigdir",
+        path=src,
+        file_count=1,
+        size=free_bytes(tmp_path) * 10,  # cannot possibly fit
+        newest_mtime=0.0,
+    )
+
+
+def test_sweep_refuses_a_candidate_that_cannot_fit(tmp_path):
+    # Arrange
+    candidate = _oversized_candidate(tmp_path)
+
+    # Act
+    raised = pytest.raises(InsufficientSpaceError)
+
+    # Assert
+    with raised:
+        _sweep_one(candidate)
+
+
+def test_a_refused_sweep_leaves_the_source_intact(tmp_path):
+    # Arrange
+    candidate = _oversized_candidate(tmp_path)
+
+    # Act -- the raise IS the action here; that it raises at all is asserted
+    # by the test above, so swallowing it keeps this to one assertion.
+    try:
+        _sweep_one(candidate)
+    except InsufficientSpaceError:
+        pass
+
+    # Assert
+    assert candidate.path.exists()
+
+
+def test_a_refused_sweep_writes_no_partial_tar(tmp_path):
+    # Arrange -- the v1 failure mode consumed the last free space AND left
+    # a half-written .sweeping file behind.
+    candidate = _oversized_candidate(tmp_path)
+
+    # Act
+    try:
+        _sweep_one(candidate)
+    except InsufficientSpaceError:
+        pass
+
+    # Assert
+    assert not list(tmp_path.glob("*.tar*"))
 
 # EOF

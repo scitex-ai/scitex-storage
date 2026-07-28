@@ -273,4 +273,33 @@ def start_gui_cmd(
         ctx.invoke(gui_open_cmd, host=host)
 
 
+# Declare the Phase-W deprecation in the shape the ecosystem reads
+# (audit-cli §12 recognises an already-migrated legacy gui leaf as
+# `hidden` + `_deprecated_alias`; §5 statically verifies `target`
+# resolves in the command tree and that `remove_in` names the deadline).
+#
+# WHY THE METADATA IS ATTACHED HERE INSTEAD OF USING
+# `scitex_dev.ecosystem.deprecated_alias()`: that helper forwards the
+# caller's raw argv to the TARGET's own parameters, which cannot express
+# this alias. `start-gui` is not a plain rename of `gui open` -- it
+# forwards to a DIFFERENT command depending on a flag the target does not
+# have (`--no-browser` -> `gui serve`, otherwise `gui open`), and it
+# carries `--dry-run`/`--port`/`--yes` options the canonical group
+# deliberately does not (the doctrine's `serve` IS the headless mode, so
+# `--no-browser` is exactly the non-canonical spelling being retired).
+# Routing those through argv-forwarding would break every existing
+# `start-gui --no-browser` / `--dry-run` invocation at the moment we are
+# promising a warn-only grace period -- i.e. a Phase-W alias that is not
+# actually compatible, which defeats the point of the ladder.
+#
+# So the ladder's CONTRACT is honoured (hidden, warns once per shell,
+# names its removal version, forwards to the canonical group) while the
+# forwarding stays hand-rolled. The metadata is the interface; the helper
+# is one implementation of it, and this leaf needs the other.
+start_gui_cmd._deprecated_alias = {
+    "target": "gui open",
+    "remove_in": "v0.4.0",
+    "phase": "warn",
+}
+
 # EOF
