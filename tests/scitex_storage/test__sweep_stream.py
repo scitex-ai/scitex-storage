@@ -1,19 +1,23 @@
 """Streaming a sweep to a remote: nothing local, verified at the far end.
 
 This closes FIX 2 on card sweep-writes-tar-to-source-filesystem-20260722,
-which has been open since 2026-07-22 and is the only one of that card's
-items that REMOVES the inversion rather than mitigating it. Local sweep
-writes its tar beside the source, so it consumes the very filesystem it
-was called to relieve; PR #29's preflight made it refuse rather than fill
-the disk, but refusing is not working.
+open since 2026-07-22 and the only item on it that REMOVES the inversion
+rather than mitigating it. Local sweep writes its tar beside the source, so
+it consumes the very filesystem it was called to relieve; PR #29's
+preflight made it refuse rather than fill the disk, but refusing is not
+working.
 
-The tests are built around the failures that would actually hurt, not the
-happy path:
+The tests are built around the failures that would actually hurt:
   - a mismatch or an unreadable read-back must NEVER remove the source
-  - a refusal must transfer NOTHING (checked by asserting no tar ran)
+  - a refusal must transfer NOTHING (asserted against an observable seam)
   - "could not ask" must never be read as "the destination is clear"
 
-Real tmp_path trees and a recording fake for the ssh boundary; no
+`_raised` exists so each test keeps ONE assertion while still driving the
+error path: `with pytest.raises(...)` plus a follow-up `assert` counts as
+two, and splitting a behaviour across two tests to satisfy a counter would
+hide that the refusal and its consequence are one fact.
+
+Real tmp_path trees and recording fakes at the process boundary; no
 `monkeypatch`, which this repo bans.
 """
 
@@ -24,8 +28,6 @@ import io
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from scitex_storage._sweep import InsufficientSpaceError, SweepCandidate
 from scitex_storage._sweep_stream import (
     StreamVerificationError,
@@ -34,13 +36,22 @@ from scitex_storage._sweep_stream import (
 )
 
 
+def _raised(fn) -> BaseException | None:
+    """Run ``fn`` and return whatever it raised, or None if it did not."""
+    try:
+        fn()
+    except BaseException as exc:  # noqa: BLE001 - the exception IS the result
+        return exc
+    return None
+
+
 class FakeRun:
     """Records every ssh argv and replies per command keyword.
 
-    Reads the intent off the REMOTE COMMAND STRING (the last argv element)
-    rather than by call index, so inserting a step does not silently
-    re-point every canned reply at the wrong call -- a test double whose
-    correctness depends on call order breaks the moment the code improves.
+    Reads intent off the REMOTE COMMAND STRING rather than by call index,
+    so inserting a step does not silently re-point every canned reply at
+    the wrong call. A double whose correctness depends on call order breaks
+    the moment the code improves.
     """
 
     def __init__(self, replies: dict[str, tuple[int, str]]):
@@ -57,39 +68,6 @@ class FakeRun:
 
     def ran(self, keyword: str) -> bool:
         return any(keyword in c[-1] for c in self.calls)
-
-
-class FakeSpawn:
-    """Records every process LAUNCH and captures what was written to ssh.
-
-    Without this seam, "the refusal transferred nothing" would be asserted
-    against a `subprocess.Popen` the test cannot see -- so it would pass
-    whether or not a transfer happened. A vacuous guard is worse than no
-    guard: it reports coverage it does not have.
-
-    `real_tar=True` runs the ACTUAL tar so the streamed bytes (and thus the
-    in-flight hash) are genuine; only the ssh side is faked.
-    """
-
-    def __init__(self, real_tar: bool = False, ssh_rc: int = 0):
-        self.launched: list[list[str]] = []
-        self.written = bytearray()
-        self.real_tar = real_tar
-        self.ssh_rc = ssh_rc
-
-    def __call__(self, argv, **kwargs):
-        self.launched.append(list(argv))
-        if argv[0] == "tar":
-            if self.real_tar:
-                return subprocess.Popen(argv, **kwargs)
-            return _DeadProc(stdout=io.BytesIO(b""))
-        return _DeadProc(stdin=_Sink(self.written), rc=self.ssh_rc)
-
-    def launched_tar(self) -> bool:
-        return any(a[0] == "tar" for a in self.launched)
-
-    def launched_ssh_write(self) -> bool:
-        return any(a[0] == "ssh" and "cat >" in a[-1] for a in self.launched)
 
 
 class _Sink:
@@ -113,6 +91,56 @@ class _DeadProc:
         return self._rc
 
 
+class FakeSpawn:
+    """Records every process LAUNCH and captures what was written to ssh.
+
+    Without this seam, "the refusal transferred nothing" would be asserted
+    against a `subprocess.Popen` the test cannot see -- so it would pass
+    whether or not a transfer happened. A vacuous guard is worse than none:
+    it reports coverage it does not have. (My first version of this file
+    did exactly that.)
+
+    `real_tar=True` runs the ACTUAL tar so the streamed bytes, and thus the
+    in-flight hash, are genuine; only the ssh side is faked.
+    """
+
+    def __init__(self, real_tar: bool = False, ssh_rc: int = 0):
+        self.launched: list[list[str]] = []
+        self.written = bytearray()
+        self.real_tar = real_tar
+        self.ssh_rc = ssh_rc
+
+    def __call__(self, argv, **kwargs):
+        self.launched.append(list(argv))
+        if argv[0] == "tar":
+            if self.real_tar:
+                return subprocess.Popen(argv, **kwargs)
+            return _DeadProc(stdout=io.BytesIO(b""))
+        return _DeadProc(stdin=_Sink(self.written), rc=self.ssh_rc)
+
+    def launched_tar(self) -> bool:
+        return any(a[0] == "tar" for a in self.launched)
+
+    def launched_ssh_write(self) -> bool:
+        return any(a[0] == "ssh" and "cat >" in a[-1] for a in self.launched)
+
+
+class EchoRun(FakeRun):
+    """A FakeRun whose remote sha256sum AGREES with what was really sent."""
+
+    def __init__(self, replies, digest_holder: dict[str, str]):
+        super().__init__(replies)
+        self.digest_holder = digest_holder
+
+    def __call__(self, argv, **kwargs):
+        if "sha256sum" in argv[-1]:
+            self.calls.append(list(argv))
+            return subprocess.CompletedProcess(
+                argv, 0, f"{self.digest_holder['digest']}  /share/dest/x\n", ""
+            )
+        return super().__call__(argv, **kwargs)
+
+
 def _tree(root: Path, name: str = "cand", files: int = 3) -> SweepCandidate:
     d = root / name
     d.mkdir(parents=True)
@@ -131,6 +159,15 @@ def _df(free_kb: int) -> str:
     )
 
 
+def _real_tar_digest(cand: SweepCandidate) -> str:
+    return hashlib.sha256(
+        subprocess.run(
+            ["tar", "-C", str(cand.path.parent), "-cf", "-", cand.name],
+            capture_output=True,
+        ).stdout
+    ).hexdigest()
+
+
 # --- the destination probe is three-state -------------------------------
 def test_an_unaskable_destination_is_not_treated_as_clear(tmp_path):
     # ssh returning 255 means we never reached the host. Reading that as
@@ -140,22 +177,31 @@ def test_an_unaskable_destination_is_not_treated_as_clear(tmp_path):
     cand = _tree(tmp_path)
     fake = FakeRun({"test -e": (255, "")})
 
-    # Act / Assert
-    with pytest.raises(RuntimeError, match="could not determine"):
-        stream_sweep_to_remote(cand, "nas2", "/share/dest", runner=fake)
+    # Act
+    err = _raised(
+        lambda: stream_sweep_to_remote(
+            cand, "nas2", "/share/dest", runner=fake, spawn=FakeSpawn()
+        )
+    )
+
+    # Assert
+    assert "could not determine" in str(err)
 
 
 def test_an_unaskable_destination_transfers_nothing(tmp_path):
     # The load-bearing half: refusing AFTER pushing data would defeat the
-    # purpose of a preflight.
+    # purpose of a preflight entirely.
     # Arrange
     cand = _tree(tmp_path)
     fake = FakeRun({"test -e": (255, "")})
     spawn = FakeSpawn()
 
     # Act
-    with pytest.raises(RuntimeError):
-        stream_sweep_to_remote(cand, "nas2", "/share/dest", runner=fake, spawn=spawn)
+    _raised(
+        lambda: stream_sweep_to_remote(
+            cand, "nas2", "/share/dest", runner=fake, spawn=spawn
+        )
+    )
 
     # Assert
     assert not spawn.launched_tar()
@@ -166,9 +212,15 @@ def test_an_existing_remote_artifact_is_refused(tmp_path):
     cand = _tree(tmp_path)
     fake = FakeRun({"test -e": (0, "")})
 
-    # Act / Assert
-    with pytest.raises(FileExistsError):
-        stream_sweep_to_remote(cand, "nas2", "/share/dest", runner=fake)
+    # Act
+    err = _raised(
+        lambda: stream_sweep_to_remote(
+            cand, "nas2", "/share/dest", runner=fake, spawn=FakeSpawn()
+        )
+    )
+
+    # Assert
+    assert isinstance(err, FileExistsError)
 
 
 # --- the preflight measures the REMOTE ----------------------------------
@@ -179,53 +231,77 @@ def test_a_full_destination_is_refused_before_any_transfer(tmp_path):
     spawn = FakeSpawn()
 
     # Act
-    with pytest.raises(InsufficientSpaceError):
-        stream_sweep_to_remote(cand, "nas2", "/share/dest", runner=fake, spawn=spawn)
+    _raised(
+        lambda: stream_sweep_to_remote(
+            cand, "nas2", "/share/dest", runner=fake, spawn=spawn
+        )
+    )
 
     # Assert
     assert not spawn.launched_ssh_write()
 
 
-def test_the_refusal_says_the_source_filesystem_is_irrelevant(tmp_path):
-    # The message has to teach the thing that distinguishes this verb from
-    # local sweep, because the person reading it is standing on a full disk
-    # and needs to know THIS path does not care.
+def test_a_full_destination_raises_insufficient_space(tmp_path):
     # Arrange
     cand = _tree(tmp_path)
     fake = FakeRun({"test -e": (1, ""), "df -Pk": (0, _df(free_kb=0))})
 
     # Act
-    with pytest.raises(InsufficientSpaceError) as excinfo:
-        stream_sweep_to_remote(cand, "nas2", "/share/dest", runner=fake)
+    err = _raised(
+        lambda: stream_sweep_to_remote(
+            cand, "nas2", "/share/dest", runner=fake, spawn=FakeSpawn()
+        )
+    )
 
     # Assert
-    assert "SOURCE filesystem's free space is irrelevant" in str(excinfo.value)
+    assert isinstance(err, InsufficientSpaceError)
+
+
+def test_the_refusal_says_the_source_filesystem_is_irrelevant(tmp_path):
+    # The message must teach what distinguishes this verb from local sweep,
+    # because the person reading it is standing on a full disk and needs to
+    # know THIS path does not care about that.
+    # Arrange
+    cand = _tree(tmp_path)
+    fake = FakeRun({"test -e": (1, ""), "df -Pk": (0, _df(free_kb=0))})
+
+    # Act
+    err = _raised(
+        lambda: stream_sweep_to_remote(
+            cand, "nas2", "/share/dest", runner=fake, spawn=FakeSpawn()
+        )
+    )
+
+    # Assert
+    assert "SOURCE filesystem's free space is irrelevant" in str(err)
 
 
 # --- verification decides whether the source may be removed -------------
 def test_a_checksum_mismatch_raises_verification_error(tmp_path):
     # Arrange
     cand = _tree(tmp_path)
-    wrong = "0" * 64
     fake = FakeRun(
         {
             "test -e": (1, ""),
             "df -Pk": (0, _df(free_kb=10_000_000)),
-            "sha256sum": (0, f"{wrong}  /share/dest/x\n"),
+            "sha256sum": (0, f"{'0' * 64}  /share/dest/x\n"),
         }
     )
 
-    # Act / Assert
-    with pytest.raises(StreamVerificationError, match="MISMATCH"):
-        stream_sweep_to_remote(
-            cand, "nas2", "/share/dest", remove_source=True, runner=fake,
-            spawn=FakeSpawn(),
+    # Act
+    err = _raised(
+        lambda: stream_sweep_to_remote(
+            cand, "nas2", "/share/dest", runner=fake, spawn=FakeSpawn()
         )
+    )
+
+    # Assert
+    assert isinstance(err, StreamVerificationError)
 
 
 def test_a_checksum_mismatch_leaves_the_source_intact(tmp_path):
     # THE test this module exists for. remove_source=True is passed
-    # explicitly: even when the caller asked for removal, an unverified
+    # explicitly: even when the caller ASKED for removal, an unverified
     # stream must not remove anything. Verify at the destination, THEN
     # remove at the source -- never the reverse.
     # Arrange
@@ -239,46 +315,25 @@ def test_a_checksum_mismatch_leaves_the_source_intact(tmp_path):
     )
 
     # Act
-    with pytest.raises(StreamVerificationError):
-        stream_sweep_to_remote(
-            cand, "nas2", "/share/dest", remove_source=True, runner=fake,
+    _raised(
+        lambda: stream_sweep_to_remote(
+            cand,
+            "nas2",
+            "/share/dest",
+            remove_source=True,
+            runner=fake,
             spawn=FakeSpawn(),
         )
+    )
 
     # Assert
-    assert sorted(p.name for p in cand.path.iterdir()) == [
-        "f0.txt",
-        "f1.txt",
-        "f2.txt",
-    ]
+    assert sorted(p.name for p in cand.path.iterdir()) == ["f0.txt", "f1.txt", "f2.txt"]
 
 
 def test_an_unreadable_readback_is_a_could_not_look_not_a_pass(tmp_path):
-    # A failed `sha256sum` at the far end says NOTHING about the bytes.
-    # The transfer may well be fine -- and the source still must not be
-    # removed, because "probably fine" is not verification.
-    # Arrange
-    cand = _tree(tmp_path)
-    fake = FakeRun(
-        {
-            "test -e": (1, ""),
-            "df -Pk": (0, _df(free_kb=10_000_000)),
-            "sha256sum": (1, ""),
-        }
-    )
-
-    # Act / Assert
-    with pytest.raises(StreamVerificationError, match="COULD-NOT-LOOK"):
-        stream_sweep_to_remote(
-            cand, "nas2", "/share/dest", remove_source=True, runner=fake,
-            spawn=FakeSpawn(),
-        )
-
-
-def test_a_failed_readback_removes_the_partial_remote_artifact(tmp_path):
-    # Space consumed and nothing accomplished is the failure this card
-    # names; leaving a partial artifact on the destination repeats it at
-    # the far end.
+    # A failed remote sha256sum says NOTHING about the bytes. The transfer
+    # may well be fine -- and the source still must not be removed, because
+    # "probably fine" is not verification.
     # Arrange
     cand = _tree(tmp_path)
     fake = FakeRun(
@@ -290,18 +345,75 @@ def test_a_failed_readback_removes_the_partial_remote_artifact(tmp_path):
     )
 
     # Act
-    with pytest.raises(StreamVerificationError):
-        stream_sweep_to_remote(
+    err = _raised(
+        lambda: stream_sweep_to_remote(
+            cand,
+            "nas2",
+            "/share/dest",
+            remove_source=True,
+            runner=fake,
+            spawn=FakeSpawn(),
+        )
+    )
+
+    # Assert
+    assert "COULD-NOT-LOOK" in str(err)
+
+
+def test_an_unreadable_readback_leaves_the_source_intact(tmp_path):
+    # Arrange
+    cand = _tree(tmp_path)
+    fake = FakeRun(
+        {
+            "test -e": (1, ""),
+            "df -Pk": (0, _df(free_kb=10_000_000)),
+            "sha256sum": (1, ""),
+        }
+    )
+
+    # Act
+    _raised(
+        lambda: stream_sweep_to_remote(
+            cand,
+            "nas2",
+            "/share/dest",
+            remove_source=True,
+            runner=fake,
+            spawn=FakeSpawn(),
+        )
+    )
+
+    # Assert
+    assert cand.path.exists()
+
+
+def test_a_failed_readback_removes_the_partial_remote_artifact(tmp_path):
+    # "Space consumed, nothing accomplished" is the failure this card
+    # names; leaving a partial artifact repeats it at the far end.
+    # Arrange
+    cand = _tree(tmp_path)
+    fake = FakeRun(
+        {
+            "test -e": (1, ""),
+            "df -Pk": (0, _df(free_kb=10_000_000)),
+            "sha256sum": (1, ""),
+        }
+    )
+
+    # Act
+    _raised(
+        lambda: stream_sweep_to_remote(
             cand, "nas2", "/share/dest", runner=fake, spawn=FakeSpawn()
         )
+    )
 
     # Assert
     assert fake.ran("rm -f")
 
 
 def test_a_truncated_remote_hash_is_rejected_rather_than_compared(tmp_path):
-    # A short/garbled line must not be compared as if it were a digest.
-    # Returning it would make equality depend on the shape of an error.
+    # A short or garbled line must not be compared as though it were a
+    # digest -- returning it would make equality depend on an error's shape.
     # Arrange
     fake = FakeRun({"sha256sum": (0, "deadbeef  /share/dest/x\n")})
 
@@ -324,76 +436,53 @@ def test_an_empty_source_tree_is_refused(tmp_path):
     )
     fake = FakeRun({"test -e": (1, ""), "df -Pk": (0, _df(free_kb=10_000_000))})
 
-    # Act / Assert
-    with pytest.raises(RuntimeError, match="0 files"):
-        stream_sweep_to_remote(
+    # Act
+    err = _raised(
+        lambda: stream_sweep_to_remote(
             cand, "nas2", "/share/dest", runner=fake, spawn=FakeSpawn()
         )
+    )
+
+    # Assert
+    assert "0 files" in str(err)
 
 
-# --- the hash that is compared is the hash of what was sent -------------
+# --- the hash compared IS the hash of what was sent ---------------------
 def test_the_streamed_bytes_are_hashed_in_flight(tmp_path):
     # POSITIVE CONTROL on the verification itself. If the digest were
-    # computed from something other than the streamed bytes -- a re-read,
-    # a stale buffer -- every mismatch test above would pass for the wrong
-    # reason. Here the remote is made to AGREE with whatever was actually
-    # sent, and the run must then succeed and report that same digest.
+    # computed from anything other than the streamed bytes -- a re-read, a
+    # stale buffer -- every mismatch test above would pass for the WRONG
+    # reason. Here the remote is made to agree with what was actually sent,
+    # so the run must succeed and report that same digest.
     # Arrange
     cand = _tree(tmp_path)
-    sent: dict[str, str] = {}
-
-    class EchoRun(FakeRun):
-        def __call__(self, argv, **kwargs):
-            if "sha256sum" in argv[-1]:
-                self.calls.append(list(argv))
-                return subprocess.CompletedProcess(
-                    argv, 0, f"{sent['digest']}  /share/dest/x\n", ""
-                )
-            return super().__call__(argv, **kwargs)
-
-    fake = EchoRun({"test -e": (1, ""), "df -Pk": (0, _df(free_kb=10_000_000))})
-    spawn = FakeSpawn(real_tar=True)
-    expected = hashlib.sha256(
-        subprocess.run(
-            ["tar", "-C", str(cand.path.parent), "-cf", "-", cand.name],
-            capture_output=True,
-        ).stdout
-    ).hexdigest()
-    sent["digest"] = expected
+    expected = _real_tar_digest(cand)
+    fake = EchoRun(
+        {"test -e": (1, ""), "df -Pk": (0, _df(free_kb=10_000_000))},
+        {"digest": expected},
+    )
 
     # Act
-    result = stream_sweep_to_remote(cand, "nas2", "/share/dest", runner=fake, spawn=spawn)
+    result = stream_sweep_to_remote(
+        cand, "nas2", "/share/dest", runner=fake, spawn=FakeSpawn(real_tar=True)
+    )
 
     # Assert
     assert result.sha256 == expected
 
 
 def test_a_VERIFIED_stream_does_remove_the_source_when_asked(tmp_path):
-    # POSITIVE CONTROL ON THE REMOVAL PATH ITSELF, and the reason it must
-    # exist: "the source survives a mismatch" passes trivially if removal
-    # never happens under ANY condition. Without this, the safety tests
-    # above would be satisfied by a `remove_source` flag that does nothing
-    # -- a guard proving only that a dead code path is dead.
+    # POSITIVE CONTROL ON THE REMOVAL PATH, and the reason it must exist:
+    # "the source survives a mismatch" passes trivially if removal never
+    # happens under ANY condition. Without this, every safety test above
+    # would be satisfied by a `remove_source` flag that does nothing -- a
+    # guard proving only that a dead code path is dead.
     # Arrange
     cand = _tree(tmp_path)
-    sent: dict[str, str] = {}
-
-    class EchoRun(FakeRun):
-        def __call__(self, argv, **kwargs):
-            if "sha256sum" in argv[-1]:
-                self.calls.append(list(argv))
-                return subprocess.CompletedProcess(
-                    argv, 0, f"{sent['digest']}  /share/dest/x\n", ""
-                )
-            return super().__call__(argv, **kwargs)
-
-    fake = EchoRun({"test -e": (1, ""), "df -Pk": (0, _df(free_kb=10_000_000))})
-    sent["digest"] = hashlib.sha256(
-        subprocess.run(
-            ["tar", "-C", str(cand.path.parent), "-cf", "-", cand.name],
-            capture_output=True,
-        ).stdout
-    ).hexdigest()
+    fake = EchoRun(
+        {"test -e": (1, ""), "df -Pk": (0, _df(free_kb=10_000_000))},
+        {"digest": _real_tar_digest(cand)},
+    )
 
     # Act
     stream_sweep_to_remote(
