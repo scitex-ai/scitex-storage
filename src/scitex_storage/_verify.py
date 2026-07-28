@@ -249,6 +249,17 @@ def local_tally(path: str) -> RemoteTally:
     """
     import os
 
+    # os.walk() on a MISSING directory yields nothing and raises nothing, so
+    # without this check a path that does not exist reports "0 entries" --
+    # a measurement, and the convenient one. Absence must be
+    # could-not-look, not empty.
+    if not os.path.isdir(path):
+        return RemoteTally(
+            entry_count=None,
+            size_bytes=None,
+            detail=f"not a directory, or absent: {path!r}",
+        )
+
     entries = 0
     total = 0
     try:

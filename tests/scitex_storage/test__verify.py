@@ -292,7 +292,11 @@ def test_local_tally_does_not_descend_through_a_directory_symlink(tmp_path):
     assert tally.entry_count == 2
 
 
-def test_local_tally_of_a_missing_path_is_none(tmp_path):
+def test_local_tally_of_a_missing_path_is_none_not_zero(tmp_path):
+    # os.walk() on a missing dir yields nothing and raises nothing, so the
+    # naive implementation reports 0 entries -- a measurement, and the
+    # convenient one. This bit for real: the archive read-back reported
+    # "destination holds 0 entries" when the path was simply wrong.
     # Arrange
     missing = tmp_path / "nope"
 
@@ -300,7 +304,7 @@ def test_local_tally_of_a_missing_path_is_none(tmp_path):
     tally = local_tally(str(missing))
 
     # Assert
-    assert tally.entry_count == 0
+    assert tally.entry_count is None
 
 
 # --- the validator --------------------------------------------------------
