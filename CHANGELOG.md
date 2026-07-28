@@ -5,6 +5,45 @@ All notable changes to `scitex-storage` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **The `find-recipe` help examples shipped un-runnable in 0.3.0** —
+  `find-recipe/path/to/...` and `find-recipeENV`, both missing a space, so
+  copy-pasting either fails. The `regenerable` → `find-recipe` rename was
+  applied as a substitution that consumed the trailing space. The rename
+  *was* verified — against the JSON keys and the exit codes, the half a
+  machine reads. Nothing checked the half a human copies, which is where a
+  new consumer starts. Now pinned by parsing the rendered help the way a
+  shell would.
+
+### Added
+
+- **`__pycache__` holding at least one `.pyc` is a `cache`.** Replacing
+  the consumer's directory-NAME list with structural detection was right,
+  but it lost this case — a real regression they reported rather than
+  worked around. Admitted on a distinction that keeps it from being a
+  slippery slope: **a name a tool MANDATES is not a name a human CHOSE.**
+  `venv`/`mamba`/`pylibs`/`rsandbox` are arbitrary labels for one kind of
+  tree, which is exactly why a name list matched almost nothing; CPython
+  writes `__pycache__` by language specification, so it is a protocol
+  constant that happens to be spelled as a directory. The name alone is
+  still never enough — content must corroborate, so a directory a human
+  named `__pycache__` and filled with real data is not cleared.
+- **A test pinning the `.cache` / `.pip` / `.hf` carve-out as a decision**,
+  not an oversight. Measured 2026-07-28: `~/.cache/uv` writes
+  `CACHEDIR.TAG` and is already caught; `~/.cache/pip` and
+  `~/.cache/huggingface` do not. Those paths are redirectable via
+  `XDG_CACHE_HOME` / `PIP_CACHE_DIR` / `HF_HOME`, so the name is a guess
+  about a directory rather than a fact about it. They stay
+  `not-regenerable` and are kept — under-reclaiming knowingly, because a
+  rule that cannot be fooled is worth more than one that catches more.
+  The sample was taken in a container rather than on the Spartan capsule
+  trees that decide the payoff, so the `CACHEDIR.TAG` findings are treated
+  as local-only; only the `__pycache__` rule rests on a specification that
+  generalises.
+
 ## [0.3.0] - 2026-07-28
 
 ### The movability classifier — Layer 1, complete
