@@ -28,6 +28,7 @@ from scitex_storage._regenerable import (
     CACHE,
     CACHEDIR_TAG,
     NOT_REGENERABLE,
+    PYCACHE_DIR,
     REASON_ABSENT,
     REASON_IS_FILE,
     REGENERABLE,
@@ -274,5 +275,92 @@ def test_a_cache_marker_inside_a_records_dir_is_the_known_risk(tmp_path):
 
     # Assert
     assert verdict.verdict == CACHE
+
+
+# --- __pycache__: one mandated name, and only because it is mandated ------
+def test_a_pycache_holding_pyc_files_is_a_cache(tmp_path):
+    # The consumer's old name-list caught these and the structural rule did
+    # not, which was a real regression they reported rather than worked
+    # around. Admissible because CPython writes this exact name by language
+    # specification -- a protocol constant, not a site convention.
+    # Arrange
+    pycache = tmp_path / "pkg" / PYCACHE_DIR
+    pycache.mkdir(parents=True)
+    (pycache / "mod.cpython-312.pyc").write_bytes(b"\xcb\x0d\x0d\x0a")
+
+    # Act
+    kind, _marker = detect_cache(str(pycache))
+
+    # Assert
+    assert kind == "pycache"
+
+
+def test_a_pycache_is_regenerable_with_NO_spec(tmp_path):
+    # Same reason as the other caches: the recipe is not a file we must
+    # find, it is the interpreter plus the source sitting beside it.
+    # Arrange
+    pycache = tmp_path / "pkg" / PYCACHE_DIR
+    pycache.mkdir(parents=True)
+    (pycache / "mod.cpython-312.pyc").write_bytes(b"\xcb\x0d\x0d\x0a")
+
+    # Act
+    verdict = is_regenerable(str(pycache), stop_at=str(tmp_path))
+
+    # Assert
+    assert verdict.verdict == CACHE
+
+
+def test_the_NAME_alone_does_not_make_a_cache(tmp_path):
+    # THE test that keeps this from becoming the name-matching this module
+    # exists to replace. A human can create a directory called
+    # `__pycache__` and put irreplaceable data in it; the name is then a
+    # lie and the contents are the truth. Content must corroborate.
+    # Arrange
+    impostor = tmp_path / PYCACHE_DIR
+    impostor.mkdir()
+    (impostor / "measurements.csv").write_text("subject,value\n001,42\n")
+
+    # Act
+    kind, _marker = detect_cache(str(impostor))
+
+    # Assert
+    assert kind is None
+
+
+def test_pyc_files_OUTSIDE_a_pycache_dir_are_not_a_cache(tmp_path):
+    # The converse guard. Loose `.pyc` files next to real work (the legacy
+    # Python 2 layout, or a shipped bytecode-only package) must not drag a
+    # whole directory into the disposable class.
+    # Arrange
+    src = tmp_path / "legacy"
+    src.mkdir()
+    (src / "mod.pyc").write_bytes(b"\xcb\x0d\x0d\x0a")
+    (src / "mod.py").write_text("x = 1\n")
+
+    # Act
+    kind, _marker = detect_cache(str(src))
+
+    # Assert
+    assert kind is None
+
+
+def test_a_dot_cache_without_the_tag_is_KEPT_which_under_reclaims(tmp_path):
+    # Pins the carve-out as a DECISION rather than letting it look like an
+    # oversight someone should later "fix". Measured 2026-07-28: uv writes
+    # CACHEDIR.TAG (so it is already caught), pip and huggingface do not.
+    # Their locations are redirectable via XDG_CACHE_HOME / PIP_CACHE_DIR /
+    # HF_HOME, so the name is a guess about the directory rather than a
+    # fact about it. Keeping them costs disk; clearing them on a guess can
+    # cost the only copy.
+    # Arrange
+    cache = tmp_path / ".cache" / "huggingface"
+    cache.mkdir(parents=True)
+    (cache / "blob").write_bytes(b"\x00" * 16)
+
+    # Act
+    verdict = is_regenerable(str(cache), stop_at=str(tmp_path))
+
+    # Assert
+    assert verdict.verdict == NOT_REGENERABLE
 
 # EOF
