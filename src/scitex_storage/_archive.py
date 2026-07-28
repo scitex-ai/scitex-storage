@@ -72,6 +72,23 @@ from pathlib import Path
 from scitex_ssh import SSHResult, exec_remote, sync_dir
 
 from ._scan import MissingSystemDependencyError, _measure_dir
+from ._verify import (
+    REMOTE_TALLY_CMD,
+    RemoteTally,
+    local_tally,
+    parse_remote_tally,
+    verify_transfer,
+)
+
+
+class ArchiveNotVerifiedError(RuntimeError):
+    """The destination could not be confirmed, so the source was NOT removed.
+
+    Its own class so a caller can distinguish "the copy is there but
+    unconfirmed" -- recoverable, retryable, nothing lost -- from a transport
+    failure mid-push. Both leave the source intact; only one means the data
+    already reached the destination.
+    """
 
 _RSYNC_INSTALL_HINT = """scitex-storage `archive`/`restore` require the `rsync` binary.
 
@@ -230,6 +247,13 @@ class ArchiveManifest:
     file_count: int
     checksummed: bool
     archived_at: float
+    #: The destination read-back verdict ("verified" / "mismatch" /
+    #: "could-not-look"). Recorded even when it BLOCKS the source removal,
+    #: so a failed verification leaves an auditable record rather than only
+    #: an exception in someone's terminal. Defaulted so manifests written by
+    #: earlier versions still load via from_dict.
+    verified: str = "could-not-look"
+    verification_evidence: str = "written by a version that did not verify"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -246,11 +270,31 @@ def apply_archive(
     exclude: tuple[str, ...] = (),
     runner=None,
 ) -> ArchiveManifest:
-    """Execute an archive plan: push, verify, write manifest, THEN remove source.
+    """Execute an archive plan: push, READ THE DESTINATION BACK, write the
+    manifest, and remove the source ONLY on a positive verification.
+
+    Until 2026-07-28 this docstring already said "verify" and the body did
+    not do it — the source was removed on rsync's exit code alone. A
+    docstring asserting a safety step the code does not perform is its own
+    defect, because the next reader budgets trust against it; that is how
+    the gap survived. The verification is now real:
+
+    * the destination is tallied independently (entry count + total bytes)
+      and compared against the source measured the SAME way;
+    * a mismatch OR an unanswerable probe raises
+      :class:`ArchiveNotVerifiedError` and leaves the source intact — "I
+      could not check" blocks the delete exactly as firmly as "the check
+      failed", because for a destructive action they have the same
+      consequence;
+    * the verdict and its evidence are written into the manifest either
+      way, so a refusal is auditable rather than living only in whoever's
+      terminal saw the exception.
 
     ``checksum`` (default on, since this precedes an irreversible local
     delete) adds rsync's ``--checksum`` flag — reads every byte on both
-    sides instead of rsync's fast mtime+size quick-check. A non-zero rsync
+    sides instead of rsync's fast mtime+size quick-check. That verifies the
+    bytes rsync transferred; the read-back answers the different question of
+    whether the destination now holds what the source held. A non-zero rsync
     exit raises immediately; the source is left completely untouched and no
     manifest is written. ``runner`` is passed straight through to both
     ``exec_remote`` (the mkdir) and ``sync_dir`` (a ``subprocess.run``-
@@ -297,6 +341,37 @@ def apply_archive(
             f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
         )
 
+    # READ THE DESTINATION BACK before removing anything. rsync's exit code
+    # says the transfer it attempted succeeded; it does not say the
+    # destination now holds what the source held. Those are different
+    # claims, and only the second one licenses an irreversible delete.
+    #
+    # The baseline is measured with `local_tally`, NOT `plan.file_count`:
+    # the latter comes from the inode model, which deliberately excludes
+    # symlinks-to-directories, while `rsync -a` writes them. Comparing
+    # against it would fail a perfectly good archive -- the 2026-07-23
+    # to_nas false alarm exactly.
+    expected = local_tally(str(plan.source))
+    probe = exec_remote(
+        plan.destination,
+        REMOTE_TALLY_CMD.format(path=_quote_remote_path(plan.remote_path)),
+        runner=runner,
+    )
+    observed = (
+        parse_remote_tally(probe.stdout)
+        if probe.success
+        else RemoteTally(
+            entry_count=None,
+            size_bytes=None,
+            detail=f"remote tally exited {probe.returncode}: {probe.stderr.strip()}",
+        )
+    )
+    verdict = verify_transfer(
+        expected_count=expected.entry_count or 0,
+        expected_bytes=expected.size_bytes or 0,
+        observed=observed,
+    )
+
     manifest = ArchiveManifest(
         source=str(plan.source),
         destination=plan.destination,
@@ -305,9 +380,23 @@ def apply_archive(
         file_count=plan.file_count,
         checksummed=checksum,
         archived_at=time.time(),
+        verified=verdict.verdict,
+        verification_evidence=verdict.evidence,
     )
     plan.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     plan.manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))
+
+    if not verdict.may_remove_source:
+        raise ArchiveNotVerifiedError(
+            f"archive to {plan.destination}:{plan.remote_path} was NOT verified "
+            f"({verdict.verdict}) -- SOURCE LEFT INTACT at {plan.source}.\n"
+            f"{verdict.evidence}\n"
+            f"The data is on the destination and the manifest is written, so "
+            f"nothing is lost: re-run to retry, or inspect the destination and "
+            f"remove the source by hand once you have accounted for the "
+            f"difference. This verb will not delete an original it could not "
+            f"confirm."
+        )
 
     shutil.rmtree(plan.source)
     return manifest
