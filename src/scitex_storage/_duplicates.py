@@ -115,4 +115,96 @@ def find_duplicates(
     return groups
 
 
+def reclaimable_bytes(groups: list[list[Path]]) -> int | None:
+    """Bytes recoverable by keeping ONE copy from each duplicate group.
+
+    Sums ``(len(group) - 1) * size`` -- deleting every copy would be data
+    loss, not reclamation, so the first is never counted. Sizes come from
+    ``lstat`` on the first readable member: fclones has already proven the
+    group byte-identical, so any member's size is the group's size.
+
+    Returns ``None`` -- never 0 -- when no group could be measured at all.
+    Zero is a MEASUREMENT ("duplicates exist but recover nothing", which is
+    real for empty files) and must stay distinct from "the question was not
+    answered".
+    """
+    total = 0
+    measured_any = False
+    for group in groups:
+        size = None
+        for member in group:
+            try:
+                size = member.lstat().st_size
+                break
+            except OSError:
+                continue
+        if size is None:
+            continue
+        measured_any = True
+        total += (len(group) - 1) * size
+    return total if measured_any else None
+
+
+def duplicates_signal(groups: list[list[Path]] | None) -> "Signal":
+    """S7 -- the ZERO-RISK reclaim class, as a classifier signal.
+
+    Duplicates are the only class that frees space with nothing moved,
+    nothing lost and no owner consulted: one copy of a byte-identical set
+    is redundant by definition. Card
+    movability-classifier-deterministic-signals-20260723 says this should
+    run FIRST in any reclaim sequence for exactly that reason.
+
+    THE VERDICT DIRECTION IS THE SUBTLE PART, and it is the opposite of
+    what "duplicates found" suggests. Finding duplicates does NOT make a
+    tree movable, and finding none does not block it -- duplication is a
+    property of file CONTENT, while movability is about whether anything
+    is standing on the tree. So this reports MOVABLE when a measurement
+    was obtained (with the recoverable total as evidence, which is what a
+    human actually acts on) and COULD_NOT_LOOK when the scan could not
+    run. It never returns NOT_MOVABLE: a duplicate is not a holder, and
+    treating one as an obstacle would block the safest reclaim there is.
+
+    ``groups=None`` means the scan did not run -- fclones missing, a
+    permission denial, a bounded walk that never completed. That is
+    COULD_NOT_LOOK, not "no duplicates": an unrun scan and a clean tree
+    both produce an empty answer, and only one of them is evidence.
+    """
+    from ._classify import COULD_NOT_LOOK, MOVABLE, Signal
+
+    if groups is None:
+        return Signal(
+            "duplicates",
+            COULD_NOT_LOOK,
+            "duplicate scan did not run -- an unrun scan and a tree with no "
+            "duplicates both look like 'no groups', and only one of them is "
+            "evidence",
+        )
+    if not groups:
+        return Signal(
+            "duplicates",
+            MOVABLE,
+            "duplicate scan ran and found no byte-identical groups -- no "
+            "zero-risk reclaim available here",
+        )
+
+    recoverable = reclaimable_bytes(groups)
+    if recoverable is None:
+        return Signal(
+            "duplicates",
+            COULD_NOT_LOOK,
+            f"{len(groups)} duplicate group(s) found but NONE could be "
+            f"sized (every member unreadable) -- the reclaim cannot be "
+            f"quantified, so it must not be reported as a number",
+        )
+    redundant = sum(len(g) - 1 for g in groups)
+    return Signal(
+        "duplicates",
+        MOVABLE,
+        f"{len(groups)} duplicate group(s), {redundant} redundant copies, "
+        f"{recoverable} bytes recoverable by keeping one of each -- the "
+        f"zero-risk class: nothing moves, nothing is lost, no owner needs "
+        f"consulting. Run this before any move.",
+    )
+
+
 # EOF
