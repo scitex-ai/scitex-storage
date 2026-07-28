@@ -29,6 +29,7 @@ from scitex_storage._archive import (
     plan_restore,
 )
 from scitex_storage._scan import MissingSystemDependencyError
+from scitex_storage._sweep import InsufficientSpaceError
 from scitex_storage._verify import local_tally
 
 # Resolved at collection time -- BEFORE any test's isolated_path_bin_dir
@@ -136,6 +137,32 @@ class _LyingTallyRunner:
         self.calls.append(cmd)
         if _looks_like_tally(cmd):
             return _FakeCompletedProcess(0, self.tally, "")
+        return _FakeCompletedProcess(0, "", "")
+
+
+class _FullDestinationRunner:
+    """Succeeds at everything except `df`, which reports a destination with
+    ``avail_kb`` 1-KiB blocks free -- so the preflight can be seen to
+    REFUSE. Without this, every test would hit the could-not-look branch
+    (the plain fake returns no df output at all) and the guard would never
+    be observed firing."""
+
+    def __init__(self, avail_kb: int = 0):
+        self.avail_kb = avail_kb
+        self.calls = []
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        joined = " ".join(cmd) if isinstance(cmd, (list, tuple)) else str(cmd)
+        if "df -Pk" in joined:
+            return _FakeCompletedProcess(
+                0,
+                "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+                f"/dev/sda1 1000000 999999 {self.avail_kb} 100% /share\n",
+                "",
+            )
+        if _looks_like_tally(cmd):
+            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
         return _FakeCompletedProcess(0, "", "")
 
 
@@ -900,6 +927,65 @@ def test_a_refused_archive_still_records_the_verdict_in_the_manifest(
 
     # Assert
     assert "mismatch" in plan.manifest_path.read_text()
+
+
+def test_a_full_destination_refuses_before_transferring(tmp_path, sandbox_home):
+    # The sweep lesson applied to archive: a verb that moves data OFF a
+    # full filesystem must measure the destination it is moving TO.
+    # Arrange -- destination reports zero blocks free.
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    raised = pytest.raises(InsufficientSpaceError)
+
+    # Assert
+    with raised:
+        apply_archive(plan, runner=_FullDestinationRunner(avail_kb=0))
+
+
+def test_a_full_destination_LEAVES_THE_SOURCE_INTACT(tmp_path, sandbox_home):
+    # Arrange
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    try:
+        apply_archive(plan, runner=_FullDestinationRunner(avail_kb=0))
+    except InsufficientSpaceError:
+        pass
+
+    # Assert
+    assert plan.source.exists()
+
+
+def test_a_full_destination_TRANSFERS_NOTHING(tmp_path, sandbox_home):
+    # Refusing after pushing the data would defeat the point: the preflight
+    # exists to avoid filling a destination, not to report it afterwards.
+    # Arrange
+    runner = _FullDestinationRunner(avail_kb=0)
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    try:
+        apply_archive(plan, runner=runner)
+    except InsufficientSpaceError:
+        pass
+
+    # Assert -- no rsync was ever invoked
+    assert not any(
+        cmd and str(cmd[0]).rsplit("/", 1)[-1] == "rsync" for cmd in runner.calls
+    )
+
+
+def test_a_roomy_destination_proceeds(tmp_path, sandbox_home):
+    # The guard must not block the ordinary case: 1 TiB free.
+    # Arrange
+    plan = _plan_with_two_files(tmp_path, sandbox_home)
+
+    # Act
+    manifest = apply_archive(plan, runner=_FullDestinationRunner(avail_kb=1073741824))
+
+    # Assert
+    assert manifest.verified == "verified"
 
 
 def test_a_verified_archive_records_verified_in_the_manifest(tmp_path, sandbox_home):

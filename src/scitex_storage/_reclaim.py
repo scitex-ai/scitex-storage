@@ -56,6 +56,8 @@ import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from ._sweep import InsufficientSpaceError, check_space, free_bytes
+
 #: Where reclaim manifests live. Resolved per-call (not a module constant) so
 #: a test can sandbox it via ``$HOME`` — matching ``_archive.py``'s pattern.
 _MANIFEST_SUBDIR = "~/.scitex/scitex-storage/runtime/reclaim-manifests"
@@ -244,8 +246,52 @@ def _move_one(entry: ReclaimEntry) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     if _same_filesystem(src, dst.parent):
         os.rename(src, dst)
-    else:
-        shutil.move(str(src), str(dst))
+        return
+
+    # CROSS-FILESYSTEM: this is the branch that actually RELIEVES a full
+    # filesystem, and until now it was the one branch with no idea whether
+    # the destination could hold what it was about to copy. `sweep` learned
+    # this (card sweep-writes-tar-to-source-filesystem-20260722): a verb
+    # that relieves a constrained resource must measure the resource it
+    # depends on. shutil.move copies THEN deletes, so a destination that
+    # fills mid-copy loses nothing -- but it leaves a partial copy on a
+    # filesystem that is now also full, which is a bad place to discover
+    # the problem.
+    needed = _tree_size(src)
+    verdict = check_space(needed, free_bytes(dst.parent))
+    if verdict.ok is False:
+        raise InsufficientSpaceError(
+            f"refusing to move {src} to {dst} -- {verdict.detail}\n"
+            f"Source untouched. Point --archive-root at a filesystem with "
+            f"room, or free space on this one."
+        )
+    # ok is None (destination unstat-able) proceeds: shutil.move is
+    # copy-then-delete, so the failure mode is a partial copy rather than
+    # data loss, and refusing a move because df was unreadable would block
+    # the relief this verb exists to provide.
+    shutil.move(str(src), str(dst))
+
+
+def _tree_size(path: Path) -> int | None:
+    """Bytes held by ``path``, or None when it cannot be measured.
+
+    None rather than 0: zero is a measurement ("nothing to move"), while
+    an unreadable tree is an unanswered question, and check_space must be
+    able to tell them apart.
+    """
+    try:
+        if path.is_file():
+            return path.stat().st_size
+        total = 0
+        for root, _dirs, files in os.walk(path, followlinks=False):
+            for name in files:
+                try:
+                    total += os.lstat(os.path.join(root, name)).st_size
+                except OSError:
+                    continue
+        return total
+    except OSError:
+        return None
 
 
 def apply_reclaim(plan: ReclaimPlan) -> ReclaimManifest:
