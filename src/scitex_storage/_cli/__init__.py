@@ -21,6 +21,7 @@ from ._introspect import list_python_apis
 from ._mcp_commands import mcp
 from ._reclaim_cmd import reclaim_cmd, reclaim_restore_cmd
 from ._regenerable_cmd import regenerable_cmd
+from ._survey_cmd import survey_cmd
 from ._scan_cmd import scan_cmd
 from ._sweep_cmd import sweep_cmd, sweep_status_cmd
 
@@ -140,6 +141,7 @@ main.add_command(scan_cmd)
 main.add_command(inodes_cmd)
 main.add_command(find_duplicates_cmd)
 main.add_command(regenerable_cmd)
+main.add_command(survey_cmd)
 main.add_command(images_group)
 main.add_command(sweep_cmd)
 main.add_command(sweep_status_cmd)

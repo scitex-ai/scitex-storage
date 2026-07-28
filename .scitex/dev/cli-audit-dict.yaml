@@ -22,6 +22,18 @@ intransitive_verbs:
              # PATH argument, exactly like `scan`/`sweep`. `reclaim-restore`
              # is a compound whose head `restore` is already canonical, so
              # only the bare `reclaim` leaf needs declaring.
+  - survey  # why: "survey a tree" is the intended reading, and the object is
+            # the PATH argument exactly as with `scan`/`sweep`/`reclaim`
+            # above — the leaf token does not imply its own object. Moby
+            # dual-classifies survey noun+verb; the verb meaning is the one
+            # used here. Declared rather than renamed BECAUSE THE VERB
+            # MEANING IS REAL: contrast `regenerable`, which the same
+            # auditor rejected in this package on 2026-07-28 and which was
+            # RENAMED to `find-recipe` instead of declared — an adjective
+            # has no category here, so declaring it would have been
+            # configuring a check to pass rather than fixing a name. This
+            # one has a category it genuinely belongs to, and four
+            # siblings already in it.
   - run  # why: the `document-sorter run` leaf. "run" is the canonical verb
          # for executing a pipeline once (cf. `airflow dags run`, `dbt run`,
          # `snakemake`-style one-shot runs); the object is the configured
