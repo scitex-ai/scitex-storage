@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import Sequence
 
 #: The tree is rebuildable: an environment was recognised by structure AND
 #: a spec that can rebuild it was found.
@@ -276,13 +277,33 @@ def find_spec(start: str, ecosystem: str, stop_at: str | None = None) -> str | N
         current = parent
 
 
-def is_regenerable(path: str, stop_at: str | None = None) -> RegenerableVerdict:
+def is_regenerable(
+    path: str,
+    stop_at: str | None = None,
+    extra_spec_paths: Sequence[str] | None = None,
+) -> RegenerableVerdict:
     """Decide whether ``path`` may be discarded and rebuilt.
 
     The order is deliberate: readability is probed FIRST, so an unreadable
     directory becomes ``COULD_NOT_LOOK`` rather than falling through the
     structural checks and emerging as "not an environment" -- which reads
     as a clean answer and is not one.
+
+    ``extra_spec_paths`` lets the CALLER name a recipe the ancestor walk
+    cannot reach. Added 2026-07-28 after paper-scitex-clew's probe showed
+    the real case: a capsule's rebuild recipe lives in a SIBLING corpus
+    tree (``.../for_solver/<alias>/input/environment/Dockerfile``, bound to
+    the run directory only through a separate ``index.jsonl`` mapping).
+    No upward walk can reach a sibling, so without this the detector
+    refuses every such tree -- correct on each verdict and useless in
+    aggregate, which is the same outcome as missing them.
+
+    THE REQUIREMENT IS NOT WEAKENED, ONLY DISCOVERY IS. A named path is
+    still VERIFIED TO EXIST before it counts; a caller's assertion that a
+    recipe exists is not evidence that it does. And the verdict records
+    that the recipe was SUPPLIED rather than found, because "we located
+    this" and "we were told this" warrant different amounts of trust from
+    whoever reads the evidence later.
     """
     if not os.path.exists(path):
         return RegenerableVerdict(
@@ -360,7 +381,27 @@ def is_regenerable(path: str, stop_at: str | None = None) -> RegenerableVerdict:
         )
 
     spec = find_spec(path, ecosystem, stop_at=stop_at)
+    supplied = False
+    if spec is None and extra_spec_paths:
+        # The caller may NAME a recipe the walk cannot reach -- but naming
+        # it is not evidence it exists, so each candidate is verified here.
+        # A caller pointing at a path that has been moved or deleted must
+        # get a refusal, not a courtesy.
+        for candidate in extra_spec_paths:
+            if os.path.isfile(candidate):
+                spec = candidate
+                supplied = True
+                break
+
     if spec is None:
+        looked = ", ".join(SPEC_FILES.get(ecosystem, ()))
+        extra_note = ""
+        if extra_spec_paths:
+            extra_note = (
+                f" The caller also named {len(extra_spec_paths)} explicit "
+                f"recipe path(s), and NONE of them exist on disk -- a named "
+                f"recipe that does not resolve is not a recipe."
+            )
         return RegenerableVerdict(
             path=path,
             verdict=NOT_REGENERABLE,
@@ -369,12 +410,17 @@ def is_regenerable(path: str, stop_at: str | None = None) -> RegenerableVerdict:
             spec_path=None,
             evidence=(
                 f"{ecosystem} environment (marker {marker}) but NO rebuild spec "
-                f"found in it or its ancestors (looked for "
-                f"{', '.join(SPEC_FILES.get(ecosystem, ()))}) -- without a recipe "
-                f"this is the only copy, not a cache"
+                f"found in it or its ancestors (looked for {looked}) -- without "
+                f"a recipe this is the only copy, not a cache.{extra_note}"
             ),
         )
 
+    provenance = (
+        "SUPPLIED BY THE CALLER and verified to exist (not discovered by "
+        "the ancestor walk -- weigh it accordingly)"
+        if supplied
+        else "found by the ancestor walk"
+    )
     return RegenerableVerdict(
         path=path,
         verdict=REGENERABLE,
@@ -382,7 +428,8 @@ def is_regenerable(path: str, stop_at: str | None = None) -> RegenerableVerdict:
         marker=marker,
         spec_path=spec,
         evidence=(
-            f"{ecosystem} environment (marker {marker}), rebuildable from {spec}"
+            f"{ecosystem} environment (marker {marker}), rebuildable from "
+            f"{spec} -- recipe {provenance}"
         ),
     )
 
