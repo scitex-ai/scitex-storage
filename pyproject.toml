@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scitex-storage"
-version = "0.2.0"
+version = "0.3.0"
 description = "Research-data storage triage: read-only stat-only scan + referenced-file-aware rotation of versioned build artifacts (e.g. SIF images)"
 readme = "README.md"
 license = "AGPL-3.0-only"
