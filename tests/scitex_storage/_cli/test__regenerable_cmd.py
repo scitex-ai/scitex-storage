@@ -17,6 +17,7 @@ repo bans.
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -40,6 +41,32 @@ def _venv(root: Path, name: str = "env") -> Path:
     env.mkdir(parents=True)
     (env / "pyvenv.cfg").write_text("home = /usr/bin\n")
     return env
+
+
+# --- the examples a consumer copies must actually run ---------------------
+def test_every_help_example_names_the_verb_as_its_own_argument():
+    # 0.3.0 shipped `find-recipe/path/to/capsule/pylibs` and
+    # `find-recipeENV`: both un-runnable if copy-pasted. The
+    # `regenerable` -> `find-recipe` rename was applied as a substitution
+    # that ate the trailing space, and the rename WAS verified -- against
+    # the JSON keys and the exit codes, the half a machine reads. Nothing
+    # looked at the half a human starts from. Asserted by parsing the
+    # rendered help the way a shell would, so prose cannot drift from it.
+    # Arrange
+    help_text = CliRunner().invoke(regenerable_cmd, ["--help"]).output
+    example_lines = [
+        line.strip()[2:]
+        for line in help_text.splitlines()
+        if line.strip().startswith("$ ")
+    ]
+
+    # Act
+    verbs_present = [
+        "find-recipe" in shlex.split(line)[:3] for line in example_lines
+    ]
+
+    # Assert
+    assert example_lines and all(verbs_present)
 
 
 # --- exit codes are the contract for a shell caller -----------------------

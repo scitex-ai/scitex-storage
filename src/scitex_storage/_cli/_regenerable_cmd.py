@@ -130,13 +130,20 @@ def verdict_to_dict(verdict: RegenerableVerdict) -> dict:
             "could-not-look — never 1 or 2, so a missing verb cannot "
             "impersonate a verdict."
         ),
+        # NOTE the spaces after `find-recipe`. These two examples shipped in
+        # 0.3.0 as `find-recipe/path/...` and `find-recipeENV` -- un-runnable
+        # if copy-pasted. Cause: the `regenerable` -> `find-recipe` rename was
+        # applied as a substitution that consumed the trailing space. The
+        # rename was verified against the JSON keys and the exit codes (the
+        # machine contract) and not against the text a human copies, which is
+        # the half a consumer actually starts from. Tested now, not just read.
         examples=(
             (
-                "{prog} find-recipe/path/to/capsule/pylibs --stop-at /path/to/capsule --json",
+                "{prog} find-recipe /path/to/capsule/pylibs --stop-at /path/to/capsule --json",
                 "classify one env tree, bounded to its capsule",
             ),
             (
-                "{prog} find-recipeENV --spec /corpus/env/Dockerfile --json",
+                "{prog} find-recipe /path/to/capsule/ENV --spec /corpus/env/Dockerfile --json",
                 "name a recipe the ancestor walk cannot reach (a sibling corpus)",
             ),
         ),

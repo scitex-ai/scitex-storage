@@ -80,6 +80,26 @@ REASON_UNREADABLE = "unreadable"
 #: infer -- it is the author's own statement of intent.
 CACHEDIR_TAG = "CACHEDIR.TAG"
 
+#: The ONE directory name this module trusts, and the reason it is not the
+#: name-matching this whole module exists to replace.
+#:
+#: A name a TOOL MANDATES is not a name a HUMAN CHOSE. `venv`, `mamba`,
+#: `pylibs`, `rsandbox`, `mmroot` are arbitrary -- the same kind of tree
+#: under five labels, which is exactly why the name-list this module
+#: replaced matched almost nothing. `__pycache__` is different in kind:
+#: CPython writes that exact name, always, by language specification. It
+#: is not a convention that a site may vary; it is a protocol constant,
+#: and so it carries the same weight as a marker file that happens to be
+#: spelled as a directory name.
+#:
+#: The name is still NEVER sufficient on its own. A directory a human
+#: named `__pycache__` holding real data must not be cleared, so the
+#: content has to corroborate: at least one `.pyc` inside. That keeps the
+#: property that makes structural detection worth having -- a wrong name
+#: cannot fool it, because the name and the contents must agree.
+PYCACHE_DIR = "__pycache__"
+PYC_SUFFIX = ".pyc"
+
 #: Structural markers that identify a runtime environment, mapped to the
 #: ecosystem they belong to. Each is a path RELATIVE to the candidate
 #: directory. These are properties of the tool that built the tree, not of
@@ -239,6 +259,22 @@ def detect_cache(path: str) -> tuple[str | None, str | None]:
     * a conda/mamba root containing ONLY ``pkgs/`` -- a package cache, not
       an environment and not an install root. Measured on real trees
       (`mamba`, `mmroot`): they hold `pkgs` and nothing else.
+    * ``__pycache__`` HOLDING AT LEAST ONE ``.pyc``. See ``PYCACHE_DIR``
+      for why one mandated name is admissible where a name list is not.
+      The interpreter rewrites these on the next import, so the recipe is
+      the source tree sitting beside them.
+
+    WHAT IS DELIBERATELY *NOT* HERE: ``.cache``, ``.pip``, ``.hf`` and
+    friends. Those are CONVENTIONAL locations, redirectable by
+    ``XDG_CACHE_HOME`` / ``PIP_CACHE_DIR`` / ``HF_HOME``, so the name is a
+    guess about a directory rather than a fact about it. Measured
+    2026-07-28 by paper-scitex-clew: `~/.cache/uv` carries CACHEDIR.TAG
+    and so is already caught here, while `~/.cache/pip` and
+    `~/.cache/huggingface` do not write it. They are therefore reported
+    NOT-REGENERABLE and kept. That under-reclaims, knowingly: the
+    consumer chose a written carve-out over weakening a rule that
+    currently cannot be fooled, and a rule that cannot be fooled is worth
+    more than a rule that catches more.
     """
     if os.path.exists(os.path.join(path, CACHEDIR_TAG)):
         return "cachedir-tag", CACHEDIR_TAG
@@ -248,6 +284,12 @@ def detect_cache(path: str) -> tuple[str | None, str | None]:
         return None, None
     if entries == ["pkgs"] and os.path.isdir(os.path.join(path, "pkgs")):
         return "conda-pkgs", "pkgs"
+    # Name AND content, never name alone -- see PYCACHE_DIR. `entries`
+    # excludes dotfiles, which is right here: a `.pyc` is never hidden.
+    if os.path.basename(os.path.normpath(path)) == PYCACHE_DIR and any(
+        e.endswith(PYC_SUFFIX) for e in entries
+    ):
+        return "pycache", PYCACHE_DIR
     return None, None
 
 
