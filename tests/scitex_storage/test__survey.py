@@ -151,6 +151,73 @@ def test_a_fully_read_tree_reports_complete_coverage(tmp_path):
     assert signal.verdict != COULD_NOT_LOOK
 
 
+def test_a_walk_that_read_zero_files_is_a_could_not_look(tmp_path):
+    # THE UNMOUNTED MOUNT POINT. This walk succeeds, suppresses nothing,
+    # and reads zero files -- and the old code called that MOVABLE, on the
+    # evidence "read every entry it encountered (0 files)". A count of zero
+    # over an empty denominator is not a clean result; it is no result
+    # wearing a clean result's clothes.
+    #
+    # This is not an exotic case for a package that manages three NAS
+    # units: a NAS that is not currently attached presents as exactly this
+    # -- a readable, error-free, empty directory. Rendering it MOVABLE
+    # points the classifier at the one answer that loses data, and does so
+    # precisely when the data is invisible rather than absent.
+    # Arrange
+    empty = tmp_path / "unmounted"
+    empty.mkdir()
+    stats = stat_tree(str(empty))
+
+    # Assert the premise, so this cannot pass for the wrong reason: the
+    # walk really did succeed and really did see nothing.
+    assert stats.file_count == 0
+    assert stats.unreadable_dirs == 0
+
+    # Act
+    signal = coverage_signal(stats)
+
+    # Assert
+    assert signal.verdict == COULD_NOT_LOOK
+
+
+def test_the_zero_file_refusal_names_the_mount_it_could_be(tmp_path):
+    # A refusal that does not say what to check is a dead end. The caller
+    # needs the next step -- confirm the filesystem is mounted -- because
+    # the two states this cannot distinguish have opposite consequences.
+    # Arrange
+    empty = tmp_path / "unmounted"
+    empty.mkdir()
+    stats = stat_tree(str(empty))
+
+    # Act
+    signal = coverage_signal(stats)
+
+    # Assert
+    assert "mount" in signal.evidence.lower()
+
+
+def test_a_tree_with_only_empty_subdirectories_still_refuses(tmp_path):
+    # The zero-file check must key on FILES READ, not on whether the walk
+    # visited any directories. A tree of empty subdirectories walks
+    # successfully, visits several entries, and still yields no file
+    # evidence -- so it is the same no-map state as the bare empty dir.
+    # Arrange
+    d = tmp_path / "hollow"
+    (d / "a" / "b").mkdir(parents=True)
+    (d / "c").mkdir()
+    stats = stat_tree(str(d))
+
+    # Assert the premise.
+    assert stats.file_count == 0
+    assert stats.unreadable_dirs == 0
+
+    # Act
+    signal = coverage_signal(stats)
+
+    # Assert
+    assert signal.verdict == COULD_NOT_LOOK
+
+
 # --- survey composes, and refuses when it must --------------------------
 def test_surveying_an_absent_path_is_a_could_not_look(tmp_path):
     # Not a verdict about the tree -- the ABSENCE of one.

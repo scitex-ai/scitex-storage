@@ -146,6 +146,26 @@ def coverage_signal(stats: TreeStats) -> Signal:
     being guarded against is a confident reasoner walking past a warning --
     which is exactly what happened for five hours while 681 GB sat behind
     a permission stub.
+
+    TWO WAYS TO HAVE NO MAP, and the second one used to pass. An
+    unreadable subtree is the obvious one and was always caught. The
+    quiet one is a walk that succeeds and reads ZERO FILES: no error is
+    raised, nothing is suppressed, and the old code reported "read every
+    entry it encountered (0 files)" as MOVABLE. A count of zero over an
+    empty denominator is not a clean result -- it is no result wearing a
+    clean result's clothes. AN UNMOUNTED MOUNT POINT IS EXACTLY THIS: a
+    readable, error-free, empty directory. For a package that manages
+    three NAS units, "the NAS is not attached right now" is not an exotic
+    case, and rendering it as MOVABLE points the classifier at the one
+    answer that loses data.
+
+    Named because it keeps recurring in different costumes: `pgrep` absent
+    on BusyBox returning empty (reads as a count of zero), an agent
+    registry returning `[]` from inside a container because it is
+    host-side, a collision predicate over empty name-sets returning "no
+    collisions", and a peer's near-miss reporting `missing: 0` computed
+    over zero files hashed -- one step from an irreversible 7.8 GB delete,
+    where the real denominator showed 46 of 1158 blobs missing.
     """
     if stats.unreadable_dirs:
         return Signal(
@@ -158,6 +178,22 @@ def coverage_signal(stats: TreeStats) -> Signal:
                 f"the map is incomplete, and a movability verdict drawn on an "
                 f"incomplete map is a guess. Re-run with access to the whole "
                 f"tree, or state explicitly which subtree the verdict covers."
+            ),
+        )
+    if stats.file_count == 0:
+        return Signal(
+            name="coverage",
+            verdict=COULD_NOT_LOOK,
+            evidence=(
+                "the walk completed without error but read ZERO files, and "
+                "this probe cannot tell an EMPTY tree from an INVISIBLE one. "
+                "An unmounted mount point is a readable, error-free, empty "
+                "directory -- so is a tree whose contents live on a NAS that "
+                "is not currently attached. Both produce this exact result, "
+                "and only one of them is safe to act on. Confirm the "
+                "filesystem is mounted and the path is the one you meant; if "
+                "the tree is genuinely empty, it is trivially movable and "
+                "needs no verdict from this probe."
             ),
         )
     return Signal(
