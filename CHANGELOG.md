@@ -7,7 +7,48 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-29
+
+Two defects that shipped in 0.3.0, both of the same class: a probe that
+could not see reported a confident answer instead of refusing.
+
 ### Fixed
+
+- **`survey` called a tree MOVABLE when it read ZERO files — the wrong
+  answer in the direction that loses data.** The coverage signal returned
+  `movable` whenever the walk completed without error, on the evidence
+  "the walk read every entry it encountered (0 files)". A count of zero
+  over an empty denominator is not a clean result; it is no result wearing
+  a clean result's clothes. **An unmounted mount point is a readable,
+  error-free, empty directory** — so is a tree whose contents live on a NAS
+  that is not currently attached. Both produce exactly that state, and the
+  classifier said "safe to move" *precisely when the data was invisible
+  rather than absent*. For a package that manages three NAS units and whose
+  consumer is a cleanup sweep, this is the one wrong answer that costs
+  something irreversible. Now returns `could-not-look` with evidence naming
+  the ambiguity and the next step (confirm the filesystem is mounted),
+  because a refusal that does not say what to check is a dead end.
+  Verified by mutation: removing the guard makes the test fail with
+  `assert 'movable' == 'could-not-look'`.
+
+- **One stale sibling dependency disabled every CLI verb.** Measured in
+  production by scitex-hpc inside the real solver image on a Spartan
+  compute node: the image baked `scitex_ssh` 1.0.1 while this package
+  requires `>=1.2.0`, so `sync_dir` was missing. `_cli/__init__.py`
+  imported the archive verb eagerly, which pulled `_archive`, which
+  imported `sync_dir` at module scope — and `survey` and `find-recipe`,
+  **neither of which uses SSH**, died before argparse ever saw the
+  subcommand. Verbs now load on demand from a registry.
+  - It exited **1**. This package's exit codes exist so a broken verb
+    cannot impersonate an answer (`find-recipe` owns 10/11, `survey` owns
+    12/13, disjoint), and the failure arrived from *upstream* of the code
+    that owns that contract, falling through to the shell's generic 1. A
+    verb that cannot import now exits **20** — reserved for VERB
+    UNAVAILABLE, outside every verdict range, because "the tool is broken"
+    and "the answer is unknown" are different facts.
+  - `--help` and completion answer from the registry **without importing
+    anything**, so the CLI can still say what exists at exactly the moment
+    its dependencies are broken.
 
 - **The `find-recipe` help examples shipped un-runnable in 0.3.0** —
   `find-recipe/path/to/...` and `find-recipeENV`, both missing a space, so
