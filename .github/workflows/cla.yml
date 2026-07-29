@@ -3,7 +3,31 @@ name: CLA Assistant
 # Org-level reusable-workflow caller (scitex-ai/.github, fleet standard).
 # Defaults (default_branch=main, owner_allowlist="bot*,ywatanabe1989",
 # owner_login=ywatanabe1989) already match this repo — no `with:` overrides
-# needed.
+# needed. Re-verified 2026-07-29 rather than taken from this comment: the
+# caller passes no `with:` block at all, and `gh repo view` reports this
+# repo's default branch as `main`.
+#
+# PINNED TO A SHA, NOT `@main`. A mutable org-level ref is a surface where
+# one change lands in every calling repo simultaneously, and no caller can
+# protect itself from it — the callers are exactly the parties who cannot
+# fix it. This workflow is reachable by `issue_comment` and
+# `pull_request_target` on a PUBLIC repo, and the callee runs on persistent
+# self-hosted runners, so "which code runs" is worth nailing down.
+#
+# WHAT THIS DOES NOT FIX, stated so a green check is not read as safety:
+# pinning fixes WHICH code runs, not WHERE it runs. The callee still
+# executes adjacent to fleet credentials on shared runners. The remedy for
+# that is a dedicated ephemeral runner pool with no fleet credentials in
+# $HOME, which is owned org-side and blocked on an operator decision.
+#
+# The exposure here is materially milder than the variant that prompted
+# this: the callee pins its own action to an ORG-OWNED FORK at a fixed SHA,
+# not to an upstream project at a mutable tag. Measured by scitex-dev via
+# the API 2026-07-29, not assumed.
+#
+# TO UPDATE: bump both the SHA and the trailing `# main@<date>` together.
+# The comment is the only human-readable statement of what the SHA is; a
+# bare 40-character hash tells a reviewer nothing about how stale it is.
 
 on:
   issue_comment:
@@ -22,5 +46,5 @@ permissions:
 
 jobs:
   call:
-    uses: scitex-ai/.github/.github/workflows/cla.yml@main
+    uses: scitex-ai/.github/.github/workflows/cla.yml@399f19bec63208b064ded6bc9193f04f3681be9a  # main@2026-07-23
     secrets: inherit
