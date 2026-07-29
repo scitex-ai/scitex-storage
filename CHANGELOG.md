@@ -9,10 +9,37 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [0.3.1] - 2026-07-29
 
-Two defects that shipped in 0.3.0, both of the same class: a probe that
-could not see reported a confident answer instead of refusing.
+Three defects that shipped in 0.3.0. Two are the same class — a probe that
+could not see reported a confident answer instead of refusing — and the
+third is its cousin: a declaration that was correct in prose and wrong in
+the data a program actually reads.
 
 ### Fixed
+
+- **`fclones` was declared as an apt package, and it is not one.** The
+  system-deps federation is apt-shaped by construction (`SystemDepSpec`
+  carries `package`, `purpose`, `provider`, `apt_repo`, and `apt_repo`
+  means "an extra apt *source* is needed first", not "this does not come
+  from apt"). `fclones` ships via cargo and GitHub releases; Debian and
+  Ubuntu have no such package. The declaration carried a prose caveat
+  saying exactly this, prominently, three times in the module — and when
+  scitex-storage was first installed into a fleet image layer, the
+  aggregator fed `fclones` to `apt-get install` anyway, because **a
+  consumer reads the list, not the prose around it.**
+  - **The blast radius is the instructive part:** apt aborts the *entire*
+    transaction on one unknown name, so biber, chktex, latexmk and every
+    texlive package silently did not install either. The build then failed
+    four lines later on `pdflatex: not found` — an error pointing at a
+    layer nobody had changed. One wrong entry took down twenty right ones
+    and disguised itself as someone else's problem.
+  - The requirement **moves rather than disappears**: `NON_APT_REQUIREMENTS`
+    carries the binary, its purpose and its install method as data.
+    Deleting the declaration outright would have bought a working build by
+    making the aggregate lie by omission — trading a loud failure for a
+    silent gap, which is the worse deal.
+  - A stopgap, not a design. Until the spec can express a channel, every
+    leaf with a non-apt tool faces the same forced choice between
+    detonating an apt transaction and misdeclaring its dependencies.
 
 - **`survey` called a tree MOVABLE when it read ZERO files — the wrong
   answer in the direction that loses data.** The coverage signal returned
