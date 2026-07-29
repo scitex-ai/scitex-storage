@@ -25,6 +25,7 @@ interpreter to own the path.
 from __future__ import annotations
 
 import importlib.metadata
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -99,10 +100,27 @@ def _stale_ssh_path(tmp_path) -> str:
 
 
 def _run(tmp_path, *args):
-    env = {
-        "PATH": "/usr/bin:/bin",
-        "PYTHONPATH": _stale_ssh_path(tmp_path) + ":" + _PKG_PARENT,
-    }
+    """Run the CLI in THIS environment plus one broken dependency.
+
+    INHERITS os.environ and only PREPENDS the shim. The first version built
+    a minimal env from scratch (`PATH` + `PYTHONPATH` only) and that was
+    wrong in a way worth recording: it stripped whatever made the installed
+    distribution discoverable, so the subprocess raised
+    `PackageNotFoundError` and every assertion failed for a reason unrelated
+    to the shim. The variable under test is supposed to be ONE broken
+    sibling package -- not the entire environment.
+
+    It also defeated the skip-guard above, which asks whether the TEST
+    process can see the metadata. That is the wrong subject: the question is
+    whether the SUBPROCESS can. Inheriting makes the two the same process
+    environment, so the guard now describes what it guards.
+    """
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    parts = [_stale_ssh_path(tmp_path), _PKG_PARENT]
+    if existing:
+        parts.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(parts)
     return subprocess.run(
         [sys.executable, "-m", "scitex_storage", *args],
         capture_output=True,
