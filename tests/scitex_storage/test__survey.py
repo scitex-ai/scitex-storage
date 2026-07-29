@@ -151,6 +151,98 @@ def test_a_fully_read_tree_reports_complete_coverage(tmp_path):
     assert signal.verdict != COULD_NOT_LOOK
 
 
+def test_an_empty_tree_walks_cleanly_and_sees_no_files(tmp_path):
+    # THE PREMISE for the refusal tests below, kept as its own test so
+    # those can hold a single assertion each. It pins the state that makes
+    # the zero-file case dangerous: the walk SUCCEEDS -- nothing is
+    # unreadable, nothing is suppressed -- and still sees nothing. Without
+    # this pinned, a later change that made empty trees report an error
+    # would turn those tests green for a reason unrelated to what they
+    # claim to prove.
+    # Arrange
+    empty = tmp_path / "unmounted"
+    empty.mkdir()
+
+    # Act
+    stats = stat_tree(str(empty))
+
+    # Assert
+    assert (stats.file_count, stats.unreadable_dirs) == (0, 0)
+
+
+def test_a_walk_that_read_zero_files_is_a_could_not_look(tmp_path):
+    # THE UNMOUNTED MOUNT POINT. This walk succeeds, suppresses nothing,
+    # and reads zero files -- and the old code called that MOVABLE, on the
+    # evidence "read every entry it encountered (0 files)". A count of zero
+    # over an empty denominator is not a clean result; it is no result
+    # wearing a clean result's clothes.
+    #
+    # This is not an exotic case for a package that manages three NAS
+    # units: a NAS that is not currently attached presents as exactly this
+    # -- a readable, error-free, empty directory. Rendering it MOVABLE
+    # points the classifier at the one answer that loses data, and does so
+    # precisely when the data is invisible rather than absent.
+    # Arrange
+    empty = tmp_path / "unmounted"
+    empty.mkdir()
+    stats = stat_tree(str(empty))
+
+    # Act
+    signal = coverage_signal(stats)
+
+    # Assert
+    assert signal.verdict == COULD_NOT_LOOK
+
+
+def test_the_zero_file_refusal_names_the_mount_it_could_be(tmp_path):
+    # A refusal that does not say what to check is a dead end. The caller
+    # needs the next step -- confirm the filesystem is mounted -- because
+    # the two states this cannot distinguish have opposite consequences.
+    # Arrange
+    empty = tmp_path / "unmounted"
+    empty.mkdir()
+    stats = stat_tree(str(empty))
+
+    # Act
+    signal = coverage_signal(stats)
+
+    # Assert
+    assert "mount" in signal.evidence.lower()
+
+
+def test_a_tree_of_only_empty_subdirectories_sees_no_files(tmp_path):
+    # Premise for the test below: a hollow tree walks successfully and
+    # VISITS several entries, yet yields no file evidence.
+    # Arrange
+    d = tmp_path / "hollow"
+    (d / "a" / "b").mkdir(parents=True)
+    (d / "c").mkdir()
+
+    # Act
+    stats = stat_tree(str(d))
+
+    # Assert
+    assert (stats.file_count, stats.unreadable_dirs) == (0, 0)
+
+
+def test_a_tree_with_only_empty_subdirectories_still_refuses(tmp_path):
+    # The zero-file check must key on FILES READ, not on whether the walk
+    # visited any directories -- otherwise a tree of empty subdirectories
+    # would pass for inspected while yielding exactly as little evidence
+    # as the bare empty dir.
+    # Arrange
+    d = tmp_path / "hollow"
+    (d / "a" / "b").mkdir(parents=True)
+    (d / "c").mkdir()
+    stats = stat_tree(str(d))
+
+    # Act
+    signal = coverage_signal(stats)
+
+    # Assert
+    assert signal.verdict == COULD_NOT_LOOK
+
+
 # --- survey composes, and refuses when it must --------------------------
 def test_surveying_an_absent_path_is_a_could_not_look(tmp_path):
     # Not a verdict about the tree -- the ABSENCE of one.
