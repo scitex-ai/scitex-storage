@@ -7,6 +7,48 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`scitex-storage alarm` — a storage alarm that PUSHES, because a dashboard
+  is for a reader who is already looking.** On 2026-08-09 `scitex-compute-04`
+  reached **364 MB free on a 393 GB volume** and nothing reported it. It
+  surfaced only because a routine `head` inside an unrelated five-minute cron
+  on another agent happened to write and died with `ENOSPC` — the detection
+  mechanism was *"an agent happens to run a command that writes"*. The next
+  occurrence corrupts a SQLite mid-transaction rather than killing a text
+  filter, and that host carries the fleet's agent state DB.
+  - **The measurement layer already existed and needed nothing.** `_observe`
+    gathers the fleet, `HostStorage` carries space and inode percentages with
+    a three-state verdict, `FLAG_PERCENT` already decides what renders red.
+    The gap was that `write_fleet_snapshot` renders HTML and stops. So this is
+    one layer — decide, render a sentence, deliver it — not a new monitor.
+  - **`FLAG_PERCENT` is reused, never redefined.** Two thresholds for one
+    concept drift apart, and then the dashboard and the alarm disagree about
+    whether the fleet is healthy.
+  - **Absolute floors (20 GiB warn / 5 GiB critical) sit alongside the
+    percentage**, because a percentage cannot answer *how long have I got*.
+    Free space on that volume fell ~2 GB per five minutes; a floor stated in
+    bytes is directly comparable against an observed fill rate.
+  - **Inodes get both threshold families.** The original request was
+    bytes-only, and a byte-only alarm is blind to the exhaustion that fails
+    writes while `df` still shows free space.
+  - **`UNKNOWN` is a level, not a silence.** An unmeasurable filesystem *and*
+    an empty gather both report `UNKNOWN`, never `OK`, counted apart from
+    healthy rows — but neither pages on its own, because alarming on a
+    transient unreachable host trains the reader to ignore the channel, which
+    is the original defect arriving later wearing a different hat.
+  - **Dispatch is not delivery.** `PushResult.delivered` is three-valued, and
+    the default operator-DM rail returns *unknown* on success rather than
+    *true*: the store hands back a stored row, which proves the message was
+    written, not read.
+  - **Sustained blindness is announced once.** `ok → unknown → unknown → …`
+    would otherwise be silent forever, and a filesystem nobody can read is not
+    healthy — it is unmonitored, which is this feature's own defect in a
+    narrower form. It gets its own sentence ("no reading from X for N
+    gathers … only unread"), never a capacity claim, because *"we cannot see
+    it"* and *"it is full"* call for different actions from different people.
+  - Found in review by `scitex-db`, who also reported the original incident.
+
 ## [0.3.1] - 2026-07-29
 
 Three defects that shipped in 0.3.0. Two are the same class — a probe that
