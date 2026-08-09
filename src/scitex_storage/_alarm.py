@@ -231,7 +231,19 @@ def _gib(num_bytes: int) -> str:
     return f"{num_bytes / 1024**3:.1f} GiB"
 
 
-def should_notify(previous_level: str | None, current_level: str) -> bool:
+#: Consecutive gathers of UNKNOWN after which sustained blindness is
+#: announced once. Not a severity number and not tunable per-level -- it
+#: answers "how long is a transient", and three gathers is long enough that
+#: an ssh blip or a sleeping NAS has cleared, short enough that a host which
+#: has genuinely dropped off the fleet is reported the same hour.
+UNKNOWN_STREAK_ALERT = 3
+
+
+def should_notify(
+    previous_level: str | None,
+    current_level: str,
+    unknown_streak: int = 0,
+) -> bool:
     """Decide whether THIS gather is worth interrupting a human for. Pure.
 
     A gather runs every few minutes. Pushing on every cycle while a disk is
@@ -275,7 +287,28 @@ def should_notify(previous_level: str | None, current_level: str) -> bool:
     the reader infer it was resolved -- false reassurance, the worst
     direction. Going ok -> unknown stays silent, because that is the
     ordinary transient this rule exists to absorb.
+
+    SUSTAINED BLINDNESS IS ITS OWN TRANSITION, and it closes a hole that the
+    transition rule alone has. Under "unchanged levels stay silent",
+    ``ok -> unknown -> unknown -> ...`` is silent FOREVER: a filesystem that
+    permanently drops out of the gather is never mentioned again. But a
+    filesystem nobody can read is not fine, it is UNMONITORED -- and an
+    unmonitored filesystem nobody is told about is precisely the defect this
+    module exists for, arriving in a narrower form. So after
+    :data:`UNKNOWN_STREAK_ALERT` consecutive unknown gathers we say so, once.
+    (Found by scitex-db reviewing the rule, not by the tests.)
+
+    That page is a DIFFERENT SENTENCE from a capacity alarm -- "no reading
+    from this filesystem since T" rather than "this filesystem is full" --
+    and :func:`format_alarm` renders it as such. ``unknown_streak`` counts
+    consecutive unknown gathers INCLUDING this one; the caller owns the
+    counter for the same reason it owns ``previous_level``.
     """
+    if current_level == UNKNOWN and unknown_streak == UNKNOWN_STREAK_ALERT:
+        # Exactly at the threshold, so this announces once rather than on
+        # every subsequent gather -- the same "told once" discipline a
+        # sustained critical gets.
+        return True
     if previous_level == current_level:
         return False
     if previous_level is None:
@@ -292,6 +325,24 @@ def should_notify(previous_level: str | None, current_level: str) -> bool:
     # current_level is UNKNOWN: only worth saying when we just lost sight
     # of something that WAS alarming.
     return was_alarming
+
+
+def format_blindness(alarm: FleetAlarm, unknown_streak: int) -> str:
+    """The sustained-blindness page. A DIFFERENT SENTENCE from a capacity alarm.
+
+    "We have had no reading from these filesystems" and "these filesystems
+    are full" call for different actions from different people, so they must
+    not share wording. A reader who has been trained by capacity alarms will
+    skim this one; naming the filesystems and the streak is what stops it
+    reading as a quieter version of the same thing.
+    """
+    names = ", ".join(f"{f.host}:{f.mount}" for f in alarm.unknown) or "(none named)"
+    return (
+        f"STORAGE UNMONITORED @ {alarm.generated_at}\n"
+        f"  no reading from {names} for {unknown_streak} consecutive gathers.\n"
+        "  This is not a capacity alarm: these filesystems are not known to be "
+        "healthy or unhealthy, only unread."
+    )
 
 
 def format_alarm(alarm: FleetAlarm) -> str:

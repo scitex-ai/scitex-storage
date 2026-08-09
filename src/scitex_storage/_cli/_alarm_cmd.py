@@ -52,7 +52,7 @@ from pathlib import Path
 
 import click
 
-from .._alarm import evaluate_snapshot, format_alarm
+from .._alarm import UNKNOWN, evaluate_snapshot, format_alarm
 from .._alarm_notify import notify_if_needed, operator_dm_notifier
 from .._fleet_status import gather_fleet_snapshot
 from ._compat import spec_command_kwargs
@@ -88,7 +88,34 @@ def read_previous_level(path: Path) -> str | None:
     return level if isinstance(level, str) else None
 
 
-def write_level(path: Path, level: str, generated_at: str) -> None:
+def read_unknown_streak(path: Path) -> int:
+    """Consecutive UNKNOWN gathers recorded so far, or 0 if unknown.
+
+    Zero on every failure mode, matching :func:`read_previous_level`: a lost
+    counter restarts the count rather than inventing history. That delays a
+    sustained-blindness page by at most the streak length; claiming a streak
+    we cannot substantiate would be worse than being slightly late.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+    streak = data.get("unknown_streak") if isinstance(data, dict) else None
+    return streak if isinstance(streak, int) and streak >= 0 else 0
+
+
+def next_unknown_streak(previous_streak: int, current_level: str) -> int:
+    """Advance the blindness counter. Pure, so the caller can test it.
+
+    Counts consecutive UNKNOWN gathers INCLUDING the current one, and resets
+    to zero the moment anything is measured. The reset is the important half:
+    a streak that survived a successful gather would eventually fire a
+    blindness page about a filesystem we can currently read.
+    """
+    return previous_streak + 1 if current_level == UNKNOWN else 0
+
+
+def write_level(path: Path, level: str, generated_at: str, unknown_streak: int = 0) -> None:
     """Record the level for the next run. Atomic: a reader never sees half.
 
     Temp + rename, matching ``_observe._atomic_write``. A half-written
@@ -99,7 +126,14 @@ def write_level(path: Path, level: str, generated_at: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(f".{os.getpid()}.tmp")
     tmp.write_text(
-        json.dumps({"level": level, "generated_at": generated_at}, indent=2),
+        json.dumps(
+            {
+                "level": level,
+                "generated_at": generated_at,
+                "unknown_streak": unknown_streak,
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
     tmp.replace(path)
@@ -148,27 +182,37 @@ def alarm_cmd(dry_run: bool, as_json: bool, state: str | None) -> None:
     alarm = evaluate_snapshot(snapshot)
     state_path = Path(state).expanduser() if state else _default_state_path()
     previous = read_previous_level(state_path)
+    streak = next_unknown_streak(read_unknown_streak(state_path), alarm.level)
 
     if dry_run:
         # A dry run must not record state: recording it would make the NEXT
         # real run believe the reader had already been told, which is how a
         # rehearsal silences the performance.
-        result = notify_if_needed(alarm, lambda text: None, previous_level=previous)
+        result = notify_if_needed(
+            alarm, lambda text: None, previous_level=previous, unknown_streak=streak
+        )
         payload = {
             "dry_run": True,
             "previous_level": previous,
+            "unknown_streak": streak,
             **asdict(result),
             "message": format_alarm(alarm),
         }
         click.echo(json.dumps(payload, indent=2) if as_json else _human(payload))
         return
 
-    result = notify_if_needed(alarm, operator_dm_notifier(), previous_level=previous)
-    write_level(state_path, alarm.level, snapshot.generated_at)
+    result = notify_if_needed(
+        alarm,
+        operator_dm_notifier(),
+        previous_level=previous,
+        unknown_streak=streak,
+    )
+    write_level(state_path, alarm.level, snapshot.generated_at, streak)
 
     payload = {
         "dry_run": False,
         "previous_level": previous,
+        "unknown_streak": streak,
         **asdict(result),
         "message": format_alarm(alarm),
     }

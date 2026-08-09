@@ -39,7 +39,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from ._alarm import FleetAlarm, format_alarm, should_notify
+from ._alarm import (
+    UNKNOWN,
+    FleetAlarm,
+    format_alarm,
+    format_blindness,
+    should_notify,
+)
 
 #: A transport: takes the rendered alarm text, returns whether it landed.
 #: ``None`` means "completed, but this rail cannot confirm delivery".
@@ -77,6 +83,7 @@ def notify_if_needed(
     alarm: FleetAlarm,
     notifier: Notifier,
     previous_level: str | None = None,
+    unknown_streak: int = 0,
 ) -> PushResult:
     """Push ``alarm`` if the level TRANSITIONED, and report what happened.
 
@@ -94,7 +101,7 @@ def notify_if_needed(
     and message are preserved in ``detail`` so the failure is diagnosable,
     never merely counted.
     """
-    if not should_notify(previous_level, alarm.level):
+    if not should_notify(previous_level, alarm.level, unknown_streak):
         return PushResult(
             attempted=False,
             delivered=None,
@@ -102,7 +109,14 @@ def notify_if_needed(
             detail=f"no transition ({previous_level} -> {alarm.level})",
         )
 
-    text = format_alarm(alarm)
+    # Sustained blindness gets its own wording. Reusing the capacity text
+    # would tell the reader a filesystem is healthy-or-not when the true
+    # statement is that we have not read it at all.
+    text = (
+        format_blindness(alarm, unknown_streak)
+        if alarm.level == UNKNOWN
+        else format_alarm(alarm)
+    )
     try:
         delivered = notifier(text)
     except Exception as exc:  # noqa: BLE001 -- see docstring: never crash the gather

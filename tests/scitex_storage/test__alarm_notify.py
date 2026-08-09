@@ -17,7 +17,16 @@ pinned hardest, and they are opposites:
   was never told, which is the same defect arriving a week later.
 """
 
-from scitex_storage._alarm import CRITICAL, OK, UNKNOWN, WARN, FleetAlarm, should_notify
+from scitex_storage._alarm import (
+    CRITICAL,
+    OK,
+    UNKNOWN,
+    UNKNOWN_STREAK_ALERT,
+    WARN,
+    FleetAlarm,
+    format_blindness,
+    should_notify,
+)
 from scitex_storage._alarm_notify import notify_if_needed
 
 
@@ -205,6 +214,51 @@ def test_unknown_level_from_a_healthy_previous_state_does_not_push():
     notify_if_needed(alarm, fn, previous_level=OK)
     # Assert
     assert sent == []
+
+
+def test_sustained_blindness_notifies_at_the_streak_threshold():
+    """ok -> unknown -> unknown -> ... would otherwise be silent FOREVER.
+
+    A filesystem nobody can read is not healthy, it is UNMONITORED, and an
+    unmonitored filesystem nobody is told about is this module's own defect
+    in a narrower form. Found by scitex-db reviewing the rule.
+    """
+    # Arrange
+    previous, current = UNKNOWN, UNKNOWN
+    # Act
+    result = should_notify(previous, current, unknown_streak=UNKNOWN_STREAK_ALERT)
+    # Assert
+    assert result is True
+
+
+def test_sustained_blindness_announces_once_not_every_gather():
+    """Past the threshold it goes quiet again -- same discipline as a critical."""
+    # Arrange
+    previous, current = UNKNOWN, UNKNOWN
+    # Act
+    result = should_notify(previous, current, unknown_streak=UNKNOWN_STREAK_ALERT + 1)
+    # Assert
+    assert result is False
+
+
+def test_short_blindness_below_the_threshold_stays_silent():
+    """A transient must still be absorbed; that is what the streak buys."""
+    # Arrange
+    previous, current = UNKNOWN, UNKNOWN
+    # Act
+    result = should_notify(previous, current, unknown_streak=UNKNOWN_STREAK_ALERT - 1)
+    # Assert
+    assert result is False
+
+
+def test_blindness_message_does_not_claim_the_filesystem_is_healthy():
+    """It must read as 'unread', never as a quieter capacity alarm."""
+    # Arrange
+    alarm = FleetAlarm(level=UNKNOWN, generated_at="T")
+    # Act
+    text = format_blindness(alarm, UNKNOWN_STREAK_ALERT)
+    # Assert
+    assert "not known to be healthy or unhealthy" in text
 
 
 def test_losing_sight_of_an_alarming_filesystem_does_notify():

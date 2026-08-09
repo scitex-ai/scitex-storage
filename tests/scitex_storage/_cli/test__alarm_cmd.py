@@ -16,8 +16,13 @@ exists for.
 
 import json
 
-from scitex_storage._alarm import CRITICAL, OK, should_notify
-from scitex_storage._cli._alarm_cmd import read_previous_level, write_level
+from scitex_storage._alarm import CRITICAL, OK, UNKNOWN, should_notify
+from scitex_storage._cli._alarm_cmd import (
+    next_unknown_streak,
+    read_previous_level,
+    read_unknown_streak,
+    write_level,
+)
 
 
 def test_written_level_is_read_back_unchanged(tmp_path):
@@ -108,6 +113,54 @@ def test_write_creates_the_runtime_directory(tmp_path):
     write_level(path, OK, "T")
     # Assert
     assert path.exists()
+
+
+def test_unknown_streak_advances_while_blind():
+    # Arrange
+    previous_streak = 2
+    # Act
+    streak = next_unknown_streak(previous_streak, UNKNOWN)
+    # Assert
+    assert streak == 3
+
+
+def test_unknown_streak_resets_the_moment_anything_is_measured():
+    """A streak surviving a good gather would page about a readable filesystem."""
+    # Arrange
+    previous_streak = 9
+    # Act
+    streak = next_unknown_streak(previous_streak, OK)
+    # Assert
+    assert streak == 0
+
+
+def test_streak_survives_a_write_and_read_round_trip(tmp_path):
+    # Arrange
+    path = tmp_path / "alarm-state.json"
+    # Act
+    write_level(path, UNKNOWN, "T", 4)
+    # Assert
+    assert read_unknown_streak(path) == 4
+
+
+def test_missing_streak_reads_as_zero_not_as_a_long_blindness(tmp_path):
+    """A lost counter restarts the count rather than inventing history."""
+    # Arrange
+    path = tmp_path / "never-written.json"
+    # Act
+    streak = read_unknown_streak(path)
+    # Assert
+    assert streak == 0
+
+
+def test_negative_streak_is_rejected_as_corruption(tmp_path):
+    # Arrange
+    path = tmp_path / "alarm-state.json"
+    path.write_text(json.dumps({"unknown_streak": -5}), encoding="utf-8")
+    # Act
+    streak = read_unknown_streak(path)
+    # Assert
+    assert streak == 0
 
 
 def test_no_temp_file_is_left_behind(tmp_path):
