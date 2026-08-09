@@ -231,6 +231,69 @@ def _gib(num_bytes: int) -> str:
     return f"{num_bytes / 1024**3:.1f} GiB"
 
 
+def should_notify(previous_level: str | None, current_level: str) -> bool:
+    """Decide whether THIS gather is worth interrupting a human for. Pure.
+
+    A gather runs every few minutes. Pushing on every cycle while a disk is
+    full is how a channel becomes noise, and a reader who has learned to
+    swipe the alarm away is exactly as uninformed as one who never got it --
+    the failure this whole module exists to prevent, arriving a week later.
+
+    So the rule is TRANSITIONS, not states:
+
+    * escalation always notifies (ok -> warn, warn -> critical), because
+      "worse than last time" is new information;
+    * RECOVERY notifies exactly once (warn/critical -> ok), because an
+      alarm that never says "resolved" leaves the reader unable to tell a
+      fixed problem from a forgotten one -- and today's incident did clear
+      on its own, with nobody told either way;
+    * a level that has not changed does NOT notify, even when it is
+      critical. The state is still in the payload for anyone who looks;
+      what it stops being is an interruption.
+
+    ``previous_level=None`` means "no prior state recorded" (first run, or
+    the state file was lost). That notifies if there is anything to say,
+    because a fresh process must not stay silent about a disk that is
+    already full -- an alarm whose memory loss reads as "nothing changed"
+    is a gate that cannot fail.
+
+    De-escalation between two alarming levels (critical -> warn) is
+    deliberately NOT notified: it is still alarming, the reader has already
+    been told, and "slightly less on fire" does not need a push.
+
+    UNKNOWN IS NOT RANKED HERE, and the cases are spelled out rather than
+    computed from :data:`_SEVERITY`. A first version did rank it -- unknown
+    sorted above ok -- so a single unreachable host paged on every gather,
+    contradicting :attr:`FleetAlarm.should_push`, which treats unknown as
+    not-alarming. Two places deciding one concept, disagreeing. Caught by
+    the tests; kept as named branches so the next reader cannot silently
+    reintroduce it by adjusting a number.
+
+    The subtle case, and the reason this is not simply "unknown never
+    notifies": LOSING SIGHT of a filesystem that was ALARMING does notify.
+    Going critical -> unknown is not recovery, and staying silent would let
+    the reader infer it was resolved -- false reassurance, the worst
+    direction. Going ok -> unknown stays silent, because that is the
+    ordinary transient this rule exists to absorb.
+    """
+    if previous_level == current_level:
+        return False
+    if previous_level is None:
+        # No prior state: speak only if there is an actual alarm. A fresh
+        # process must not announce an unmeasurable fleet as if it were news.
+        return current_level in (WARN, CRITICAL)
+    was_alarming = previous_level in (WARN, CRITICAL)
+    if current_level in (WARN, CRITICAL):
+        # New alarm, or a worse one than the reader was last told about.
+        return not was_alarming or _SEVERITY[current_level] > _SEVERITY[previous_level]
+    if current_level == OK:
+        # Recovery, exactly once, and only from something actually reported.
+        return was_alarming
+    # current_level is UNKNOWN: only worth saying when we just lost sight
+    # of something that WAS alarming.
+    return was_alarming
+
+
 def format_alarm(alarm: FleetAlarm) -> str:
     """Render the pushed message: what, where, and how bad -- in that order.
 
