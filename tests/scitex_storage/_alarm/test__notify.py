@@ -27,7 +27,7 @@ from scitex_storage._alarm import (
     format_blindness,
     should_notify,
 )
-from scitex_storage._alarm_notify import notify_if_needed
+from scitex_storage._alarm import notify_if_needed
 
 
 def _recorder():

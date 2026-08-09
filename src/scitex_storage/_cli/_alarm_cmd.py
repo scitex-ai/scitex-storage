@@ -52,8 +52,13 @@ from pathlib import Path
 
 import click
 
-from .._alarm import UNKNOWN, evaluate_snapshot, format_alarm
-from .._alarm_notify import notify_if_needed, operator_dm_notifier
+from .._alarm import (
+    UNKNOWN,
+    evaluate_snapshot,
+    format_alarm,
+    notify_if_needed,
+    operator_dm_notifier,
+)
 from .._fleet_status import gather_fleet_snapshot
 from ._compat import spec_command_kwargs
 

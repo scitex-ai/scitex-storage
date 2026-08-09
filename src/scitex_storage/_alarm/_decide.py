@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# File: src/scitex_storage/_alarm.py
+# File: src/scitex_storage/_alarm/_decide.py
 """Turn a fleet snapshot into a PUSHED alarm -- the half a dashboard cannot do.
 
 The observation layer already measures everything this needs:
@@ -51,7 +51,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ._fleet_status import FLAG_PERCENT, FleetSnapshot, HostStorage
+from .._fleet_status import FLAG_PERCENT, FleetSnapshot, HostStorage
 
 #: Free bytes at/under which a filesystem warns. Chosen against a measured
 #: fill rate rather than a round number: scitex-compute-04 fell ~2 GB per

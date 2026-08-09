@@ -42,6 +42,11 @@ scitex-storage's CLI/package imports several cross-package modules under
   OPTIONAL/guarded (imported lazily inside ``_host_roles()`` behind a
   broad ``except``, so a lean install -- or a registry still mid-build --
   falls back to the hardcoded ``DEFAULT_ROLES`` map rather than failing).
+* ``scitex_cards`` (``_alarm/_notify.py``) -- ``dm_send``, the rail the
+  storage alarm reaches the operator on. OPTIONAL/guarded (imported lazily
+  INSIDE the notifier closure, so a host without the card store simply
+  supplies a different notifier and never touches this path; scitex-storage
+  takes no hard dependency on the card store just to define the function).
 
 This gate proves that when a listed package IS installed, the import
 actually resolves — catching a renamed/moved upstream API before it ships.
@@ -70,6 +75,7 @@ CROSS_PACKAGE_IMPORTS = [
     "scitex_ui",
     "scitex_dev.gui_runtime",
     "scitex_dev.hosts",
+    "scitex_cards",
 ]
 
 

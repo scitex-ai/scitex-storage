@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# File: src/scitex_storage/_alarm_notify.py
+# File: src/scitex_storage/_alarm/_notify.py
 """Deliver a storage alarm to a human, and report honestly whether it landed.
 
 :mod:`._alarm` decides WHETHER to alarm and renders WHAT to say. This
@@ -39,7 +39,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from ._alarm import (
+from ._decide import (
     UNKNOWN,
     FleetAlarm,
     format_alarm,
