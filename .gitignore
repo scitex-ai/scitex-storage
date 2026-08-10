@@ -41,3 +41,4 @@ docs/sphinx/_build/
 
 # Operator's private brainstorm notes — never committed (see repo instructions).
 GITIGNORED/
+uv.lock

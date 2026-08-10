@@ -12,18 +12,28 @@ audit:
   skip-rules:
     - rule: PS-108b
       reason: >-
-        17 flat .py modules at the package root against a threshold of 15,
-        and I CAUSED IT: _regenerable, _verify, _archive_transport,
-        _restore and _space were all added this week. The rule is right —
-        the package has genuinely outgrown a flat layout, and the correct
-        fix is a topical subpackage (the archive/restore/transport/space/
-        verify/sweep/reclaim cluster is one responsibility: move data to a
-        destination and confirm it arrived). That is a seven-module move
-        touching every importer, and bundling it into a change that gates
-        DATA DELETION would make both halves unreviewable. Tracked on card
-        storage-src-flat-modules-need-subpackage-20260728 as its own
-        focused refactor, to land next. Remove this entry then — it is a
-        deferral of ~one week, not a standing exemption.
+        21 flat .py modules at the package root against a threshold of 15,
+        and I CAUSED ALL OF IT: _regenerable, _verify, _archive_transport,
+        _restore, _space, _accounting, _sweep_stream and _survey were all
+        added by me within a week. THIS REASON HAS NOW BEEN REWRITTEN
+        THREE TIMES AND THE COUNT HAS GONE 17 -> 19 -> 21 WHILE THE
+        DEFERRAL STOOD. Each rewrite said "to land next" and it did not.
+        That is the exact mechanism by which a deferral becomes a standing
+        exemption: the reason stays plausible while the number it is about
+        keeps moving, so nobody rereads it. Recording the drift here
+        because a stale reason is worse than a missing one — it looks
+        current. The rule is right; the package has genuinely outgrown a
+        flat layout, and the correct fix is a topical subpackage (the
+        archive/restore/transport/space/verify/sweep/sweep_stream cluster
+        is ONE responsibility: move data to a destination and confirm it
+        arrived; classify/survey/regenerable/accounting/open_handles/
+        duplicates are a SECOND: measure a tree and judge it). That is a
+        large move touching every importer, which is why it has not been
+        bundled into changes that gate DATA DELETION. Tracked on card
+        storage-src-flat-modules-need-subpackage-20260728. HARD RULE FROM
+        HERE: no further module may be added at this root until that
+        refactor lands. If a change needs a new module, it needs the
+        refactor first.
     - rule: PS-224
       reason: >-
         CI job `fd-fclones-integration` targets ubuntu-latest, which no

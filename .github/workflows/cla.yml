@@ -1,9 +1,24 @@
 name: CLA Assistant
 
 # Org-level reusable-workflow caller (scitex-ai/.github, fleet standard).
-# Defaults (default_branch=main, owner_allowlist="bot*,ywatanabe1989",
-# owner_login=ywatanabe1989) already match this repo — no `with:` overrides
-# needed.
+#
+# PINNED TO A SHA, NOT `@main`. A mutable org-level ref is a surface where
+# one change lands in every calling repo simultaneously, and no caller can
+# protect itself from it — the callers are exactly the parties who cannot
+# fix it. This workflow is reachable by `issue_comment` and
+# `pull_request_target` on a PUBLIC repo, so "which code runs" is worth
+# nailing down.
+#
+# TO UPDATE: bump both the SHA and the trailing `# main@<date>` together.
+# The comment is the only human-readable statement of what the SHA is; a
+# bare 40-character hash tells a reviewer nothing about how stale it is.
+#
+# WHY THE PIN MOVED (2026-07-23 -> 2026-08-05). Pinning has a cost that is
+# easy to forget: fixes to the callee do not reach a pinned caller either.
+# Both changes below exist at the new SHA and did not exist at the old one,
+# and the callee's own commit message says so out loud — "Note for consumers
+# that SHA-PIN this repo: parameterizing HEAD does not reach you ... Bump the
+# pin as part of your own migration." This is that bump.
 
 on:
   issue_comment:
@@ -22,5 +37,60 @@ permissions:
 
 jobs:
   call:
-    uses: scitex-ai/.github/.github/workflows/cla.yml@main
-    secrets: inherit
+    uses: scitex-ai/.github/.github/workflows/cla.yml@a29fe1bf604605732ca84f73901d02986ff8bf96  # main@2026-08-05
+    with:
+      # EPHEMERAL RUNNER, AND THIS IS A SAFETY DECISION, NOT A CI-SPEED ONE.
+      #
+      # The version of this file that stood here until today said the remedy
+      # for the exposure below was "a dedicated ephemeral runner pool with no
+      # fleet credentials in $HOME, which is owned org-side and blocked on an
+      # operator decision." That is no longer true: the callee grew a
+      # `runs_on` input on 2026-08-05, so the remedy is now a per-repo knob
+      # and nothing is blocking it. The old sentence had become a standing
+      # excuse for a condition I could fix myself.
+      #
+      # What it fixes: `issue_comment` and `pull_request_target` are
+      # UNAUTHENTICATED triggers on a public repo — a GitHub account is the
+      # whole barrier — and the fork-PR approval gate does not cover them, by
+      # design. The org's default pool is PERSISTENT and shares a real $HOME
+      # holding the live fleet credential. A hosted VM is destroyed after the
+      # run, so the worst case costs one disposable machine instead of
+      # standing next to a credential.
+      #
+      # This matches what sac's own repo already does for its CLA job, and it
+      # is consistent with the operator's 2026-08-05 direction (no Spartan for
+      # CI; GitHub-hosted runners are free on public repos and merely slower —
+      # and "slower" is irrelevant for a check that greps a JSON file).
+      #
+      # MUST be a JSON ARRAY STRING, not a YAML list: the callee feeds it to
+      # fromJSON, and a YAML list decodes to something fromJSON rejects. The
+      # failure mode is not an error — GitHub QUEUES an unmatchable job
+      # FOREVER, which in the run list is indistinguishable from "still
+      # waiting". If this job ever hangs pending with no runner, suspect this
+      # line first.
+      runs_on: '["ubuntu-latest"]'
+    # ONE SECRET, NAMED — not `secrets: inherit`.
+    #
+    # `inherit` forwards EVERY secret this repo holds into a job that any
+    # GitHub account can start by typing an issue comment. Today this repo
+    # holds ZERO secrets, so `inherit` is currently harmless — and that is
+    # exactly why this had to change BEFORE the token is added, not after.
+    # Adding GH_PERSONAL_ACCESS_TOKEN while `inherit` was still here would
+    # have converted a broken check into a live exposure in one step, with
+    # nothing in the diff to show it: the dangerous line is the one that did
+    # not change. Sequencing is the whole control.
+    #
+    # The callee declares this secret explicitly (`required: true`) precisely
+    # so callers can name it, and keeps accepting `inherit` from callers that
+    # have not migrated. Do NOT add secrets here speculatively — the next one
+    # added is forwarded on every issue comment, forever.
+    #
+    # STILL RED AFTER THIS CHANGE, and that is expected. `GH_PERSONAL_ACCESS_TOKEN`
+    # does not exist in this repo's secrets (measured 2026-08-11: `gh secret
+    # list` returns empty, and the org has no org-level secrets to inherit
+    # either), so the callee's `required: true` will keep failing until the
+    # PAT holder adds it. This commit does not fix the CLA check; it makes
+    # adding the token safe. Those are two different jobs and only one of
+    # them is mine.
+    secrets:
+      GH_PERSONAL_ACCESS_TOKEN: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
