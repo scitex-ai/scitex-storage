@@ -63,6 +63,7 @@ VERB_REGISTRY: dict[str, str] = {
     "reclaim": "._reclaim_cmd:reclaim_cmd",
     "reclaim-restore": "._reclaim_cmd:reclaim_restore_cmd",
     "document-sorter": "._document_sorter_cmd:document_sorter_group",
+    "verify-content": "._verify_content_cmd:verify_content_cmd",
     "fleet-status": "._fleet_status_cmd:fleet_status_cmd",
     "alarm": "._alarm_cmd:alarm_cmd",
     # NOTE: `list-python-apis` and `mcp` are deliberately NOT here -- they are
