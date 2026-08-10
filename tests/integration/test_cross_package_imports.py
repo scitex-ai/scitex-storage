@@ -31,6 +31,14 @@ scitex-storage's CLI/package imports several cross-package modules under
 * ``scitex_ui`` (``_django/settings.py`` / ``_django/_server.py``) —
   supplies the shared workspace shell template + CSS/JS the GUI's
   templates extend. OPTIONAL/guarded, same ``gui`` extra.
+* ``scitex_ui.branding`` (``_django/views.py``) — ``shell_context()``,
+  through which ``index`` DECLARES which of the shell's three panes it
+  uses. Listed separately from ``scitex_ui`` because it is a different
+  contract with a different floor: the ``panes`` parameter arrived in
+  0.8.0, so this import resolving is not the same question as the
+  package being importable. UNGUARDED and at module scope, unlike the
+  other GUI imports — ``views.py`` is only ever reached through Django,
+  which the ``gui`` extra already pins.
 * ``scitex_dev.gui_runtime`` (``_cli/_gui_cmd.py``) -- ``GuiRuntime``, the
   package-agnostic pid/state-file lifecycle primitive behind
   ``gui {open,serve,status,stop}``. OPTIONAL/guarded (imported lazily
@@ -73,6 +81,7 @@ CROSS_PACKAGE_IMPORTS = [
     "scitex_app._django",
     "scitex_app._standalone",
     "scitex_ui",
+    "scitex_ui.branding",
     "scitex_dev.gui_runtime",
     "scitex_dev.hosts",
     "scitex_cards",
