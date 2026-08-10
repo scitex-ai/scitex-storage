@@ -181,6 +181,37 @@ class ArchiveManifest:
     #: earlier versions still load via from_dict.
     verified: str = "could-not-look"
     verification_evidence: str = "written by a version that did not verify"
+    #: HOW the destination was checked, as DATA rather than as prose buried in
+    #: the evidence string.
+    #:
+    #: WHY THIS FIELD EXISTS. `verified: "verified"` says a check passed and
+    #: says NOTHING about what the check could see. This one is a TALLY:
+    #: entry count plus byte total. It is the right cheap check to watch a
+    #: transfer with, and `_content_verify`'s discriminating test asserts in
+    #: CI that it returns may_remove_source=True for a destination file with
+    #: the right name, the right LENGTH and the WRONG BYTES. A reader of this
+    #: manifest was given no way to know that, and `apply_archive` deletes the
+    #: source on this verdict -- so the manifest recorded a stronger claim
+    #: than the code had earned.
+    #:
+    #: The defect is prose-versus-data, which this project has now hit three
+    #: times: a docstring that asserted verification the body did not perform
+    #: (fixed 2026-07-28), a module docstring naming a dependency the data
+    #: correctly excluded (a grep "confirmed" the bug was still present), and
+    #: this. THE FIX IS ALWAYS THE SAME -- put the claim in a field a consumer
+    #: reads, not in a sentence a human might.
+    #:
+    #: "tally"   entry count + byte total. Cannot see same-length corruption.
+    #: "content" sha256 per entry. Not yet reachable here: the destination is
+    #:           remote and `digest_tree` hashes a local path. Tracked on
+    #:           storage-archive-deletes-on-a-tally-gated-check-20260811.
+    #:
+    #: Defaulted to "unknown" rather than "tally" ON PURPOSE. Manifests written
+    #: before this field existed were ALSO tally-verified, but that is my
+    #: inference about old artefacts rather than something they recorded, and
+    #: back-filling it would manufacture evidence. An old manifest genuinely
+    #: does not say, and "unknown" is what it does not say.
+    verification_method: str = "unknown"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -337,6 +368,13 @@ def apply_archive(
         archived_at=time.time(),
         verified=verdict.verdict,
         verification_evidence=verdict.evidence,
+        # STATED, not implied. This call site is the only thing that knows
+        # which check produced the verdict, so it is the only place that can
+        # record it honestly. If a content-verified path is ever added here,
+        # it sets "content" -- and a reviewer who forgets will leave "tally"
+        # on a stronger check rather than the reverse, which is the safe
+        # direction for a field that gates an irreversible delete.
+        verification_method="tally",
     )
     plan.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     plan.manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))

@@ -7,6 +7,7 @@ testing seam -- verified against its real call convention:
 no network or real SSH config is needed to exercise these code paths.
 """
 
+import json
 import os
 from dataclasses import dataclass
 
@@ -419,6 +420,66 @@ def test_apply_archive_manifest_records_the_source_path(tmp_path, sandbox_home):
     manifest = apply_archive(plan, runner=_FakeRunner(returncode=0))
     # Assert
     assert manifest.source == str(source)
+
+
+def test_apply_archive_records_that_the_check_was_a_tally(tmp_path, sandbox_home):
+    """The manifest must say WHAT the check could see, not only that it passed.
+
+    `verified: "verified"` is a claim about the outcome. This field is the
+    claim about the INSTRUMENT, and the two are not the same: the tally
+    cannot see a destination file with the right name, the right length and
+    the wrong bytes -- which `test__content_verify` asserts in CI -- and
+    `apply_archive` deletes the source on that verdict.
+    """
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(plan, runner=_FakeRunner(returncode=0))
+    # Assert
+    assert manifest.verification_method == "tally"
+
+
+def test_the_manifest_file_on_disk_carries_the_method(tmp_path, sandbox_home):
+    """It has to be in the ARTEFACT, not only on the returned object.
+
+    A consumer reads the JSON; nobody re-runs the archive to ask Python.
+    """
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    apply_archive(plan, runner=_FakeRunner(returncode=0))
+    # Assert
+    assert json.loads(plan.manifest_path.read_text())["verification_method"] == "tally"
+
+
+def test_an_old_manifest_reads_back_as_unknown_not_tally():
+    """Do not back-fill a claim an old artefact never made.
+
+    Manifests written before this field existed were also tally-verified --
+    but that is an inference about them, not something they recorded, and
+    stamping it on would manufacture evidence. An old manifest genuinely does
+    not say.
+    """
+    # Arrange
+    old = {
+        "source": "/x",
+        "destination": "nas",
+        "remote_path": "/y",
+        "size_bytes": 1,
+        "file_count": 1,
+        "checksummed": True,
+        "archived_at": 0.0,
+        "verified": "verified",
+        "verification_evidence": "…",
+    }
+    # Act
+    manifest = ArchiveManifest.from_dict(old)
+    # Assert
+    assert manifest.verification_method == "unknown"
 
 
 def test_apply_archive_creates_the_remote_parent_directory_first(tmp_path, sandbox_home):
