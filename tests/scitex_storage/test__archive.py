@@ -124,6 +124,63 @@ class _FakeRunner:
         return _FakeCompletedProcess(self.returncode, self.stdout, self.stderr)
 
 
+def _looks_like_digest(cmd) -> bool:
+    """True when ``cmd`` is apply_archive's CONTENT read-back probe."""
+    joined = " ".join(cmd) if isinstance(cmd, (list, tuple)) else str(cmd)
+    return "sha256sum" in joined
+
+
+def _simulated_destination_digest(calls, corrupt: bool = False) -> str:
+    """Answer the digest probe as a destination that received EVERYTHING.
+
+    Built from the RECORDED RSYNC ARGV for the same reason the tally double
+    is: the rsync argv carries the source directly, while inverting the
+    remote path only holds for the default convention.
+
+    ``corrupt=True`` returns the same PATHS with a wrong hash for one entry --
+    the same-length/wrong-content case, which is the only thing this gate
+    exists to catch and therefore the only failure worth simulating here.
+    """
+    from scitex_storage._content_verify import digest_tree
+
+    for cmd in reversed(calls):
+        if cmd and str(cmd[0]).rsplit("/", 1)[-1] == "rsync" and len(cmd) >= 2:
+            manifest = digest_tree(str(cmd[-2]).rstrip("/"))
+            lines = []
+            for i, (rel, digest) in enumerate(sorted(manifest.digests.items())):
+                if corrupt and i == 0:
+                    digest = "0" * 64
+                lines.append(f"{digest} ./{rel}")
+            return "\n".join(lines) + "\n" if lines else ""
+    return ""
+
+
+class _FaithfulDigestRunner(_FakeRunner):
+    """A destination that received the bytes faithfully, hashes and all."""
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        if _looks_like_digest(cmd):
+            return _FakeCompletedProcess(0, _simulated_destination_digest(self.calls), "")
+        if _looks_like_tally(cmd):
+            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
+        return _FakeCompletedProcess(0, "", "")
+
+
+class _CorruptDigestRunner(_FakeRunner):
+    """Right count, right bytes, WRONG CONTENT -- the case the tally cannot see."""
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        if _looks_like_digest(cmd):
+            return _FakeCompletedProcess(
+                0, _simulated_destination_digest(self.calls, corrupt=True), ""
+            )
+        if _looks_like_tally(cmd):
+            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
+        return _FakeCompletedProcess(0, "", "")
+
+
 class _LyingTallyRunner:
     """Succeeds at mkdir and rsync, then reports a destination tally of
     ``tally`` -- used to prove the read-back actually REFUSES, rather than
@@ -480,6 +537,106 @@ def test_an_old_manifest_reads_back_as_unknown_not_tally():
     manifest = ArchiveManifest.from_dict(old)
     # Assert
     assert manifest.verification_method == "unknown"
+
+
+def test_the_content_gate_is_off_by_default(tmp_path, sandbox_home):
+    """Opt-in, because rsync --checksum already reads every byte on both sides.
+
+    Hashing both trees again by default would roughly double the cost of a
+    multi-terabyte archive to close a narrower residual window, and a default
+    nobody can afford to leave on gets turned off.
+    """
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(plan, runner=_FaithfulDigestRunner(returncode=0))
+    # Assert
+    assert manifest.verification_method == "tally"
+
+
+def test_the_content_gate_records_itself_when_asked_for(tmp_path, sandbox_home):
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(
+        plan, verify_content_too=True, runner=_FaithfulDigestRunner(returncode=0)
+    )
+    # Assert
+    assert manifest.verification_method == "content"
+
+
+def test_a_faithful_destination_still_passes_the_content_gate(tmp_path, sandbox_home):
+    """POSITIVE CONTROL: a gate that never passes is a gate nobody can use."""
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    apply_archive(
+        plan, verify_content_too=True, runner=_FaithfulDigestRunner(returncode=0)
+    )
+    # Assert
+    assert not source.exists()
+
+
+@pytest.fixture
+def refused_on_content(tmp_path, sandbox_home):
+    """Archive against a destination whose CONTENT is wrong; capture the refusal.
+
+    A fixture rather than repeated setup, so each test below carries exactly
+    one assertion and a failure names the behaviour that broke.
+    """
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    raised = None
+    try:
+        apply_archive(
+            plan, verify_content_too=True, runner=_CorruptDigestRunner(returncode=0)
+        )
+    except ArchiveNotVerifiedError as exc:
+        raised = exc
+    return source, raised
+
+
+def test_wrong_content_at_the_destination_refuses_the_delete(refused_on_content):
+    """The whole reason the gate exists: the tally passes, this does not."""
+    # Arrange
+    _source, raised = refused_on_content
+    # Act
+    refused = isinstance(raised, ArchiveNotVerifiedError)
+    # Assert
+    assert refused is True
+
+
+def test_wrong_content_leaves_the_source_intact(refused_on_content):
+    # Arrange
+    source, _raised = refused_on_content
+    # Act
+    survived = source.exists()
+    # Assert
+    assert survived is True
+
+
+def test_the_same_destination_passes_the_tally_it_fails_on_content(tmp_path, sandbox_home):
+    """DISCRIMINATING CONTROL — proves the gate adds something.
+
+    Same runner, same destination, only the flag differs. If this ever fails
+    because the tally ALSO catches it, the corruption being simulated is not
+    this gate's class and the test above has stopped being evidence.
+    """
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(plan, runner=_CorruptDigestRunner(returncode=0))
+    # Assert
+    assert manifest.verified == "verified"
 
 
 def test_apply_archive_creates_the_remote_parent_directory_first(tmp_path, sandbox_home):
