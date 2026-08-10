@@ -71,6 +71,9 @@ from pathlib import Path
 
 from scitex_ssh import SSHResult, exec_remote, sync_dir
 
+from ._content_verify import digest_tree, verify_content
+from ._remote_digest import REMOTE_DIGEST_CMD, parse_remote_manifest
+
 from ._archive_transport import (
     DEFAULT_REMOTE_ROOT,
     DESTINATIONS,
@@ -226,6 +229,7 @@ def apply_archive(
     *,
     checksum: bool = True,
     exclude: tuple[str, ...] = (),
+    verify_content_too: bool = False,
     runner=None,
 ) -> ArchiveManifest:
     """Execute an archive plan: push, READ THE DESTINATION BACK, write the
@@ -357,6 +361,51 @@ def apply_archive(
         expected_bytes=expected.size_bytes or 0,
         observed=observed,
     )
+    method = "tally"
+
+    # OPTIONAL SECOND GATE: compare CONTENT, not a tally of it.
+    #
+    # Only reached when the tally already passed. Running it after a MISMATCH
+    # would spend hours hashing a destination we already know is wrong, and
+    # running it after a COULD_NOT_LOOK would be hashing something we could
+    # not even count.
+    #
+    # WHY THIS IS OPT-IN AND NOT THE DEFAULT, stated because "the strongest
+    # gate before an irreversible delete" is the obvious-sounding argument for
+    # the opposite and I made it before measuring:
+    #
+    # `checksum=True` (the default) already passes rsync `--checksum`, which
+    # reads every byte on BOTH SIDES. Transfer-time corruption is therefore
+    # already covered. Hashing both trees again would roughly DOUBLE the cost
+    # of a multi-terabyte archive to close a NARROWER residual window:
+    #
+    #   * bit rot at the destination AFTER rsync finished, before the delete;
+    #   * a destination mutated by something other than this transfer;
+    #   * a destination left half-populated by an earlier failed run whose
+    #     files happen to agree on count and size;
+    #   * any call made with checksum=False, where the in-flight class returns.
+    #
+    # A default nobody can afford to leave on gets turned off, and then the
+    # honest `tally` stamp becomes the normal case anyway. What makes opt-in
+    # acceptable rather than a hiding place is that the manifest records which
+    # gate actually ran -- see ArchiveManifest.verification_method.
+    if verify_content_too and verdict.may_remove_source:
+        digest_probe = exec_remote(
+            plan.destination,
+            REMOTE_DIGEST_CMD.format(path=_quote_remote_path(plan.remote_path)),
+            runner=runner,
+        )
+        content_verdict = verify_content(
+            digest_tree(str(plan.source)),
+            parse_remote_manifest(
+                digest_probe.stdout, probe_succeeded=digest_probe.success
+            ),
+        )
+        # The STRICTER verdict wins, and it replaces rather than supplements:
+        # a caller reading `verified` must see the answer from the gate that
+        # actually decided, not from the weaker one that happened to run first.
+        verdict = content_verdict
+        method = "content"
 
     manifest = ArchiveManifest(
         source=str(plan.source),
@@ -374,7 +423,7 @@ def apply_archive(
         # it sets "content" -- and a reviewer who forgets will leave "tally"
         # on a stronger check rather than the reverse, which is the safe
         # direction for a field that gates an irreversible delete.
-        verification_method="tally",
+        verification_method=method,
     )
     plan.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     plan.manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))
