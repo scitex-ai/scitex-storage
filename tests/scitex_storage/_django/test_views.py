@@ -32,6 +32,18 @@ def _index_template_context(tmp_path):
     that a constant equals itself while the view was free to never pass it.
     """
     from django.test import Client
+    from django.test.utils import setup_test_environment
+
+    # Django only records a response's context when the test environment is
+    # set up -- that is what connects the `template_rendered` signal. Without
+    # it `response.context` is None, which fails as an unsubscriptable
+    # NoneType rather than as "the pane declaration is missing", so the guard
+    # would report the wrong defect. Re-entry raises; this is a plain pytest
+    # module, not a TestCase, so nothing else has called it.
+    try:
+        setup_test_environment()
+    except RuntimeError:
+        pass
 
     response = Client().get("/", {"path": str(tmp_path)})
     return response.context
