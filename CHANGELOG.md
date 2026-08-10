@@ -7,7 +7,47 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-11
+
+Two new capabilities and one correction, all circling the same question: **what
+does a check actually let you conclude?**
+
 ### Added
+
+- **`scitex-storage verify-content SOURCE DESTINATION` — compare by sha256 and
+  say whether the source may be deleted.** The existing read-back
+  (`verify_transfer`) compares an entry COUNT and a byte TOTAL. Both are
+  PROXIES, and the module says so about itself — bytes exist to catch *"the
+  right number of files, all truncated"*. Count and size cannot see a file of
+  exactly the right length whose contents are wrong, a write truncated and then
+  padded back to length, bit rot at the destination, or two files whose
+  contents were swapped. Every one of those passes the tally and then licenses
+  deleting the only remaining copy.
+  - **Tally gates progress; content gates deletion.** Both, not either. Hashing
+    9.1 TB twice is absurd as a routine progress check, and skipping it before
+    an irreversible delete is how data goes missing. Both return the same
+    `TransferVerdict`, so `may_remove_source` stays the single decision point
+    and no caller learns a new type.
+  - **The claim is proved by a test, not by this paragraph.** Two
+    deliberately-split tests assert that on a same-length/wrong-bytes pair the
+    tally returns `may_remove_source=True` and the content check returns
+    `False`. If the first ever fails because the tally also catches it, the
+    second has stopped being evidence and the suite says so.
+  - Exit codes `0` / `14` / `15`. `1` and `2` stay reserved because they
+    already mean generic-failure and usage-error everywhere, so a missing verb
+    would impersonate a verdict — which happened for real on 2026-07-28.
+    `find-recipe` owns 10/11, `survey` owns 12/13; a test asserts no overlap.
+  - **14 and 15 are both refusals and are NOT interchangeable.** 14 is *"I
+    looked and it is wrong"*; 15 is *"I could not look"*. Collapsing them would
+    report a permission error — a fixable problem — as a corrupt copy.
+  - Symlinks digest their TARGET STRING. Following would double-count a file
+    already in the tree, could escape it entirely, and would turn a broken
+    symlink — legitimate content to migrate — into a read error poisoning the
+    verdict for the whole run.
+  - The denominator prints on a PASS, not only on a failure: `"verified"` alone
+    cannot tell a reader whether 200,000 entries were compared or none.
+  - It NEVER deletes anything. Deletion is a separate run, started by a human
+    who has read the numbers.
 
 - **`scitex-storage alarm` — a storage alarm that PUSHES, because a dashboard
   is for a reader who is already looking.** On 2026-08-09 `scitex-compute-04`
@@ -48,6 +88,53 @@ versions follow [Semantic Versioning](https://semver.org/).
     gathers … only unread"), never a capacity claim, because *"we cannot see
     it"* and *"it is full"* call for different actions from different people.
   - Found in review by `scitex-db`, who also reported the original incident.
+
+### Changed
+
+- **`ArchiveManifest` now records WHICH check licensed the delete, as data.**
+  `apply_archive` wrote `verified: "verified"` and then called
+  `shutil.rmtree(plan.source)`. That says a check passed and says NOTHING about
+  what the check could see — and what it could see is the tally, which CI now
+  proves is fooled by same-length wrong-content. The manifest recorded a
+  stronger claim than the code had earned.
+  - New field `verification_method: "tally" | "content" | "unknown"`.
+  - **This is prose-versus-data, and it is the third instance in this repo:** a
+    docstring asserting a verification the body did not perform (fixed
+    2026-07-28 — and the docstring is *why* that gap survived, because the next
+    reader budgets trust against it); a module docstring naming `fclones` while
+    the data correctly excluded it, so a `grep` "confirmed" an already-fixed
+    bug; and this. The fix is always the same — **put the claim in a field a
+    consumer reads, not in a sentence a human might.**
+  - **Old manifests read back as `"unknown"`, not `"tally"`.** They *were*
+    tally-verified, but that is an inference about them rather than something
+    they recorded, and back-filling it would manufacture evidence for a claim
+    the artefact never made.
+  - The CALL SITE sets it, not the dataclass: only the code that ran the check
+    knows which check ran. A future content path that someone forgets to update
+    leaves the manifest UNDER-claiming, which is the safe direction for a field
+    gating an irreversible delete.
+  - Still open: `archive`'s destination is remote and content hashing is local
+    only, so `archive --delete-source` remains tally-gated. Tracked as
+    `storage-archive-deletes-on-a-tally-gated-check-20260811`. Until it closes,
+    a local destination (a USB-attached disk) can be gated on content today
+    with `verify-content`.
+
+### Security
+
+- **`cla.yml` names the one secret instead of `secrets: inherit`, and the job
+  moved off the credential-bearing runner pool.** `issue_comment` and
+  `pull_request_target` are unauthenticated triggers on a public repo, and the
+  org workflow's `runs_on` DEFAULTS to a persistent pool whose `$HOME` holds
+  the live fleet credential — 17 of 17 consumers inherited it silently. This
+  repo now passes `["ubuntu-latest"]`; a hosted VM is destroyed after the run.
+  - The pin also moved (`main@2026-07-23` → `main@2026-08-05`), because both
+    facilities exist only at the newer SHA. **Pinning protects against surprise
+    upstream change and equally withholds upstream fixes** — a cost that comes
+    due silently.
+  - Naming the secret is DEFENCE IN DEPTH, not the closure of a live hole: a
+    secret never named in a step's `env:`/`with:` is not injected into that
+    step, and the third-party action is SHA-pinned. An earlier version of this
+    entry overstated it; the correction is on PR #59.
 
 ## [0.3.1] - 2026-07-29
 
