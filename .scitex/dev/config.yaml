@@ -34,17 +34,3 @@ audit:
         HERE: no further module may be added at this root until that
         refactor lands. If a change needs a new module, it needs the
         refactor first.
-    - rule: PS-224
-      reason: >-
-        CI job `fd-fclones-integration` targets ubuntu-latest, which no
-        registered runner serves. The finding is REAL and is not being
-        dismissed — tracked on card
-        ci-fd-fclones-job-targets-unregistered-runner-20260728. Deferred
-        rather than fixed because the correct remedy is genuinely unknown
-        to me: that job needs the `fd` and `fclones` binaries, which is
-        plausibly why it sits on a hosted runner, so moving it to the
-        registered spartan labels without confirming those binaries exist
-        there would trade a silent-queue risk for a missing-binary
-        failure on every PR. Blocked on scitex-hpc (owns the Spartan
-        runner environment) or scitex-dev (owns the host registry).
-        Remove this entry as soon as that question is answered.
