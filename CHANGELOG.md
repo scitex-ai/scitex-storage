@@ -7,6 +7,379 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-11
+
+Two new capabilities and one correction, all circling the same question: **what
+does a check actually let you conclude?**
+
+### Added
+
+- **`scitex-storage verify-content SOURCE DESTINATION` — compare by sha256 and
+  say whether the source may be deleted.** The existing read-back
+  (`verify_transfer`) compares an entry COUNT and a byte TOTAL. Both are
+  PROXIES, and the module says so about itself — bytes exist to catch *"the
+  right number of files, all truncated"*. Count and size cannot see a file of
+  exactly the right length whose contents are wrong, a write truncated and then
+  padded back to length, bit rot at the destination, or two files whose
+  contents were swapped. Every one of those passes the tally and then licenses
+  deleting the only remaining copy.
+  - **Tally gates progress; content gates deletion.** Both, not either. Hashing
+    9.1 TB twice is absurd as a routine progress check, and skipping it before
+    an irreversible delete is how data goes missing. Both return the same
+    `TransferVerdict`, so `may_remove_source` stays the single decision point
+    and no caller learns a new type.
+  - **The claim is proved by a test, not by this paragraph.** Two
+    deliberately-split tests assert that on a same-length/wrong-bytes pair the
+    tally returns `may_remove_source=True` and the content check returns
+    `False`. If the first ever fails because the tally also catches it, the
+    second has stopped being evidence and the suite says so.
+  - Exit codes `0` / `14` / `15`. `1` and `2` stay reserved because they
+    already mean generic-failure and usage-error everywhere, so a missing verb
+    would impersonate a verdict — which happened for real on 2026-07-28.
+    `find-recipe` owns 10/11, `survey` owns 12/13; a test asserts no overlap.
+  - **14 and 15 are both refusals and are NOT interchangeable.** 14 is *"I
+    looked and it is wrong"*; 15 is *"I could not look"*. Collapsing them would
+    report a permission error — a fixable problem — as a corrupt copy.
+  - Symlinks digest their TARGET STRING. Following would double-count a file
+    already in the tree, could escape it entirely, and would turn a broken
+    symlink — legitimate content to migrate — into a read error poisoning the
+    verdict for the whole run.
+  - The denominator prints on a PASS, not only on a failure: `"verified"` alone
+    cannot tell a reader whether 200,000 entries were compared or none.
+  - It NEVER deletes anything. Deletion is a separate run, started by a human
+    who has read the numbers.
+
+- **`scitex-storage alarm` — a storage alarm that PUSHES, because a dashboard
+  is for a reader who is already looking.** On 2026-08-09 `scitex-compute-04`
+  reached **364 MB free on a 393 GB volume** and nothing reported it. It
+  surfaced only because a routine `head` inside an unrelated five-minute cron
+  on another agent happened to write and died with `ENOSPC` — the detection
+  mechanism was *"an agent happens to run a command that writes"*. The next
+  occurrence corrupts a SQLite mid-transaction rather than killing a text
+  filter, and that host carries the fleet's agent state DB.
+  - **The measurement layer already existed and needed nothing.** `_observe`
+    gathers the fleet, `HostStorage` carries space and inode percentages with
+    a three-state verdict, `FLAG_PERCENT` already decides what renders red.
+    The gap was that `write_fleet_snapshot` renders HTML and stops. So this is
+    one layer — decide, render a sentence, deliver it — not a new monitor.
+  - **`FLAG_PERCENT` is reused, never redefined.** Two thresholds for one
+    concept drift apart, and then the dashboard and the alarm disagree about
+    whether the fleet is healthy.
+  - **Absolute floors (20 GiB warn / 5 GiB critical) sit alongside the
+    percentage**, because a percentage cannot answer *how long have I got*.
+    Free space on that volume fell ~2 GB per five minutes; a floor stated in
+    bytes is directly comparable against an observed fill rate.
+  - **Inodes get both threshold families.** The original request was
+    bytes-only, and a byte-only alarm is blind to the exhaustion that fails
+    writes while `df` still shows free space.
+  - **`UNKNOWN` is a level, not a silence.** An unmeasurable filesystem *and*
+    an empty gather both report `UNKNOWN`, never `OK`, counted apart from
+    healthy rows — but neither pages on its own, because alarming on a
+    transient unreachable host trains the reader to ignore the channel, which
+    is the original defect arriving later wearing a different hat.
+  - **Dispatch is not delivery.** `PushResult.delivered` is three-valued, and
+    the default operator-DM rail returns *unknown* on success rather than
+    *true*: the store hands back a stored row, which proves the message was
+    written, not read.
+  - **Sustained blindness is announced once.** `ok → unknown → unknown → …`
+    would otherwise be silent forever, and a filesystem nobody can read is not
+    healthy — it is unmonitored, which is this feature's own defect in a
+    narrower form. It gets its own sentence ("no reading from X for N
+    gathers … only unread"), never a capacity claim, because *"we cannot see
+    it"* and *"it is full"* call for different actions from different people.
+  - Found in review by `scitex-db`, who also reported the original incident.
+
+### Changed
+
+- **`ArchiveManifest` now records WHICH check licensed the delete, as data.**
+  `apply_archive` wrote `verified: "verified"` and then called
+  `shutil.rmtree(plan.source)`. That says a check passed and says NOTHING about
+  what the check could see — and what it could see is the tally, which CI now
+  proves is fooled by same-length wrong-content. The manifest recorded a
+  stronger claim than the code had earned.
+  - New field `verification_method: "tally" | "content" | "unknown"`.
+  - **This is prose-versus-data, and it is the third instance in this repo:** a
+    docstring asserting a verification the body did not perform (fixed
+    2026-07-28 — and the docstring is *why* that gap survived, because the next
+    reader budgets trust against it); a module docstring naming `fclones` while
+    the data correctly excluded it, so a `grep` "confirmed" an already-fixed
+    bug; and this. The fix is always the same — **put the claim in a field a
+    consumer reads, not in a sentence a human might.**
+  - **Old manifests read back as `"unknown"`, not `"tally"`.** They *were*
+    tally-verified, but that is an inference about them rather than something
+    they recorded, and back-filling it would manufacture evidence for a claim
+    the artefact never made.
+  - The CALL SITE sets it, not the dataclass: only the code that ran the check
+    knows which check ran. A future content path that someone forgets to update
+    leaves the manifest UNDER-claiming, which is the safe direction for a field
+    gating an irreversible delete.
+  - Still open: `archive`'s destination is remote and content hashing is local
+    only, so `archive --delete-source` remains tally-gated. Tracked as
+    `storage-archive-deletes-on-a-tally-gated-check-20260811`. Until it closes,
+    a local destination (a USB-attached disk) can be gated on content today
+    with `verify-content`.
+
+### Security
+
+- **`cla.yml` names the one secret instead of `secrets: inherit`, and the job
+  moved off the credential-bearing runner pool.** `issue_comment` and
+  `pull_request_target` are unauthenticated triggers on a public repo, and the
+  org workflow's `runs_on` DEFAULTS to a persistent pool whose `$HOME` holds
+  the live fleet credential — 17 of 17 consumers inherited it silently. This
+  repo now passes `["ubuntu-latest"]`; a hosted VM is destroyed after the run.
+  - The pin also moved (`main@2026-07-23` → `main@2026-08-05`), because both
+    facilities exist only at the newer SHA. **Pinning protects against surprise
+    upstream change and equally withholds upstream fixes** — a cost that comes
+    due silently.
+  - Naming the secret is DEFENCE IN DEPTH, not the closure of a live hole: a
+    secret never named in a step's `env:`/`with:` is not injected into that
+    step, and the third-party action is SHA-pinned. An earlier version of this
+    entry overstated it; the correction is on PR #59.
+
+## [0.3.1] - 2026-07-29
+
+Three defects that shipped in 0.3.0. Two are the same class — a probe that
+could not see reported a confident answer instead of refusing — and the
+third is its cousin: a declaration that was correct in prose and wrong in
+the data a program actually reads.
+
+### Fixed
+
+- **`fclones` was declared as an apt package, and it is not one.** The
+  system-deps federation is apt-shaped by construction (`SystemDepSpec`
+  carries `package`, `purpose`, `provider`, `apt_repo`, and `apt_repo`
+  means "an extra apt *source* is needed first", not "this does not come
+  from apt"). `fclones` ships via cargo and GitHub releases; Debian and
+  Ubuntu have no such package. The declaration carried a prose caveat
+  saying exactly this, prominently, three times in the module — and when
+  scitex-storage was first installed into a fleet image layer, the
+  aggregator fed `fclones` to `apt-get install` anyway, because **a
+  consumer reads the list, not the prose around it.**
+  - **The blast radius is the instructive part:** apt aborts the *entire*
+    transaction on one unknown name, so biber, chktex, latexmk and every
+    texlive package silently did not install either. The build then failed
+    four lines later on `pdflatex: not found` — an error pointing at a
+    layer nobody had changed. One wrong entry took down twenty right ones
+    and disguised itself as someone else's problem.
+  - The requirement **moves rather than disappears**: `NON_APT_REQUIREMENTS`
+    carries the binary, its purpose and its install method as data.
+    Deleting the declaration outright would have bought a working build by
+    making the aggregate lie by omission — trading a loud failure for a
+    silent gap, which is the worse deal.
+  - A stopgap, not a design. Until the spec can express a channel, every
+    leaf with a non-apt tool faces the same forced choice between
+    detonating an apt transaction and misdeclaring its dependencies.
+
+- **`survey` called a tree MOVABLE when it read ZERO files — the wrong
+  answer in the direction that loses data.** The coverage signal returned
+  `movable` whenever the walk completed without error, on the evidence
+  "the walk read every entry it encountered (0 files)". A count of zero
+  over an empty denominator is not a clean result; it is no result wearing
+  a clean result's clothes. **An unmounted mount point is a readable,
+  error-free, empty directory** — so is a tree whose contents live on a NAS
+  that is not currently attached. Both produce exactly that state, and the
+  classifier said "safe to move" *precisely when the data was invisible
+  rather than absent*. For a package that manages three NAS units and whose
+  consumer is a cleanup sweep, this is the one wrong answer that costs
+  something irreversible. Now returns `could-not-look` with evidence naming
+  the ambiguity and the next step (confirm the filesystem is mounted),
+  because a refusal that does not say what to check is a dead end.
+  Verified by mutation: removing the guard makes the test fail with
+  `assert 'movable' == 'could-not-look'`.
+
+- **One stale sibling dependency disabled every CLI verb.** Measured in
+  production by scitex-hpc inside the real solver image on a Spartan
+  compute node: the image baked `scitex_ssh` 1.0.1 while this package
+  requires `>=1.2.0`, so `sync_dir` was missing. `_cli/__init__.py`
+  imported the archive verb eagerly, which pulled `_archive`, which
+  imported `sync_dir` at module scope — and `survey` and `find-recipe`,
+  **neither of which uses SSH**, died before argparse ever saw the
+  subcommand. Verbs now load on demand from a registry.
+  - It exited **1**. This package's exit codes exist so a broken verb
+    cannot impersonate an answer (`find-recipe` owns 10/11, `survey` owns
+    12/13, disjoint), and the failure arrived from *upstream* of the code
+    that owns that contract, falling through to the shell's generic 1. A
+    verb that cannot import now exits **20** — reserved for VERB
+    UNAVAILABLE, outside every verdict range, because "the tool is broken"
+    and "the answer is unknown" are different facts.
+  - `--help` and completion answer from the registry **without importing
+    anything**, so the CLI can still say what exists at exactly the moment
+    its dependencies are broken.
+
+- **The `find-recipe` help examples shipped un-runnable in 0.3.0** —
+  `find-recipe/path/to/...` and `find-recipeENV`, both missing a space, so
+  copy-pasting either fails. The `regenerable` → `find-recipe` rename was
+  applied as a substitution that consumed the trailing space. The rename
+  *was* verified — against the JSON keys and the exit codes, the half a
+  machine reads. Nothing checked the half a human copies, which is where a
+  new consumer starts. Now pinned by parsing the rendered help the way a
+  shell would.
+
+### Added
+
+- **`__pycache__` holding at least one `.pyc` is a `cache`.** Replacing
+  the consumer's directory-NAME list with structural detection was right,
+  but it lost this case — a real regression they reported rather than
+  worked around. Admitted on a distinction that keeps it from being a
+  slippery slope: **a name a tool MANDATES is not a name a human CHOSE.**
+  `venv`/`mamba`/`pylibs`/`rsandbox` are arbitrary labels for one kind of
+  tree, which is exactly why a name list matched almost nothing; CPython
+  writes `__pycache__` by language specification, so it is a protocol
+  constant that happens to be spelled as a directory. The name alone is
+  still never enough — content must corroborate, so a directory a human
+  named `__pycache__` and filled with real data is not cleared.
+- **A test pinning the `.cache` / `.pip` / `.hf` carve-out as a decision**,
+  not an oversight. Measured 2026-07-28: `~/.cache/uv` writes
+  `CACHEDIR.TAG` and is already caught; `~/.cache/pip` and
+  `~/.cache/huggingface` do not. Those paths are redirectable via
+  `XDG_CACHE_HOME` / `PIP_CACHE_DIR` / `HF_HOME`, so the name is a guess
+  about a directory rather than a fact about it. They stay
+  `not-regenerable` and are kept — under-reclaiming knowingly, because a
+  rule that cannot be fooled is worth more than one that catches more.
+  The sample was taken in a container rather than on the Spartan capsule
+  trees that decide the payoff, so the `CACHEDIR.TAG` findings are treated
+  as local-only; only the `__pycache__` rule rests on a specification that
+  generalises.
+
+## [0.3.0] - 2026-07-28
+
+### The movability classifier — Layer 1, complete
+
+Eight mechanical signals, each encoding a specific way the 2026-07-22
+ywata-note-win incident's reasoning went wrong. That night five reclaim
+candidates were proposed and all five were withdrawn under measurement,
+while the real 681 GB sat in a directory nobody could read. These are
+those corrections as code rather than as a checklist someone remembers.
+
+- **S1 coldness** pairs `mtime` **with** `atime`. A READER LEAVES NO
+  MTIME: a corpus read daily is byte-identical to an abandoned one under
+  an mtime-only probe. A 187 GiB proposal was withdrawn when atime showed
+  the tree had been read 11 hours earlier.
+- **S2 open-handle check** (`/proc/<pid>/fd` **and** `maps`, so an mmap'd
+  file counts as a holder) — the only signal that answers "is anything
+  standing on this RIGHT NOW". It **requires a positive control** and
+  returns `could-not-look` without one: an empty `/proc` scan and a blind
+  one are indistinguishable, and the blind one produces the answer you
+  were hoping for. Its verdict states its own coverage limit — other
+  users, other namespaces and remote clients are not enumerated.
+- **S3 destination reality** — the path must appear in `/proc/mounts` and
+  its fsid must differ from the source's. `/mnt/nas2` was a bare
+  directory on the dying root filesystem; writing "to the NAS" would have
+  poured data onto the disk being relieved while every signal reported
+  success.
+- **S4 two-sided free-space preflight** — an estimate with no destination
+  probe passes on a full disk; a destination probe with no estimate
+  cannot say whether what is free is *enough*.
+- **S5 accounting audit** — `sum(measured)` vs `df`. IF MEASURED <<
+  REPORTED, SUSPECT SCOPE BEFORE PRECISION. It **refuses** rather than
+  warns while a residual is unexplained, because the failure being
+  prevented is continuing to reason confidently inside a scope that does
+  not contain the answer, and a warning is what a confident reasoner
+  walks past. An allowance requires a *written* reason.
+- **S6 timestamp clustering** — N items sharing a timestamp are ONE
+  event, not N facts. 37 overlays "written 0.3d ago" was a single hook
+  push.
+- **S7 duplicate detection** as a signal — the only class that frees
+  space at zero risk and zero loss. It never returns `not-movable`: a
+  duplicate is not a holder, and treating one as an obstacle would block
+  the safest reclaim there is.
+- **S8 permission-stub detection** — a `du` result equal to a
+  directory's own size with no readable children is a *could-not-look*,
+  not an empty directory. That is exactly how the 681 GB hid.
+
+`combine()` is deliberately **not a vote**: any `could-not-look` poisons
+the verdict, and one "something is standing on this" outranks any number
+of agreements. A `Signal` refuses to exist without evidence.
+
+### Regenerability — a separate axis from movability
+
+"Can this move?" and "does deleting this lose anything?" are different
+questions. `_regenerable` answers the second, **structurally**: detection
+keys on `pyvenv.cfg`, `conda-meta`, `renv/library`, `site-packages` and
+top-level `*.dist-info/` — never on a directory's name. Eight distinct
+environment directory names were observed in one real project
+(`rsandbox`, `mamba`, `pylibs`, `myenv`, `mmroot`, `mm_root`, `venv`,
+`renv`), and one directory named `renv` turned out to be a full conda
+prefix. A name-based rule under-matches and leaves the quota unmoved,
+which is the failure that *looks* like success.
+
+- A tree counts as regenerable **only if the recipe that rebuilds it
+  still exists**. A `site-packages` with no spec above it is the only
+  copy, not a cache. The validator refuses to construct that verdict
+  without naming the spec file.
+- **`cache`** is a third class, added after real capsule trees showed the
+  largest consumers were neither environments nor non-environments. A
+  CACHE IS REGENERABLE WITH NO SPEC, BECAUSE THE RECIPE IS THE NETWORK.
+  Granted only by a marker the *writing tool* chose — `CACHEDIR.TAG`, or
+  a conda root holding only `pkgs/` — never by absence of evidence.
+- `extra_spec_paths` lets a caller **name** a recipe an ancestor walk
+  cannot reach (a sibling corpus). Only *discovery* is relaxed: each
+  named path is verified on disk, a directory does not count, the first
+  *existing* candidate wins, a discovered recipe still beats a supplied
+  one, and the verdict records which it was.
+- `could-not-look` now carries a `reason` — `not-a-directory` / `absent`
+  / `unreadable`. A file is routine and skippable; an ABSENT path means
+  the caller's inventory is stale. A deletion sweep must treat those
+  oppositely.
+
+### `find-recipe` — the detector, reachable
+
+New `scitex-storage find-recipe PATH [--stop-at DIR] [--spec PATH ...]
+[--json]`. A Python API is not a capability for a bash caller in another
+container; this verb is the contract across that boundary.
+
+Fixed JSON shape (every key present, `null` where inapplicable), and
+**declared exit codes that a missing binary cannot forge**: `0`
+regenerable/cache, `10` not-regenerable, `11` could-not-look. `1` and `2`
+already mean generic-failure and usage-error everywhere, so spending them
+on domain meanings lets "not installed" impersonate a verdict — measured
+the day this shipped. The lazy reading (`if cmd; then rm; fi`) is also
+the safe one, since a cache is disposable by definition.
+
+The verb never deletes anything. Whether something *may* be deleted is a
+policy decision for the caller, who knows what the record consists of.
+
+### Safer moves
+
+- **`archive` reads the destination back before removing the original.**
+  Its docstring had promised "push, verify, write manifest, THEN remove
+  source" while the body verified nothing — rsync's exit code says the
+  transfer it attempted succeeded, not that the destination holds what
+  the source held. A mismatch *or* an unanswerable probe raises
+  `ArchiveNotVerifiedError`, leaves the source intact, and records the
+  verdict in the manifest so a refusal is auditable.
+  The baseline is measured with the **same semantics on both sides** — a
+  count drawn from the inode model excludes symlinks-to-directories that
+  `rsync -a` writes, which produced a 20,492-member false alarm once.
+  A *surplus* is disqualifying too: looking better than expected means
+  the baseline is wrong.
+- **`archive` and `reclaim` now measure the destination before moving
+  data.** A real `df -Pk` probe over ssh (POSIX-portable, because the NAS
+  units run BusyBox), returning `None` rather than `0` when unparseable —
+  zero is a measurement meaning "full". "The NAS is roomy" is a
+  capability claim, and a capability claim is a measurement.
+- **`sweep` refuses rather than filling the disk it was called to
+  relieve**, and its help now says so: it writes the tar beside the
+  source, so it needs free space to free space, and is unusable on a
+  filesystem already out of room — which is exactly when someone reaches
+  for a cleanup tool. The help names what to use instead.
+
+### Fleet observation
+
+- Multi-host `observe` via scitex-dev's host registry (no second host
+  list), with a `redundancy` model that ships **no default policy** — the
+  caller supplies the classes and RPO/RTO, and `assess_all` raises rather
+  than inventing a standard and then reporting compliance against it.
+- Live-run fixes the unit tests could not catch, because both were
+  written from the same GNU output the code assumed: macOS `df -Pi`
+  emits nine columns against GNU's six (every Mac filesystem reported
+  "inodes unavailable"), and `df` exits non-zero when *any one* mount is
+  unreadable, so a single stale share made two whole hosts report
+  could-not-look. Partial success is success.
+- The GUI's bare-Django fallback is loud instead of silent.
+
+## [Unreleased]
+
 - New `scitex-storage reclaim PATH...` / `reclaim-restore RUN_ID` — move a
   path **aside into a reversible archive instead of deleting it**. This is
   the operator's archive-instead-of-delete rule as a mechanism: because a

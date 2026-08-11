@@ -5,6 +5,7 @@ after upgrading scitex-dev to refresh any pin in [dev].
 """
 
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -21,6 +22,29 @@ def test_audit_all_for_package_reports_clean_for_scitex_storage():
     from scitex_dev.testing import audit_all_for_package
 
     # Act
-    result = audit_all_for_package("scitex-storage")
+    # PASS `path`. Without it, `audit-all` has no argument saying WHICH
+    # tree was meant, so it falls back to resolving by cwd or an import
+    # location — and then grades source that is NOT the commit under test
+    # while reporting a confident pass/fail. A GATE THAT GRADES THE WRONG
+    # TREE IS WORSE THAN NO GATE.
+    #
+    # This is not hypothetical: on 2026-07-28 a run of this very test
+    # failed on a CLI-naming rule that had ALREADY been fixed in the
+    # worktree, because cwd was the parent checkout and the audit read
+    # that tree's dictionary instead. The verdict was about a different
+    # commit and looked exactly like a real violation.
+    #
+    # Anchored on __file__ because the test file is BY CONSTRUCTION inside
+    # the checkout pytest is running against — the one thing in scope that
+    # cannot point at somebody else's tree.
+    # parents[2], NOT parents[1]: this file is tests/develop/test_audit.py,
+    # so parents[1] is `tests/` and the audit then grades a subdirectory as
+    # if it were the package. The generator's docstring example assumes
+    # tests/test_audit.py — one level shallower. Verified by reading the
+    # `auditing <path>` line the auditor prints rather than by counting
+    # directories in my head, which is how I got it wrong the first time.
+    result = audit_all_for_package(
+        "scitex-storage", path=Path(__file__).resolve().parents[2]
+    )
     # Assert
     assert result is None or result == 0 or result is True

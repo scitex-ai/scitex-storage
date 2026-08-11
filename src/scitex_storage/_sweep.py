@@ -51,6 +51,15 @@ from ._scan import scan
 DEFAULT_MIN_AGE_SECONDS = 24 * 60 * 60  # 24h
 
 
+class InsufficientSpaceError(RuntimeError):
+    """Raised when the target filesystem cannot hold the tar being built.
+
+    Its own error class rather than a bare ``RuntimeError`` so a caller can
+    distinguish "not enough room" -- recoverable, and the operator can free
+    space and retry -- from a genuine failure mid-write.
+    """
+
+
 @dataclass
 class SweepCandidate:
     """One immediate child of the scanned directory that meets the threshold."""
@@ -60,6 +69,88 @@ class SweepCandidate:
     file_count: int  # at plan time
     size: int
     newest_mtime: float
+
+
+#: Fraction of the artifact size that must ALSO be free after writing it.
+#: A tar built to the exact byte leaves a filesystem at 0 bytes free, which
+#: breaks every other writer on it -- including, on this fleet, the SQLite
+#: card board that every agent writes to. Headroom is not politeness.
+SPACE_MARGIN = 0.05
+
+
+@dataclass(frozen=True)
+class SpaceVerdict:
+    """Whether an artifact of ``needed`` bytes may be written. Three-state.
+
+    ``ok is None`` means the question could not be ANSWERED (the
+    destination could not be stat'd) -- distinct from ``ok is False``
+    ("answered: no room"). Collapsing the two is how a cleanup tool
+    proceeds on a filesystem it never actually measured.
+    """
+
+    ok: bool | None
+    needed: int | None
+    available: int | None
+    detail: str
+
+
+def check_space(needed: int | None, available: int | None) -> SpaceVerdict:
+    """Compare an artifact estimate against real free space on the target.
+
+    Both halves are required and they fail differently:
+
+    * an estimate with NO destination probe passes on a full disk -- the
+      exact defect that let ``sweep`` write its tar beside the source and
+      threaten to fill the very filesystem it was invoked to relieve;
+    * a destination probe with NO estimate cannot say whether what is
+      free is *enough*.
+
+    So a one-sided check is theatre. ``None`` on either side yields
+    ``ok=None`` -- unknown, never an optimistic pass.
+    """
+    if needed is None or available is None:
+        missing = "artifact size" if needed is None else "destination free space"
+        return SpaceVerdict(
+            ok=None,
+            needed=needed,
+            available=available,
+            detail=f"could not determine {missing} -- refusing to guess",
+        )
+    required = int(needed * (1.0 + SPACE_MARGIN))
+    if available < required:
+        short = required - available
+        return SpaceVerdict(
+            ok=False,
+            needed=required,
+            available=available,
+            detail=(
+                f"destination is short by {short} bytes: needs {required} "
+                f"(artifact {needed} + {int(SPACE_MARGIN * 100)}% headroom), "
+                f"has {available}"
+            ),
+        )
+    return SpaceVerdict(
+        ok=True,
+        needed=required,
+        available=available,
+        detail=f"destination has {available} bytes, needs {required}",
+    )
+
+
+def free_bytes(path: str | Path) -> int | None:
+    """Bytes available to an unprivileged writer at ``path``, or ``None``.
+
+    Uses ``f_bavail`` (what a normal user may actually use), not
+    ``f_bfree`` (which counts root-reserved blocks a sweep cannot have).
+    Returns ``None`` rather than raising or guessing when the path cannot
+    be stat'd -- that is a could-not-look, and :func:`check_space` turns
+    it into an unknown rather than a pass.
+    """
+    try:
+        st = os.statvfs(os.fspath(path))
+    except OSError:
+        return None
+    return st.f_bavail * st.f_frsize
 
 
 @dataclass
@@ -241,6 +332,23 @@ def _sweep_one(candidate: SweepCandidate) -> SweptCandidate:
     if tar_path.exists():
         raise FileExistsError(
             f"refusing to sweep {candidate.path}: {tar_path} already exists"
+        )
+
+    # PREFLIGHT. The tar is written BESIDE the source, so it consumes the
+    # same filesystem the sweep was invoked to relieve. Without this check
+    # the verb is INVERTED: it does maximum damage exactly where it is most
+    # needed, driving a nearly-full filesystem to zero and failing partway,
+    # having consumed the last free space and accomplished nothing. On this
+    # fleet that filesystem also carries the card board every agent writes.
+    # A clean refusal naming the shortfall beats a half-written tar on a
+    # dead disk.
+    verdict = check_space(candidate.size, free_bytes(candidate.path.parent))
+    if verdict.ok is not True:
+        raise InsufficientSpaceError(
+            f"refusing to sweep {candidate.path}: {verdict.detail}. "
+            f"The tar would be written to {candidate.path.parent}, the same "
+            f"filesystem as the source. Free space there first, or sweep a "
+            f"smaller candidate."
         )
     tmp_path = candidate.path.parent / f".{candidate.name}.tar.sweeping"
     if tmp_path.exists():

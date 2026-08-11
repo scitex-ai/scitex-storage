@@ -29,10 +29,32 @@ from __future__ import annotations
 from django.http import HttpResponse
 from django.shortcuts import render
 
+from scitex_ui.branding import shell_context
+
 from scitex_storage._report import format_count, format_size
 from scitex_storage._scan import MissingSystemDependencyError, scan
 
 from ._favicon import FAVICON_HREF
+
+#: What each of the shell's three panes IS for this app, per scitex-ui's
+#: ``shell_context(panes=...)`` contract. Declared, never inferred — only the
+#: app knows which panes it uses, so the app says.
+#:
+#: All three are ``"unused"``, and that is a measurement rather than a guess:
+#: ``templates/scitex_storage/index.html`` fills ONLY the ``app_content``
+#: block and leaves ``extra_js`` EMPTY, so no pane is populated server-side
+#: and none can be populated after mount either.
+#:
+#: ``files`` is the one worth justifying, because "a storage browser surely
+#: uses the files pane" is the plausible wrong answer. It does not: the
+#: directory listing is a server-rendered ``<table class="stx-storage-table">``
+#: INSIDE ``app_content``. Declaring it ``"client-populated"`` would keep
+#: ~490px reserved for a pane nothing ever fills.
+#:
+#: The other three routes (``fleet`` / ``bubbles`` / ``sunburst``) return
+#: standalone ``HttpResponse`` HTML and never extend the shell, so the
+#: declaration is deliberately scoped to ``index``.
+SHELL_PANES = {"ai": "unused", "files": "unused", "viewer": "unused"}
 
 
 def _app_label(base: str) -> str:
@@ -64,6 +86,9 @@ def index(request):
     """
     raw_path = request.GET.get("path")
     context = {
+        # shell_context first, then the explicit overrides below, so the
+        # pane declaration cannot shadow this view's own app_label/favicon.
+        **shell_context("Storage", panes=SHELL_PANES),
         "app_label": _app_label("SciTeX Storage"),
         "favicon_href": FAVICON_HREF,
         "requested_path": raw_path or "",
@@ -103,6 +128,55 @@ def index(request):
         for c in ordered
     ]
     return render(request, "scitex_storage/index.html", context)
+
+
+def fleet(request) -> HttpResponse:
+    """Serve the cached multi-host fleet dashboard.
+
+    Reads a snapshot rendered OUT OF BAND (``_observe.write_fleet_snapshot``)
+    and never gathers live: ``observe_fleet`` ssh-probes six hosts and
+    takes ~90s, which would hang this request handler exactly as a
+    scan-on-load hangs ``index`` (see that view's docstring). The gather
+    is a periodic job; this view only reads its output.
+
+    When no snapshot exists yet, returns a plain, honest placeholder that
+    names the command to produce one -- NOT a blank page and NOT a 500,
+    because "not gathered yet" is a real state a first-run user will hit.
+    """
+    from scitex_storage._observe import (
+        default_snapshot_path,
+        fleet_html_or_placeholder,
+    )
+
+    return HttpResponse(fleet_html_or_placeholder(default_snapshot_path()))
+
+
+def bubbles(request) -> HttpResponse:
+    """Serve the cached interactive capacity-bubble page.
+
+    Same cache-read discipline as :func:`fleet`: rendered out of band from
+    the fleet snapshot, served verbatim here, placeholder when absent.
+    """
+    from scitex_storage._observe import (
+        default_bubbles_path,
+        fleet_html_or_placeholder,
+    )
+
+    return HttpResponse(fleet_html_or_placeholder(default_bubbles_path()))
+
+
+def sunburst(request) -> HttpResponse:
+    """Serve the cached interactive capacity-sunburst page (Codecov-style).
+
+    Same cache-read discipline as :func:`fleet`: rendered out of band,
+    served verbatim, placeholder when absent.
+    """
+    from scitex_storage._observe import (
+        default_sunburst_path,
+        fleet_html_or_placeholder,
+    )
+
+    return HttpResponse(fleet_html_or_placeholder(default_sunburst_path()))
 
 
 def healthz(request) -> HttpResponse:

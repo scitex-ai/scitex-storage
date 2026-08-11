@@ -31,7 +31,17 @@ from ._compat import spec_command_kwargs
             "actually tar+remove — never a blanket 'sweep everything the "
             "plan found'. COMPUTE-NODE-ONLY: --apply refuses to run unless "
             "$SLURM_JOB_ID is set (tar reads file content; submit via "
-            "sbatch/srun, never on a login node).",
+            "sbatch/srun, never on a login node). "
+            "NEEDS FREE SPACE TO FREE SPACE: the tar is written beside the "
+            "source, on the SAME filesystem, so sweep temporarily needs room "
+            "for an artifact roughly the size of what it is sweeping. It "
+            "preflights and refuses rather than filling the disk, but that "
+            "makes it UNUSABLE on a filesystem already out of space -- which "
+            "is exactly when someone reaches for a cleanup tool. If the "
+            "filesystem is full, move data OFF it first (`archive` to a "
+            "remote, or `reclaim --archive-root` onto another filesystem). "
+            "sweep trades INODES for fewer files using space headroom you "
+            "still have; it does not rescue a disk at 100%.",
         ),
         examples=(
             (
