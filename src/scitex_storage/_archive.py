@@ -84,6 +84,7 @@ from ._archive_transport import (
     _manifest_path,
     _quote_remote_path,
     _rsync_binary,
+    resolve_destination,
 )
 from ._restore import RestorePlan, apply_restore, plan_restore
 from ._scan import MissingSystemDependencyError, _measure_dir
@@ -140,6 +141,11 @@ def plan_archive(
     up-front in ``_cli/_archive_cmd.py`` so the DEFAULT dry-run cannot
     promise a run that could not start.
     """
+    # Rewrite a retired alias BEFORE validating, so the plan carries the name
+    # that will actually be dialled. The ArchivePlan's `destination` ends up in
+    # the manifest, which is what `restore` reads months later -- recording the
+    # dead name there would produce a manifest that cannot be restored from.
+    destination, _notice = resolve_destination(destination)
     if destination not in DESTINATIONS:
         raise ValueError(
             f"destination must be one of {DESTINATIONS}, got {destination!r}"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""``scitex-storage archive`` / ``restore`` — move-not-delete nas/nas2 tiering."""
+"""``scitex-storage archive`` / ``restore`` — move-not-delete NAS tiering."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from .._archive import (
     plan_archive,
     plan_restore,
 )
+from .._archive_transport import RETIRED_DESTINATIONS, resolve_destination
 from .._scan import MissingSystemDependencyError
 from .._report import (
     archive_plan_to_json_dict,
@@ -75,7 +76,11 @@ def _require_rsync() -> None:
 @click.option(
     "--to",
     "destination",
-    type=click.Choice(DESTINATIONS),
+    # Retired aliases stay ACCEPTED here on purpose. click.Choice rejects
+    # before plan_archive is ever called, so listing only the live names would
+    # turn `--to nas2` -- which worked yesterday and is in people's scripts --
+    # into a usage error instead of a rewrite-with-notice.
+    type=click.Choice(tuple(DESTINATIONS) + tuple(RETIRED_DESTINATIONS)),
     required=True,
     help="Archive target alias.",
 )
@@ -140,6 +145,22 @@ def archive_cmd(
     # the real-transport path (it never injects a `runner`), so requiring the
     # binary here is honest rather than over-strict.
     _require_rsync()
+    # SAY the rewrite. plan_archive resolves a retired alias silently and the
+    # run works, which is exactly the problem: the caller keeps typing a dead
+    # name, learns nothing, and their scripts stay wrong until the rewrite is
+    # removed.
+    #
+    # The notice goes in the PAYLOAD under --json, not to stderr. I wrote it to
+    # stderr first, with a comment claiming that "cannot corrupt --json" -- and
+    # test_cli_archive_json_reports_the_destination failed on the next run with
+    # `JSONDecodeError: line 1 column 1`, because a caller (CliRunner here, any
+    # `2>&1` in the wild) may merge the streams. A machine-readable fact
+    # belongs in the machine-readable output; a side channel is a place for it
+    # to be lost or to land in the middle of the document.
+    source_destination = destination
+    destination, notice = resolve_destination(destination)
+    if notice and not as_json:
+        click.echo(f"NOTE: {notice}", err=True)
     do_apply = confirmed and not dry_run
     plan = plan_archive(source, destination, remote_path=remote_path)
     manifest = (
@@ -153,12 +174,16 @@ def archive_cmd(
         else None
     )
     if as_json:
-        click.echo(
-            json.dumps(
-                archive_plan_to_json_dict(plan, applied=do_apply, manifest=manifest),
-                indent=2,
-            )
-        )
+        payload = archive_plan_to_json_dict(plan, applied=do_apply, manifest=manifest)
+        if notice:
+            # Present ONLY when a rewrite happened, so a consumer can test for
+            # the key rather than compare a sentinel. `destination` already
+            # holds the live name, so this says what the caller TYPED and why
+            # it changed -- information that is otherwise unrecoverable from
+            # the payload.
+            payload["destination_rewritten_from"] = source_destination
+            payload["destination_notice"] = notice
+        click.echo(json.dumps(payload, indent=2))
     else:
         click.echo(format_archive_report(plan, applied=do_apply, manifest=manifest))
 
