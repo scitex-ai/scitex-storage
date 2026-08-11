@@ -30,7 +30,7 @@ from pathlib import Path
 
 import click
 
-from .._inodes import (
+from .._measure._inodes import (
     COULD_NOT_LOOK,
     DEFAULT_WARN_PERCENT,
     MEASURED,

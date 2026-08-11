@@ -21,7 +21,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from ._scan import MissingSystemDependencyError
+from .._measure._scan import MissingSystemDependencyError
 
 #: The LIVE storage hosts. Renamed 2026-08-07; this package kept pointing at
 #: the old names until 2026-08-11, which meant `archive --to` accepted ONLY

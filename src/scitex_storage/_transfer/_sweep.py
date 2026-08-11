@@ -46,7 +46,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ._scan import scan
+from .._measure._scan import scan
 
 DEFAULT_MIN_AGE_SECONDS = 24 * 60 * 60  # 24h
 

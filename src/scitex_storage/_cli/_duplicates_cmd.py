@@ -8,9 +8,9 @@ import json
 
 import click
 
-from .._duplicates import find_duplicates as _find_duplicates
+from .._measure._duplicates import find_duplicates as _find_duplicates
 from .._report import duplicates_to_json_dict, format_duplicates_report
-from .._scan import MissingSystemDependencyError
+from .._measure._scan import MissingSystemDependencyError
 from ._compat import spec_command_kwargs
 
 

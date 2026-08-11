@@ -66,7 +66,7 @@ import json
 
 import click
 
-from .._regenerable import (
+from .._measure._regenerable import (
     CACHE,
     COULD_NOT_LOOK,
     NOT_REGENERABLE,

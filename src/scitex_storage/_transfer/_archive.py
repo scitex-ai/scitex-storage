@@ -87,8 +87,8 @@ from ._archive_transport import (
     resolve_destination,
 )
 from ._restore import RestorePlan, apply_restore, plan_restore
-from ._scan import MissingSystemDependencyError, _measure_dir
-from ._space import remote_free_bytes
+from .._measure._scan import MissingSystemDependencyError, _measure_dir
+from .._measure._space import remote_free_bytes
 from ._sweep import InsufficientSpaceError, check_space
 from ._verify import (
     REMOTE_TALLY_CMD,

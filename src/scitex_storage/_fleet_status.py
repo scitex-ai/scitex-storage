@@ -43,7 +43,7 @@ import socket
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from ._inodes import COULD_NOT_LOOK, MEASURED, NOT_APPLICABLE, probe
+from ._measure._inodes import COULD_NOT_LOOK, MEASURED, NOT_APPLICABLE, probe
 
 #: Percent used at/over which a filesystem row is flagged red on the
 #: dashboard — for BOTH space and inodes. Deliberately lower than

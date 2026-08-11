@@ -8,10 +8,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ._archive import ArchiveManifest, ArchivePlan, RestorePlan
+from ._transfer._archive import ArchiveManifest, ArchivePlan, RestorePlan
 from ._images import ApplyResult, PrunePlan
-from ._scan import RootScan
-from ._sweep import SweepPlan, SweepResult, SweptEntry
+from ._measure._scan import RootScan
+from ._transfer._sweep import SweepPlan, SweepResult, SweptEntry
 
 _UNITS = ("B", "KB", "MB", "GB", "TB", "PB")
 
