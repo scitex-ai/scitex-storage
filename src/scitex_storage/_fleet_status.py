@@ -58,12 +58,22 @@ FLAG_PERCENT = 85.0
 #: match the fleet convention already used across scitex-dev's own docs.
 #: A host not found here AND not in the registry renders as ``"?"`` — an
 #: honest "unknown", never a guessed tier.
+#: NOTE THE TIERS DO NOT FOLLOW THE NUMBERING. scitex-nas-03 is tier1 and
+#: scitex-nas-01/02 are tier2, because the 2026-08-07 rename mapped
+#: nas->scitex-nas-03, nas1->scitex-nas-01, nas2->scitex-nas-02. Assigning
+#: tiers by digit order would silently demote the tier1 unit.
+#:
+#: The mapping is corroborated by two sources that are independent IN KIND:
+#: ssh refuses each retired alias with a message naming its replacement, AND
+#: the hardware agrees -- scitex-nas-03 answers `DXP480TPLUS-994`, a UGREEN,
+#: matching what the `nas` row below has always recorded as UGREEN /volume1,
+#: while scitex-nas-01/02 answer WATANAS1/WATANAS2 against the QNAP rows.
 DEFAULT_ROLES: dict[str, str] = {
     "ywata-note-win": "workstation",
     "spartan": "compute/tier1",
-    "nas": "tier1",
-    "nas1": "tier2",
-    "nas2": "tier2",
+    "scitex-nas-03": "tier1",
+    "scitex-nas-01": "tier2",
+    "scitex-nas-02": "tier2",
     "mba": "workstation",
 }
 
@@ -307,19 +317,19 @@ def demo_snapshot() -> FleetSnapshot:
             note="GPFS project fileset (6,789,784 / 7,000,000 inodes) — inodes near quota.",
         ),
         HostStorage(
-            host="nas", role="tier1", mount="/volume1",
+            host="scitex-nas-03", role="tier1", mount="/volume1",
             verdict=COULD_NOT_LOOK, used_pct=77.0, inode_used_pct=None,
-            note="UGREEN; inode table not exposed over the probe used.",
+            note="UGREEN (was `nas`); inode table not exposed over the probe used.",
         ),
         HostStorage(
-            host="nas1", role="tier2", mount="/share/CACHEDEV1_DATA",
+            host="scitex-nas-01", role="tier2", mount="/share/CACHEDEV1_DATA",
             verdict=COULD_NOT_LOOK, used_pct=63.0, inode_used_pct=None,
-            note="QNAP; inode table not exposed over the probe used.",
+            note="QNAP (was `nas1`); inode table not exposed over the probe used.",
         ),
         HostStorage(
-            host="nas2", role="tier2", mount="/share/CACHEDEV1_DATA",
+            host="scitex-nas-02", role="tier2", mount="/share/CACHEDEV1_DATA",
             verdict=MEASURED, used_pct=27.0, inode_used_pct=2.0,
-            note="QNAP.",
+            note="QNAP (was `nas2`).",
         ),
         HostStorage(
             host="mba", role="workstation", mount="/Volumes/10TB_HDD",

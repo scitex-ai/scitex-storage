@@ -21,7 +21,61 @@ from pathlib import Path
 
 from ._scan import MissingSystemDependencyError
 
-DESTINATIONS: tuple[str, ...] = ("nas", "nas2")
+#: The LIVE storage hosts. Renamed 2026-08-07; this package kept pointing at
+#: the old names until 2026-08-11, which meant `archive --to` accepted ONLY
+#: destinations that refuse the connection. Verified by probing each alias and
+#: reading its real exit code (not through a pipe, which returns the pipe's):
+#:     scitex-nas-01  rc=0  ALIVE:WATANAS1
+#:     scitex-nas-02  rc=0  ALIVE:WATANAS2
+#:     scitex-nas-03  rc=0  ALIVE:DXP480TPLUS-994
+DESTINATIONS: tuple[str, ...] = (
+    "scitex-nas-01",
+    "scitex-nas-02",
+    "scitex-nas-03",
+)
+
+#: RETIRED aliases, still ACCEPTED and rewritten to their replacement.
+#:
+#: `--to` is a published CLI contract, so this is a MIGRATION, not a rename:
+#: someone's script, cron entry or muscle memory says `--to nas2`, and breaking
+#: it outright would turn a working invocation into a usage error at exactly
+#: the moment they are trying to move data. Accept, rewrite, and SAY SO.
+#:
+#: The mapping is measured, not guessed -- ssh itself refuses each retired
+#: alias with a message naming its replacement. Note nas -> scitex-nas-03: the
+#: plausible-looking nas -> scitex-nas-00 points at a hostname that does not
+#: resolve, which is why this table is transcribed from the hosts rather than
+#: inferred from the numbering.
+RETIRED_DESTINATIONS: dict[str, str] = {
+    "nas": "scitex-nas-03",
+    "nas1": "scitex-nas-01",
+    "nas2": "scitex-nas-02",
+}
+
+
+def resolve_destination(destination: str) -> tuple[str, str | None]:
+    """Map a possibly-retired destination alias onto a live one.
+
+    Returns ``(live_alias, notice)``. ``notice`` is ``None`` for a name that
+    was already current, and a caller-facing sentence when a retired alias was
+    rewritten -- returned rather than logged so the CLI can print it and the
+    library can ignore it, instead of this module guessing which it is.
+
+    An unknown name is returned UNCHANGED with no notice: validating the
+    destination is ``plan_archive``'s job and it already raises with the legal
+    set. Silently correcting a typo here would let a wrong host through under a
+    name the caller never typed, which for a verb that deletes the source is
+    the worst possible place to be helpful.
+    """
+    live = RETIRED_DESTINATIONS.get(destination)
+    if live is None:
+        return destination, None
+    return live, (
+        f"'{destination}' was retired on 2026-08-07; using '{live}' instead. "
+        f"Update your command to '--to {live}' -- this rewrite will be removed."
+    )
+
+
 DEFAULT_REMOTE_ROOT = "~/scitex-storage-archive"
 
 #: Remote paths this dangerous are never a legitimate archive/restore
