@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import shlex
 import shutil
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from ._scan import MissingSystemDependencyError
@@ -77,6 +79,84 @@ def resolve_destination(destination: str) -> tuple[str, str | None]:
 
 
 DEFAULT_REMOTE_ROOT = "~/scitex-storage-archive"
+
+#: Verdicts from :func:`probe_transport`. THREE-VALUED on purpose: a probe that
+#: could not run is not the same fact as a host that refused, and collapsing
+#: "could not look" into either pole is the bug this package keeps finding in
+#: other people's instruments.
+TRANSPORT_REACHABLE = "reachable"
+TRANSPORT_UNREACHABLE = "unreachable"
+TRANSPORT_COULD_NOT_LOOK = "could-not-look"
+
+#: Seconds allowed for the reachability probe. Short: this runs before a
+#: dry-run, and a dry-run that hangs is its own defect.
+_PROBE_TIMEOUT_S = 8
+
+
+@dataclass(frozen=True)
+class TransportProbe:
+    """Whether the archive transport can actually open a connection.
+
+    ``verdict`` is one of the three module constants; ``detail`` carries the
+    remote's own stderr, verbatim and untruncated, because the useful part of
+    an ssh failure is usually its exact wording (a bind error, a host-key
+    refusal and an auth failure are three different repairs).
+    """
+
+    verdict: str
+    detail: str
+
+    @property
+    def may_transport(self) -> bool:
+        """True ONLY on a positive result — never on could-not-look."""
+        return self.verdict == TRANSPORT_REACHABLE
+
+
+def probe_transport(destination: str, *, runner=None) -> TransportProbe:
+    """Ask whether ``destination`` will accept a connection, right now.
+
+    WHY THIS EXISTS. `archive` defaults to a dry-run whose contract is to
+    PREDICT the real run, and `_require_rsync` already enforces half of that
+    by refusing to plan when the local binary is missing. The other half was
+    unchecked: on 2026-08-11 every NAS destination returned rc=255 (a
+    read-only ~/.ssh, so no ControlMaster socket could bind) while
+    `archive --to nas2` still printed "WOULD ARCHIVE ... -> nas2:~/..." and
+    exited 0. A dry-run promising a transfer over a transport that cannot
+    open a connection is exactly the shape `_require_rsync` was written to
+    prevent, one layer out.
+
+    Deliberately runs `true` over ssh rather than inspecting config: the
+    question is "will a connection open", and only a connection answers it.
+    Reading ~/.ssh/config would have said everything was fine on 2026-08-11 --
+    the config WAS fine; the filesystem under it was not.
+    """
+    argv = [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        f"-o=ConnectTimeout={_PROBE_TIMEOUT_S}",
+        destination,
+        "true",
+    ]
+    run = runner or subprocess.run
+    try:
+        proc = run(argv, capture_output=True, text=True, timeout=_PROBE_TIMEOUT_S + 2)
+    except subprocess.TimeoutExpired:
+        return TransportProbe(
+            TRANSPORT_COULD_NOT_LOOK,
+            f"probe timed out after {_PROBE_TIMEOUT_S + 2}s -- the host may be "
+            "slow, unreachable, or waiting on something this probe cannot see",
+        )
+    except OSError as exc:
+        return TransportProbe(
+            TRANSPORT_COULD_NOT_LOOK, f"could not run ssh: {exc}"
+        )
+    if proc.returncode == 0:
+        return TransportProbe(TRANSPORT_REACHABLE, "")
+    return TransportProbe(
+        TRANSPORT_UNREACHABLE,
+        (proc.stderr or proc.stdout or f"ssh exited {proc.returncode}").strip(),
+    )
 
 #: Remote paths this dangerous are never a legitimate archive/restore
 #: target -- a real path always has more structure than this after

@@ -16,7 +16,11 @@ from .._archive import (
     plan_archive,
     plan_restore,
 )
-from .._archive_transport import RETIRED_DESTINATIONS, resolve_destination
+from .._archive_transport import (
+    RETIRED_DESTINATIONS,
+    probe_transport,
+    resolve_destination,
+)
 from .._scan import MissingSystemDependencyError
 from .._report import (
     archive_plan_to_json_dict,
@@ -162,6 +166,35 @@ def archive_cmd(
     if notice and not as_json:
         click.echo(f"NOTE: {notice}", err=True)
     do_apply = confirmed and not dry_run
+    # THE OTHER HALF OF _require_rsync's PROMISE. That check refuses to plan
+    # when the local binary is missing, so a dry-run cannot predict a run whose
+    # transport could not start. The REMOTE half went unchecked until
+    # 2026-08-11, when every NAS destination returned rc=255 (a read-only
+    # ~/.ssh, so no ControlMaster socket could bind) and `archive --to nas2`
+    # still printed "WOULD ARCHIVE ... -> nas2:~/..." and exited 0.
+    #
+    # ASYMMETRIC ON PURPOSE. --yes REFUSES: it is about to sync and then delete
+    # the source, and starting that against a transport known to be down risks
+    # a partial state for no benefit. The dry-run REPORTS instead of refusing,
+    # because the plan itself (size, file count, remote path) is genuinely
+    # computable and useful while the transport is down -- what must not
+    # survive is the reader's impression that the run WOULD succeed.
+    probe = probe_transport(destination)
+    if not probe.may_transport:
+        if do_apply:
+            raise click.ClickException(
+                f"transport to {destination!r} is {probe.verdict}; refusing to "
+                f"sync + delete.\n\n{probe.detail}\n\n"
+                "The source is untouched. Fix the transport and re-run -- or "
+                f"check it directly with:  ssh {destination} true"
+            )
+        if not as_json:
+            click.echo(
+                f"TRANSPORT {probe.verdict.upper()}: {destination} -- the plan "
+                f"below is a MEASUREMENT OF THE SOURCE, not a prediction that "
+                f"the run would succeed.\n{probe.detail}",
+                err=True,
+            )
     plan = plan_archive(source, destination, remote_path=remote_path)
     manifest = (
         apply_archive(
