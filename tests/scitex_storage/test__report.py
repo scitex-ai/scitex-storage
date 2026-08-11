@@ -11,7 +11,7 @@ from scitex_storage._report import (
     format_size,
     to_json_dict,
 )
-from scitex_storage._scan import scan
+from scitex_storage._measure._scan import scan
 
 
 def _touch(path, size):
@@ -180,7 +180,7 @@ def test_duplicates_to_json_dict_renders_paths_as_strings():
 
 
 def _archived_manifest(method):
-    from scitex_storage._archive import ArchiveManifest
+    from scitex_storage._transfer._archive import ArchiveManifest
 
     return ArchiveManifest(
         source="/data/old",
@@ -195,7 +195,7 @@ def _archived_manifest(method):
 
 
 def _archive_plan(tmp_path):
-    from scitex_storage._archive import ArchivePlan
+    from scitex_storage._transfer._archive import ArchivePlan
 
     return ArchivePlan(
         source=tmp_path / "old",

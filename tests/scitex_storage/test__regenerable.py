@@ -18,7 +18,7 @@ import os
 
 import pytest
 
-from scitex_storage._regenerable import (
+from scitex_storage._measure._regenerable import (
     COULD_NOT_LOOK,
     NOT_REGENERABLE,
     REGENERABLE,

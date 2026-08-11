@@ -20,8 +20,8 @@ import os
 
 import pytest
 
-from scitex_storage._classify import COULD_NOT_LOOK, MOVABLE, NOT_MOVABLE
-from scitex_storage._open_handles import (
+from scitex_storage._measure._classify import COULD_NOT_LOOK, MOVABLE, NOT_MOVABLE
+from scitex_storage._measure._open_handles import (
     holders_under,
     iter_open_paths,
     open_handle_signal,

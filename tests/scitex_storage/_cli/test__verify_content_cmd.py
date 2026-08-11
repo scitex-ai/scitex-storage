@@ -22,7 +22,7 @@ import pytest
 from click.testing import CliRunner
 
 from scitex_storage._cli._verify_content_cmd import EXIT_CODES, verify_content_cmd
-from scitex_storage._verify import COULD_NOT_LOOK, MISMATCH, VERIFIED
+from scitex_storage._transfer._verify import COULD_NOT_LOOK, MISMATCH, VERIFIED
 
 
 def _write(root, rel, data):

@@ -19,8 +19,8 @@ import sys
 
 import pytest
 
-from scitex_storage._duplicates import find_duplicates
-from scitex_storage._scan import MissingSystemDependencyError
+from scitex_storage._measure._duplicates import find_duplicates
+from scitex_storage._measure._scan import MissingSystemDependencyError
 
 _HAVE_FCLONES = bool(shutil.which("fclones"))
 requires_fclones = pytest.mark.skipif(

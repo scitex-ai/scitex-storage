@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from scitex_storage._reclaim import (
+from scitex_storage._transfer._reclaim import (
     ReclaimEntry,
     ReclaimManifest,
     apply_reclaim,

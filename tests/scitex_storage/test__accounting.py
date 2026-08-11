@@ -15,12 +15,12 @@ from __future__ import annotations
 
 import pytest
 
-from scitex_storage._accounting import (
+from scitex_storage._measure._accounting import (
     RESIDUAL_THRESHOLD,
     Accounting,
     accounting_signal,
 )
-from scitex_storage._classify import COULD_NOT_LOOK, MOVABLE
+from scitex_storage._measure._classify import COULD_NOT_LOOK, MOVABLE
 
 TB = 1024**4
 GB = 1024**3

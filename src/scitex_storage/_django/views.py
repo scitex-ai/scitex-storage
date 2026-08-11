@@ -32,7 +32,7 @@ from django.shortcuts import render
 from scitex_ui.branding import shell_context
 
 from scitex_storage._report import format_count, format_size
-from scitex_storage._scan import MissingSystemDependencyError, scan
+from scitex_storage._measure._scan import MissingSystemDependencyError, scan
 
 from ._favicon import FAVICON_HREF
 

@@ -18,15 +18,15 @@ import subprocess
 
 import pytest
 
-from scitex_storage._content_verify import digest_file, digest_tree, verify_content
-from scitex_storage._remote_digest import (
+from scitex_storage._transfer._content_verify import digest_file, digest_tree, verify_content
+from scitex_storage._transfer._remote_digest import (
     MISSING_ROOT_MARKER,
     REMOTE_DIGEST_CMD,
     UNREADABLE_MARKER,
     local_symlink_digest,
     parse_remote_manifest,
 )
-from scitex_storage._verify import COULD_NOT_LOOK, MISMATCH, VERIFIED
+from scitex_storage._transfer._verify import COULD_NOT_LOOK, MISMATCH, VERIFIED
 
 
 def _run(path):

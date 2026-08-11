@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from scitex_storage._inodes import (
+from scitex_storage._measure._inodes import (
     COULD_NOT_LOOK,
     MEASURED,
     NOT_APPLICABLE,

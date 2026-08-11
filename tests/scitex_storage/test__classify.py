@@ -19,7 +19,7 @@ import os
 
 import pytest
 
-from scitex_storage._classify import (
+from scitex_storage._measure._classify import (
     COULD_NOT_LOOK,
     MOVABLE,
     NOT_MOVABLE,

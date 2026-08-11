@@ -15,7 +15,7 @@ import os
 
 import pytest
 
-from scitex_storage._scan import ChildUsage, MissingSystemDependencyError, RootScan, scan, scan_roots
+from scitex_storage._measure._scan import ChildUsage, MissingSystemDependencyError, RootScan, scan, scan_roots
 
 # Resolved once at collection time -- BEFORE any test's isolated_path_bin_dir
 # fixture swaps PATH out from under a later `shutil.which()` call.
