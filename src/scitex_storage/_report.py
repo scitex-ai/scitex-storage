@@ -348,8 +348,14 @@ def format_archive_report(
     )
     lines.append("")
     if applied and manifest:
+        # Name the gate that actually CLEARED THE DELETE, not just the rsync
+        # flag. `checksummed=True` says rsync read every byte in flight; it
+        # does NOT say an independent instrument agreed afterwards. Printing
+        # only the flag let a tally-only verdict read as content-verified,
+        # which is the same word standing for two different guarantees.
         lines.append(
-            f"  ARCHIVED (checksummed={manifest.checksummed}) -- "
+            f"  ARCHIVED (rsync checksum={manifest.checksummed}, "
+            f"delete cleared by: {manifest.verification_method}) -- "
             f"source removed, manifest written to {plan.manifest_path}"
         )
     else:
