@@ -241,4 +241,29 @@ def test_cli_restore_dry_run_fails_when_rsync_is_absent(
     assert result.exit_code != 0
 
 
+def test_cli_archive_exposes_the_content_gate_flag():
+    # Arrange -- REACHABILITY is the whole point of this test. apply_archive
+    # has carried `verify_content_too` since the content gate shipped, but the
+    # `archive` command never passed it and offered no flag, so the only
+    # caller that performs the irreversible delete could not turn the gate on.
+    # A safety feature the dangerous path cannot reach is not shipped.
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(main, ["archive", "--help"])
+    # Assert
+    assert "--verify-content" in result.output
+
+
+def test_cli_archive_content_gate_defaults_to_off():
+    # Arrange -- opt-in on purpose: rsync --checksum already reads every byte,
+    # so this is a second opinion from a different instrument and costs a full
+    # re-read of both trees. Pinning the default so it cannot drift silently
+    # into every archive, which would be a large cost nobody asked for.
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(main, ["archive", "--help"])
+    # Assert
+    assert "--no-verify-content" in result.output
+
+
 # EOF

@@ -99,6 +99,16 @@ def _require_rsync() -> None:
     help="Verify every byte via rsync --checksum before removing the local copy.",
 )
 @click.option(
+    "--verify-content/--no-verify-content",
+    "verify_content_too",
+    default=False,
+    show_default=True,
+    help="Re-hash both trees INDEPENDENTLY of rsync after the sync, and "
+    "refuse the delete on any mismatch. Opt-in: rsync --checksum already "
+    "reads every byte, so this is a second opinion from a different "
+    "instrument, not a first one. Costs a full re-read of both sides.",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     help="Preview only (explicit spelling of the default -- no side effects either way).",
@@ -117,6 +127,7 @@ def archive_cmd(
     remote_path: str | None,
     exclude_patterns: tuple[str, ...],
     checksum: bool,
+    verify_content_too: bool,
     dry_run: bool,
     confirmed: bool,
     as_json: bool,
@@ -132,7 +143,12 @@ def archive_cmd(
     do_apply = confirmed and not dry_run
     plan = plan_archive(source, destination, remote_path=remote_path)
     manifest = (
-        apply_archive(plan, checksum=checksum, exclude=exclude_patterns)
+        apply_archive(
+            plan,
+            checksum=checksum,
+            exclude=exclude_patterns,
+            verify_content_too=verify_content_too,
+        )
         if do_apply
         else None
     )
