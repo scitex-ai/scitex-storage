@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._archive (move-not-delete nas/nas2 tiering).
+"""Unit tests for scitex_storage._transfer._archive (move-not-delete nas/nas2 tiering).
 
 A fake ``runner`` (matching scitex_ssh's own ``subprocess.run``-shaped
 testing seam -- verified against its real call convention:

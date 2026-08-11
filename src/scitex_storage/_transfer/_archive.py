@@ -129,7 +129,7 @@ def plan_archive(
 ) -> ArchivePlan:
     """Compute (never execute) an archive plan for ``source`` -> ``destination``.
 
-    Read-only: stats ``source`` via the same walk :func:`~scitex_storage._scan.scan`
+    Read-only: stats ``source`` via the same walk :func:`~scitex_storage._measure._scan.scan`
     uses, never touches the network. Fail-loud on a missing / non-directory
     ``source`` or an unrecognised ``destination``.
 

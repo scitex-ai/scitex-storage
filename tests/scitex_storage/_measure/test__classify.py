@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._classify (Layer 1, MECHANICAL).
+"""Unit tests for scitex_storage._measure._classify (Layer 1, MECHANICAL).
 
 Every case here is a real failure from the 2026-07-22 ywata-note-win
 incident, encoded so it cannot recur silently:

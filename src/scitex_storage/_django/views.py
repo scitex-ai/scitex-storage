@@ -5,7 +5,7 @@
 
 This is the first scaffold's "real data" proof: ``index`` calls
 scitex-storage's EXISTING, already-tested ``scan()`` (from
-``scitex_storage._scan``) against a real path and renders the result as
+``scitex_storage._measure._scan``) against a real path and renders the result as
 an HTML table — not a placeholder. The full disk-treemap UI is a later
 phase (see the ``scitex-storage-gui-plugin-for-scitex-hub`` scitex-todo
 card).

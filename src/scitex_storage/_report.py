@@ -193,7 +193,7 @@ def prune_plan_to_json_dict(
 def format_sweep_report(
     plan: SweepPlan, applied: bool, result: SweepResult | None = None
 ) -> str:
-    """Render a :class:`~scitex_storage._sweep.SweepPlan` as the CLI text.
+    """Render a :class:`~scitex_storage._transfer._sweep.SweepPlan` as the CLI text.
 
     ``result`` is required when ``applied`` is true.
     """
@@ -273,7 +273,7 @@ def _sweep_candidate_dict(c: Any) -> dict[str, Any]:
 def sweep_plan_to_json_dict(
     plan: SweepPlan, applied: bool, result: SweepResult | None = None
 ) -> dict[str, Any]:
-    """Render a :class:`~scitex_storage._sweep.SweepPlan` as a JSON dict."""
+    """Render a :class:`~scitex_storage._transfer._sweep.SweepPlan` as a JSON dict."""
     payload: dict[str, Any] = {
         "directory": str(plan.directory),
         "threshold_files": plan.threshold_files,
@@ -302,7 +302,7 @@ def sweep_plan_to_json_dict(
 
 
 def format_sweep_status_report(directory: str, entries: list[SweptEntry]) -> str:
-    """Render :func:`~scitex_storage._sweep.sweep_status` results as CLI text."""
+    """Render :func:`~scitex_storage._transfer._sweep.sweep_status` results as CLI text."""
     lines: list[str] = []
     header = f"scitex-storage sweep-status  {directory}"
     lines.append(header)
@@ -319,7 +319,7 @@ def format_sweep_status_report(directory: str, entries: list[SweptEntry]) -> str
 def sweep_status_to_json_dict(
     directory: str, entries: list[SweptEntry]
 ) -> dict[str, Any]:
-    """Render :func:`~scitex_storage._sweep.sweep_status` results as a JSON dict."""
+    """Render :func:`~scitex_storage._transfer._sweep.sweep_status` results as a JSON dict."""
     return {
         "directory": directory,
         "swept": [
@@ -337,7 +337,7 @@ def sweep_status_to_json_dict(
 def format_archive_report(
     plan: ArchivePlan, applied: bool, manifest: ArchiveManifest | None = None
 ) -> str:
-    """Render an :class:`~scitex_storage._archive.ArchivePlan` as CLI text."""
+    """Render an :class:`~scitex_storage._transfer._archive.ArchivePlan` as CLI text."""
     lines: list[str] = []
     header = f"scitex-storage archive  {plan.source}"
     lines.append(header)
@@ -366,7 +366,7 @@ def format_archive_report(
 def archive_plan_to_json_dict(
     plan: ArchivePlan, applied: bool, manifest: ArchiveManifest | None = None
 ) -> dict[str, Any]:
-    """Render an :class:`~scitex_storage._archive.ArchivePlan` as a JSON dict."""
+    """Render an :class:`~scitex_storage._transfer._archive.ArchivePlan` as a JSON dict."""
     payload: dict[str, Any] = {
         "source": str(plan.source),
         "destination": plan.destination,
@@ -384,7 +384,7 @@ def archive_plan_to_json_dict(
 def format_restore_report(
     plan: RestorePlan, applied: bool, restored_path: Any | None = None
 ) -> str:
-    """Render a :class:`~scitex_storage._archive.RestorePlan` as CLI text."""
+    """Render a :class:`~scitex_storage._transfer._archive.RestorePlan` as CLI text."""
     m = plan.manifest
     lines: list[str] = []
     header = f"scitex-storage restore  {m.source}"
@@ -405,7 +405,7 @@ def format_restore_report(
 def restore_plan_to_json_dict(
     plan: RestorePlan, applied: bool, restored_path: Any | None = None
 ) -> dict[str, Any]:
-    """Render a :class:`~scitex_storage._archive.RestorePlan` as a JSON dict."""
+    """Render a :class:`~scitex_storage._transfer._archive.RestorePlan` as a JSON dict."""
     payload: dict[str, Any] = {
         "manifest": plan.manifest.to_dict(),
         "manifest_path": str(plan.manifest_path),

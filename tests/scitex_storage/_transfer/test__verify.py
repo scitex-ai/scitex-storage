@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._verify.
+"""Unit tests for scitex_storage._transfer._verify.
 
 Each case is a real failure this project has already paid for:
 

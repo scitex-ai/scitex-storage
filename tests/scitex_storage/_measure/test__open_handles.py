@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._open_handles (S2, open-handle check).
+"""Unit tests for scitex_storage._measure._open_handles (S2, open-handle check).
 
 The failure this signal exists to prevent: on 2026-07-22, four of five
 "dead agent" overlays on ywata-note-win turned out to belong to LIVE

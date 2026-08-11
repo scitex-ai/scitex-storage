@@ -19,7 +19,7 @@ is the network), `not-regenerable` (no recipe, so this is the only copy).
 The JSON keys and exit codes are UNCHANGED. Only the command name moved.
 
 WHY THIS VERB EXISTS AT ALL, recorded because the gap was embarrassing:
-:mod:`scitex_storage._regenerable` was built, tested, merged and described
+:mod:`scitex_storage._measure._regenerable` was built, tested, merged and described
 to its intended consumer as usable — while being unreachable from the
 process that needs it. paper-scitex-clew measured what I had not
 (2026-07-28): ``scitex_storage`` is not importable in their container, and

@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._regenerable.
+"""Unit tests for scitex_storage._measure._regenerable.
 
 Every case is a real condition from Spartan punim0264 at 97% inode usage,
 encoded so the two expensive mistakes cannot recur silently:

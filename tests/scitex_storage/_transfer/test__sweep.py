@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._sweep (inode-aware tar-in-place rotation)."""
+"""Unit tests for scitex_storage._transfer._sweep (inode-aware tar-in-place rotation)."""
 
 import os
 import time

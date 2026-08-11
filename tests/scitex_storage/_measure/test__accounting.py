@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._accounting (S5, the accounting audit).
+"""Unit tests for scitex_storage._measure._accounting (S5, the accounting audit).
 
 Every case is drawn from the 2026-07-22 ywata-note-win incident, where
 this check would have produced the answer in the first hour instead of
