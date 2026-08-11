@@ -354,7 +354,26 @@ def format_alarm(alarm: FleetAlarm) -> str:
     alarming, so a reader can tell a quiet fleet from an unmeasured one.
     """
     if not alarm.should_push:
-        return f"storage {alarm.level}: nothing alarming ({len(alarm.unknown)} unmeasured)"
+        # STATE THE DENOMINATOR, not just the numerator. The line above used to
+        # read "storage ok: nothing alarming (0 unmeasured)", which is the same
+        # sentence whether two local filesystems were checked or the whole
+        # fleet was. Measured 2026-08-11: run in a container it reported
+        # exactly that while the three NAS units were unreachable (ssh rc=255)
+        # and compute-04 -- the host whose free space this alarm was written
+        # for -- was never in scope at all. `gather_fleet_snapshot` is honestly
+        # documented as local-only ("live multi-host gathering is a later
+        # increment"); the MESSAGE was the part that implied fleet coverage.
+        #
+        # "0 unmeasured" is the dangerous half: it invites the reading that
+        # nothing escaped measurement, when the truth is those hosts were never
+        # counted. A reader cannot audit a denominator that is not printed.
+        hosts = sorted({fs.host for fs in alarm.filesystems})
+        scope = hosts[0] if len(hosts) == 1 else f"{len(hosts)} hosts"
+        return (
+            f"storage {alarm.level}: {len(alarm.filesystems)} filesystem(s) "
+            f"on {scope} checked, nothing alarming "
+            f"({len(alarm.unknown)} unmeasured)"
+        )
 
     lines = [f"STORAGE {alarm.level.upper()} @ {alarm.generated_at}"]
     for fs in sorted(
