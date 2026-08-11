@@ -132,6 +132,27 @@ def test_process_document_records_sha256(tmp_path, searchable_pdf):
     assert len(outcome.sha256) == 64
 
 
+def test_process_document_records_text_source(tmp_path, searchable_pdf):
+    # Arrange -- default config has ocr_enabled=True.
+    cfg = _config(tmp_path)
+    raw = _raw(tmp_path, searchable_pdf, "a.pdf", FINANCE_LINES)
+    # Act
+    outcome = process_document(raw, cfg)
+    # Assert
+    assert outcome.text_source == "io+ocr"
+
+
+def test_process_document_index_carries_text_source(tmp_path, searchable_pdf):
+    # Arrange
+    cfg = _config(tmp_path)
+    raw = _raw(tmp_path, searchable_pdf, "a.pdf", FINANCE_LINES)
+    # Act
+    process_document(raw, cfg)
+    record = json.loads(cfg.index_path.read_text().splitlines()[0])
+    # Assert
+    assert record["text_source"] == "io+ocr"
+
+
 def test_process_document_appends_one_index_line(tmp_path, searchable_pdf):
     # Arrange
     cfg = _config(tmp_path)
