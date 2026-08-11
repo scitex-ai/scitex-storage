@@ -15,6 +15,15 @@ silent empty string. ``ocr=False`` restores the text-layer-only behaviour.
 same string out, no global state touched. An empty extraction (image-only PDF
 with OCR disabled, or scitex-cv unavailable) returns ``""``, which the
 classifier routes to ``misc`` -- never a silent wrong guess.
+
+THE OCR STACK IS OPTIONAL AND IS NOT DECLARED HERE, on purpose. scitex-io's
+OCR path rasterises pages with PyMuPDF and recognises them with
+``scitex-cv[ocr]``; it RAISES ``ImportError`` when either is missing rather
+than degrading. PyMuPDF is AGPL-3.0, so pulling it into storage's base install
+would hand every consumer a copyleft obligation to get a fallback most of them
+never reach. So we ask for OCR, and treat its absence as the documented
+empty-extraction case -- see :func:`extract_text` for how that is kept
+distinct from "no PDF backend at all", which stays loud.
 """
 
 from __future__ import annotations
@@ -30,6 +39,15 @@ def extract_text(pdf_path: str | Path, *, ocr: bool = True) -> str:
     reads the text layer only. Raises ``FileNotFoundError`` for a missing path
     (a file that cannot be read is a loud failure, not a silently-empty
     extraction). Returns ``""`` when the PDF genuinely yields no text.
+
+    A MISSING OCR STACK DEGRADES; A MISSING PDF BACKEND DOES NOT. scitex-io
+    raises ``ImportError`` for both, so we tell them apart by RETRYING with
+    ``ocr=False``: if the text-layer read then succeeds, only the OCR extras
+    were missing and the documented ``""`` is correct. If it raises too, no
+    PDF backend is installed at all -- a packaging fault, not an empty
+    document -- and the ORIGINAL error propagates. Retrying rather than
+    matching on the message keeps this working when the wording changes; an
+    error string is not an API.
     """
     path = Path(pdf_path)
     if not path.is_file():
@@ -37,7 +55,12 @@ def extract_text(pdf_path: str | Path, *, ocr: bool = True) -> str:
 
     import scitex_io
 
-    text = scitex_io.load(str(path), mode="text", ocr=ocr)
+    try:
+        text = scitex_io.load(str(path), mode="text", ocr=ocr)
+    except ImportError:
+        if not ocr:
+            raise
+        text = scitex_io.load(str(path), mode="text", ocr=False)
     if not text:
         return ""
     return str(text).strip()

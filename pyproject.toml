@@ -35,15 +35,30 @@ dependencies = [
     # for the ecosystem now -- storage dogfoods it instead of driving a PDF
     # library directly. scitex-io reads the embedded text layer and, with
     # ocr=True, renders + OCRs image-only pages through scitex-cv (an OPTIONAL
-    # extra scitex-io pulls only when OCR is actually wanted). This is why
-    # pypdf was dropped from storage's own deps: the sole in-repo user was
-    # `_document_pipeline/_extract.py`, and the PDF backend is now scitex-io's
-    # concern, not storage's.
-    # NOTE: the `ocr=` parameter landed in a scitex-io release above the
-    # 0.3.1 floor pinned here; bump this floor to that release once its
-    # version is cut so `pip install scitex-storage` cannot resolve an
-    # OCR-less scitex-io (mode="text" itself works at >=0.3.1).
-    "scitex-io>=0.3.1",
+    # extra scitex-io pulls only when OCR is actually wanted).
+    # Floor is 0.4.0 because that is the release carrying `ocr=` — verified by
+    # reading the PUBLISHED wheel, not the local checkout (the local scitex_io
+    # is an editable install pointing at a develop tree, so importing it tells
+    # you nothing about what `pip install scitex-storage` resolves).
+    "scitex-io>=0.4.0",
+    # RE-ADDED after this PR removed it. The removal's reasoning was right —
+    # scitex-io owns PDF reading, so storage should not drive a PDF library —
+    # but it assumed owning the capability means SHIPPING a backend. It does
+    # not: EVERY scitex-io PDF backend is optional (`try_import_optional`), so
+    # a consumer that declares none gets `ImportError: No PDF library
+    # available` the first time it reads a PDF. That is exactly what turned
+    # this PR's `test_run_exits_clean` red for three weeks.
+    # pypdf specifically, and not one of the others: the published 0.4.0 wheel
+    # reads `PyPDF2 = try_import_optional("pypdf")` — the VARIABLE is a stale
+    # name, the MODULE imported is pypdf — so pypdf is a real, accepted
+    # backend. It is BSD-3-Clause and pure-Python, unlike PyMuPDF (AGPL-3.0),
+    # which is why scitex-io keeps that one behind a separate `pdf-fast` extra
+    # deliberately held out of `[all]`.
+    # This does NOT re-couple storage to a PDF library: nothing in this repo
+    # imports pypdf. It is a runtime backend declaration for the delegate —
+    # `scitex-io[pdf]` says the same thing and is the better spelling once
+    # that extra is released (scitex-io PR #161).
+    "pypdf>=4.0",
     "pyyaml>=6.0",
 ]
 # NOTE: three SYSTEM (non-pip) runtime dependencies, each required by ONE

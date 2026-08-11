@@ -105,3 +105,20 @@ def test_extract_text_ocr_reads_image_only_scan(tmp_path):
     text = extract_text(pdf, ocr=True)
     # Assert
     assert text != ""
+
+
+def test_extract_text_ocr_requested_without_ocr_stack_returns_empty(
+    tmp_path, searchable_pdf
+):
+    # Arrange -- no text layer AND ocr=True (the default). scitex-io RAISES
+    # ImportError on that path when PyMuPDF/scitex-cv are absent, which is the
+    # normal state: PyMuPDF is AGPL-3.0 and storage declines to ship it. The
+    # documented contract is an empty extraction, so extract_text must retry
+    # text-layer-only rather than let the ImportError out. NOT skipped when the
+    # OCR stack IS present: OCR of a blank page yields "" too, so the asserted
+    # outcome holds either way and the test never silently stops running.
+    pdf = searchable_pdf(tmp_path / "blank.pdf", [])
+    # Act
+    text = extract_text(pdf)
+    # Assert
+    assert text == ""
