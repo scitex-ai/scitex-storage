@@ -8,26 +8,11 @@ cover dry-run + validation only.
 
 import json
 import os
-import shutil
 
 import pytest
 from click.testing import CliRunner
 
 from scitex_storage._cli import main
-
-# `archive` sizes the tree via `scan`, which shells out to `fd`. Resolved ONCE
-# at import, before any fixture can mutate PATH — same pattern as
-# _REAL_RSYNC_BIN in tests/scitex_storage/test__archive.py.
-#
-# SKIP, never silently pass: without `fd` the command raises
-# MissingSystemDependencyError and exits non-zero, which is the CONTRACT this
-# package promises, not a regression. A skip records "could not look"; a pass
-# would claim the path was exercised when it was not.
-_FD_BIN = shutil.which("fd") or shutil.which("fdfind")
-_needs_fd = pytest.mark.skipif(
-    _FD_BIN is None,
-    reason="needs the `fd` binary (fd-find); scan shells out to it",
-)
 
 
 def _touch(path, size=1):
@@ -84,7 +69,6 @@ def sandbox_home(tmp_path):
             os.environ["HOME"] = prev
 
 
-@_needs_fd
 def test_cli_archive_exits_zero(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
