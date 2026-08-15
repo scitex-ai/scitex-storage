@@ -22,7 +22,7 @@ that assumes it will eventually meet the day it is false, and the failure
 lands mid-transfer with a partial artifact on the destination.
 
 The comparison itself is deliberately NOT reimplemented here --
-:func:`scitex_storage._sweep.check_space` already returns the three-state
+:func:`scitex_storage._transfer._sweep.check_space` already returns the three-state
 ``SpaceVerdict`` (``ok=None`` meaning "could not answer", distinct from
 ``ok=False`` meaning "answered: no room"), and having two space
 comparators would guarantee they drift apart.

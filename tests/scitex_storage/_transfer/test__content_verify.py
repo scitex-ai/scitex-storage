@@ -17,13 +17,13 @@ import stat
 
 import pytest
 
-from scitex_storage._content_verify import (
+from scitex_storage._transfer._content_verify import (
     ContentManifest,
     digest_file,
     digest_tree,
     verify_content,
 )
-from scitex_storage._verify import (
+from scitex_storage._transfer._verify import (
     COULD_NOT_LOOK,
     MISMATCH,
     VERIFIED,

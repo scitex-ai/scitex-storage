@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._archive (move-not-delete nas/nas2 tiering).
+"""Unit tests for scitex_storage._transfer._archive (move-not-delete nas/nas2 tiering).
 
 A fake ``runner`` (matching scitex_ssh's own ``subprocess.run``-shaped
 testing seam -- verified against its real call convention:
@@ -15,7 +15,7 @@ import pytest
 
 import shutil
 
-from scitex_storage._archive import (
+from scitex_storage._transfer._archive import (
     DEFAULT_REMOTE_ROOT,
     ArchiveManifest,
     ArchiveNotVerifiedError,
@@ -29,9 +29,9 @@ from scitex_storage._archive import (
     plan_archive,
     plan_restore,
 )
-from scitex_storage._scan import MissingSystemDependencyError
-from scitex_storage._sweep import InsufficientSpaceError
-from scitex_storage._verify import local_tally
+from scitex_storage._measure._scan import MissingSystemDependencyError
+from scitex_storage._transfer._sweep import InsufficientSpaceError
+from scitex_storage._transfer._verify import local_tally
 
 # Resolved at collection time -- BEFORE any test's isolated_path_bin_dir
 # fixture swaps PATH out from under a later real `shutil.which()` call.
@@ -141,7 +141,7 @@ def _simulated_destination_digest(calls, corrupt: bool = False) -> str:
     the same-length/wrong-content case, which is the only thing this gate
     exists to catch and therefore the only failure worth simulating here.
     """
-    from scitex_storage._content_verify import digest_tree
+    from scitex_storage._transfer._content_verify import digest_tree
 
     for cmd in reversed(calls):
         if cmd and str(cmd[0]).rsplit("/", 1)[-1] == "rsync" and len(cmd) >= 2:

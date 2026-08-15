@@ -131,7 +131,7 @@ def test_cli_wires_shell_completion_when_scitex_dev_is_installed():
 
 def test_archive_module_resolves_sync_dir_from_scitex_ssh():
     # Arrange -- a hard dependency, so this should always resolve.
-    from scitex_storage import _archive
+    from scitex_storage._transfer import _archive
 
     # Act
     # Assert

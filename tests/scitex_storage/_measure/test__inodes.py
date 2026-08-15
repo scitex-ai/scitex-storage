@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._inodes (statvfs-backed inode capacity probe).
+"""Unit tests for scitex_storage._measure._inodes (statvfs-backed inode capacity probe).
 
 NO MOCKS, and the module is shaped so none are needed (PA-306). The
 decision layer (`usage_from_counts`) is pure, so every interesting case --
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from scitex_storage._inodes import (
+from scitex_storage._measure._inodes import (
     COULD_NOT_LOOK,
     MEASURED,
     NOT_APPLICABLE,

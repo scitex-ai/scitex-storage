@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._scan (per-top-level-child size + inode scan).
+"""Unit tests for scitex_storage._measure._scan (per-top-level-child size + inode scan).
 
 `_measure_dir`'s walk shells out to `fd` (see _scan.py's module docstring
 for the multi-terabyte-scale rationale) -- every test above the
@@ -15,7 +15,7 @@ import os
 
 import pytest
 
-from scitex_storage._scan import ChildUsage, MissingSystemDependencyError, RootScan, scan, scan_roots
+from scitex_storage._measure._scan import ChildUsage, MissingSystemDependencyError, RootScan, scan, scan_roots
 
 # Resolved once at collection time -- BEFORE any test's isolated_path_bin_dir
 # fixture swaps PATH out from under a later `shutil.which()` call.

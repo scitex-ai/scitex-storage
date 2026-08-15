@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scitex_storage._classify import COULD_NOT_LOOK, MOVABLE, NOT_MOVABLE
-from scitex_storage._duplicates import duplicates_signal, reclaimable_bytes
+from scitex_storage._measure._classify import COULD_NOT_LOOK, MOVABLE, NOT_MOVABLE
+from scitex_storage._measure._duplicates import duplicates_signal, reclaimable_bytes
 
 
 def _group(tmp_path: Path, name: str, copies: int, size: int) -> list[Path]:

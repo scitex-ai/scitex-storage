@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._verify.
+"""Unit tests for scitex_storage._transfer._verify.
 
 Each case is a real failure this project has already paid for:
 
@@ -18,7 +18,7 @@ import os
 
 import pytest
 
-from scitex_storage._verify import (
+from scitex_storage._transfer._verify import (
     COULD_NOT_LOOK,
     MISMATCH,
     VERIFIED,

@@ -1,11 +1,11 @@
-"""Unit tests for scitex_storage._sweep (inode-aware tar-in-place rotation)."""
+"""Unit tests for scitex_storage._transfer._sweep (inode-aware tar-in-place rotation)."""
 
 import os
 import time
 
 import pytest
 
-from scitex_storage._sweep import (
+from scitex_storage._transfer._sweep import (
     InsufficientSpaceError,
     SweepCandidate,
     SweepPlan,

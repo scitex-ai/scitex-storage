@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._reclaim (reversible local move-aside).
+"""Unit tests for scitex_storage._transfer._reclaim (reversible local move-aside).
 
 NO MOCKS, and none are wanted: reclaim is a local filesystem move, so every
 case is exercised with real directories, real moves, and real restores in a
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from scitex_storage._reclaim import (
+from scitex_storage._transfer._reclaim import (
     ReclaimEntry,
     ReclaimManifest,
     apply_reclaim,

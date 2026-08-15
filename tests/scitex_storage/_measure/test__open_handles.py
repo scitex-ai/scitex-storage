@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._open_handles (S2, open-handle check).
+"""Unit tests for scitex_storage._measure._open_handles (S2, open-handle check).
 
 The failure this signal exists to prevent: on 2026-07-22, four of five
 "dead agent" overlays on ywata-note-win turned out to belong to LIVE
@@ -20,8 +20,8 @@ import os
 
 import pytest
 
-from scitex_storage._classify import COULD_NOT_LOOK, MOVABLE, NOT_MOVABLE
-from scitex_storage._open_handles import (
+from scitex_storage._measure._classify import COULD_NOT_LOOK, MOVABLE, NOT_MOVABLE
+from scitex_storage._measure._open_handles import (
     holders_under,
     iter_open_paths,
     open_handle_signal,

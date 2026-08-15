@@ -14,7 +14,7 @@ from .._report import (
     sweep_plan_to_json_dict,
     sweep_status_to_json_dict,
 )
-from .._sweep import apply_sweep, plan_sweep, sweep_status
+from .._transfer._sweep import apply_sweep, plan_sweep, sweep_status
 from ._compat import spec_command_kwargs
 
 

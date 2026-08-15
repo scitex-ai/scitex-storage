@@ -10,7 +10,7 @@ patched import. ONE assertion per test (PA-307), AAA-structured.
 
 import subprocess
 
-from scitex_storage._archive_transport import (
+from scitex_storage._transfer._archive_transport import (
     TRANSPORT_COULD_NOT_LOOK,
     TRANSPORT_REACHABLE,
     TRANSPORT_UNREACHABLE,
