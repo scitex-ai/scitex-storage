@@ -14,7 +14,9 @@ CLI shell.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import sys
 
 import click
 
@@ -93,11 +95,28 @@ def document_sorter_run_cmd(
         raise click.ClickException(str(exc)) from exc
 
     source = ScanSnapFolderSource(config.inbox)
-    summary = process_inbox(source, config, dry_run=dry_run)
 
     if as_json:
+        # --json PROMISES that stdout is parseable, so nothing else may write
+        # there. Third-party libraries do not honour that promise: PyMuPDF
+        # prints "warning: The `fitz` API is deprecated..." to STDOUT the
+        # first time the deprecated alias is imported, and scitex-io's PDF
+        # backend imports it lazily -- i.e. DURING process_inbox, after this
+        # command has already started. The result was a run whose stdout read
+        #     warning: The `fitz` API is deprecated...
+        #     {"dry_run": false, ...}
+        # so json.loads() died at char 0 and every --json consumer broke.
+        # It held develop red from 2026-08-11 without any change to this repo.
+        #
+        # Redirecting for the WORK and writing JSON to the real stdout
+        # afterwards makes the contract hold whatever any dependency prints.
+        # Their output is not discarded -- it goes to stderr, where diagnostics
+        # belong and where a human still sees it.
+        with contextlib.redirect_stdout(sys.stderr):
+            summary = process_inbox(source, config, dry_run=dry_run)
         click.echo(json.dumps(summary.to_dict(), indent=2, ensure_ascii=False))
     else:
+        summary = process_inbox(source, config, dry_run=dry_run)
         click.echo(_format_summary(summary))
 
 
