@@ -69,6 +69,7 @@ def sandbox_home(tmp_path):
             os.environ["HOME"] = prev
 
 
+@pytest.mark.requires_fd
 def test_cli_archive_exits_zero(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -120,6 +121,7 @@ def test_cli_archive_defaults_to_dry_run(tmp_path, sandbox_home):
     assert f.exists()
 
 
+@pytest.mark.requires_fd
 def test_cli_archive_explicit_dry_run_flag_exits_zero(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -142,6 +144,7 @@ def test_cli_archive_yes_with_dry_run_does_not_mutate(tmp_path, sandbox_home):
     assert f.exists()
 
 
+@pytest.mark.requires_fd
 def test_cli_archive_json_reports_the_destination(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -155,6 +158,7 @@ def test_cli_archive_json_reports_the_destination(tmp_path, sandbox_home):
     assert json.loads(result.output)["destination"] == "scitex-nas-01"
 
 
+@pytest.mark.requires_fd
 def test_cli_archive_json_reports_the_LIVE_host_for_a_retired_alias(
     tmp_path, sandbox_home
 ):
@@ -171,6 +175,7 @@ def test_cli_archive_json_reports_the_LIVE_host_for_a_retired_alias(
     assert json.loads(result.output)["destination"] == "scitex-nas-03"
 
 
+@pytest.mark.requires_fd
 def test_cli_archive_json_records_what_the_caller_typed(tmp_path, sandbox_home):
     # Arrange -- the rewrite must be VISIBLE, or the caller keeps typing a dead
     # name forever. In --json the notice belongs in the payload: a stderr line
@@ -185,6 +190,7 @@ def test_cli_archive_json_records_what_the_caller_typed(tmp_path, sandbox_home):
     assert json.loads(result.output)["destination_rewritten_from"] == "nas2"
 
 
+@pytest.mark.requires_fd
 def test_cli_archive_json_stays_parseable_for_a_current_alias(tmp_path, sandbox_home):
     # Arrange -- the no-rewrite path must not gain a stray line either. Parsing
     # IS the assertion: a NOTE printed alongside the document would raise here
@@ -200,6 +206,7 @@ def test_cli_archive_json_stays_parseable_for_a_current_alias(tmp_path, sandbox_
     assert "destination_rewritten_from" not in json.loads(result.output)
 
 
+@pytest.mark.requires_fd
 def test_cli_archive_json_reports_applied_false_on_dry_run(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
