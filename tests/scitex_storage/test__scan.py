@@ -30,6 +30,7 @@ def _touch(path, size=1, mtime=None):
     return path
 
 
+@pytest.mark.requires_fd
 def test_scan_reports_one_child_per_top_level_entry(tmp_path):
     # Arrange
     _touch(tmp_path / "alpha" / "a.bin", 10)
@@ -40,6 +41,7 @@ def test_scan_reports_one_child_per_top_level_entry(tmp_path):
     assert {c.name for c in result.children} == {"alpha", "beta"}
 
 
+@pytest.mark.requires_fd
 def test_scan_sums_size_recursively_under_a_child(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 100)
@@ -50,6 +52,7 @@ def test_scan_sums_size_recursively_under_a_child(tmp_path):
     assert result.children[0].size == 300
 
 
+@pytest.mark.requires_fd
 def test_scan_counts_inodes_recursively_under_a_child(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 1)
@@ -79,6 +82,7 @@ def test_scan_top_level_file_child_counts_as_one_inode(tmp_path):
     assert result.children[0].file_count == 1
 
 
+@pytest.mark.requires_fd
 def test_scan_symlinked_directory_child_counts_as_one_inode(tmp_path):
     # Arrange
     real = tmp_path / "real"
@@ -92,6 +96,7 @@ def test_scan_symlinked_directory_child_counts_as_one_inode(tmp_path):
     assert link_child.file_count == 1
 
 
+@pytest.mark.requires_fd
 def test_scan_symlinked_directory_child_is_not_reported_as_directory(tmp_path):
     # Arrange
     real = tmp_path / "real"
@@ -104,6 +109,7 @@ def test_scan_symlinked_directory_child_is_not_reported_as_directory(tmp_path):
     assert link_child.is_dir is False
 
 
+@pytest.mark.requires_fd
 def test_scan_does_not_follow_symlinked_directory_nested(tmp_path):
     # Arrange
     outside = tmp_path / "outside"
@@ -120,6 +126,7 @@ def test_scan_does_not_follow_symlinked_directory_nested(tmp_path):
     assert child_usage.file_count == 1
 
 
+@pytest.mark.requires_fd
 def test_scan_max_depth_bounds_recursion(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 1)  # depth 0 under child
@@ -149,6 +156,7 @@ def test_scan_raises_for_non_directory_path(tmp_path):
         scan(a_file)
 
 
+@pytest.mark.requires_fd
 def test_scan_is_read_only(tmp_path):
     # Arrange
     f = _touch(tmp_path / "child" / "a.bin", 10)
@@ -159,6 +167,7 @@ def test_scan_is_read_only(tmp_path):
     assert f.read_bytes() == before
 
 
+@pytest.mark.requires_fd
 def test_rootscan_total_size_aggregates_children(tmp_path):
     # Arrange
     _touch(tmp_path / "a" / "f.bin", 100)
@@ -169,6 +178,7 @@ def test_rootscan_total_size_aggregates_children(tmp_path):
     assert result.total_size == 350
 
 
+@pytest.mark.requires_fd
 def test_rootscan_total_files_aggregates_children(tmp_path):
     # Arrange
     _touch(tmp_path / "a" / "f.bin", 1)
@@ -180,6 +190,7 @@ def test_rootscan_total_files_aggregates_children(tmp_path):
     assert result.total_files == 3
 
 
+@pytest.mark.requires_fd
 def test_rootscan_by_size_orders_biggest_first(tmp_path):
     # Arrange
     _touch(tmp_path / "small" / "s.bin", 10)
@@ -191,6 +202,7 @@ def test_rootscan_by_size_orders_biggest_first(tmp_path):
     assert ordered[0].name == "large"
 
 
+@pytest.mark.requires_fd
 def test_rootscan_by_file_count_orders_most_inodes_first(tmp_path):
     # Arrange
     _touch(tmp_path / "few" / "a.bin", 5_000)  # big but 1 inode
@@ -225,6 +237,7 @@ def test_scan_roots_returns_rootscan_instances(tmp_path):
     assert isinstance(results[0], RootScan)
 
 
+@pytest.mark.requires_fd
 def test_scan_child_is_a_childusage_instance(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 10)
@@ -234,6 +247,7 @@ def test_scan_child_is_a_childusage_instance(tmp_path):
     assert isinstance(child, ChildUsage)
 
 
+@pytest.mark.requires_fd
 def test_scan_newest_mtime_reflects_the_most_recently_modified_file(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "old.bin", mtime=1_000_000)
@@ -253,6 +267,7 @@ def test_scan_newest_mtime_for_top_level_file_is_its_own_mtime(tmp_path):
     assert result.children[0].newest_mtime == 1_500_000
 
 
+@pytest.mark.requires_fd
 def test_scan_newest_mtime_falls_back_to_directory_mtime_when_empty(tmp_path):
     # Arrange
     child = tmp_path / "empty"
