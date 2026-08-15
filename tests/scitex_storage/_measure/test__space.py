@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._space (remote free-space probe).
+"""Unit tests for scitex_storage._measure._space (remote free-space probe).
 
 The defect these guard is the one card
 sweep-writes-tar-to-source-filesystem-20260722 was written about: a verb
@@ -12,7 +12,7 @@ Parsing is pure, so none of this needs `monkeypatch` (banned here).
 
 from __future__ import annotations
 
-from scitex_storage._space import parse_df_available_bytes
+from scitex_storage._measure._space import parse_df_available_bytes
 
 
 def test_a_normal_df_row_yields_available_bytes():

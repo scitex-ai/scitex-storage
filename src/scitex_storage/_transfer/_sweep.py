@@ -46,7 +46,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ._scan import scan
+from .._measure._scan import scan
 
 DEFAULT_MIN_AGE_SECONDS = 24 * 60 * 60  # 24h
 
@@ -177,7 +177,7 @@ def plan_sweep(
 ) -> SweepPlan:
     """Discover sweep candidates under ``directory`` — read-only.
 
-    Reuses :func:`~scitex_storage._scan.scan` (one walk, no duplicate
+    Reuses :func:`~scitex_storage._measure._scan.scan` (one walk, no duplicate
     traversal). A child qualifies as a candidate if it is a directory with
     ``file_count >= threshold_files`` AND its newest file is at least
     ``min_age_seconds`` old (excluded into ``skipped_fresh`` otherwise, to

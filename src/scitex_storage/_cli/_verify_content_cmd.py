@@ -49,8 +49,8 @@ import json
 
 import click
 
-from .._content_verify import digest_tree, verify_content
-from .._verify import COULD_NOT_LOOK, MISMATCH, VERIFIED
+from .._transfer._content_verify import digest_tree, verify_content
+from .._transfer._verify import COULD_NOT_LOOK, MISMATCH, VERIFIED
 from ._compat import spec_command_kwargs
 
 #: Declared numeric codes with documented meanings. See the module docstring

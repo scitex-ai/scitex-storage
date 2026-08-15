@@ -11,7 +11,7 @@ MEASURED by scitex-hpc 2026-07-29, inside the real solver image on a Spartan
 compute node:
 
     from ._archive_cmd import archive_cmd, restore_cmd
-    from .._archive import ...
+    from .._transfer._archive import ...
     from scitex_ssh import SSHResult, exec_remote, sync_dir
     ImportError: cannot import name 'sync_dir' from 'scitex_ssh'
     exit_code=1   (survey, find-recipe, and everything else -- all of them)

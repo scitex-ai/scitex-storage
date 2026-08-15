@@ -5,7 +5,7 @@
 EXIT CODES are the point of this command, not an afterthought. This verb
 exists to be run unattended (cron, a CI step, a job prologue), and an
 unattended caller reads the exit code, not the table. So the three-state
-verdict from :mod:`scitex_storage._inodes` is carried all the way out:
+verdict from :mod:`scitex_storage._measure._inodes` is carried all the way out:
 
 * ``0`` — every path MEASURED and under the threshold. Genuinely fine.
 * ``1`` — at least one path MEASURED and at/over the threshold. Act.
@@ -30,7 +30,7 @@ from pathlib import Path
 
 import click
 
-from .._inodes import (
+from .._measure._inodes import (
     COULD_NOT_LOOK,
     DEFAULT_WARN_PERCENT,
     MEASURED,

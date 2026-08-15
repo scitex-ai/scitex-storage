@@ -59,11 +59,27 @@ jobs:
           python-version: "3.12"
       - name: Install fd + fclones
         run: |
+          set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y fd-find
           FCLONES_VERSION=0.35.0
-          curl -fsSL -o /tmp/fclones.deb \
-            "https://github.com/pkolaczk/fclones/releases/download/v${FCLONES_VERSION}/fclones_${FCLONES_VERSION}-1_amd64.deb"
+          FCLONES_URL="https://github.com/pkolaczk/fclones/releases/download/v${FCLONES_VERSION}/fclones_${FCLONES_VERSION}-1_amd64.deb"
+          # Retry: this is the ONLY job that exercises fd and fclones for real
+          # (the matrix skips those tests -- see tests/conftest.py), so a
+          # transient network blip here does not merely red a check, it means
+          # that coverage SILENTLY DID NOT RUN. Seen 2026-08-15: a bare
+          # `curl -fsSL` died with "curl: (35) Recv failure: Connection reset
+          # by peer" and the job never reached pytest at all.
+          if ! curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
+                 -o /tmp/fclones.deb "$FCLONES_URL"; then
+            # Name the artifact and the URL. The bare exit code 35 that this
+            # replaces looks identical to a test failure in the checks list,
+            # which cost an investigation before anyone read the log.
+            echo "::error::Could not download the fclones .deb after 3 retries."
+            echo "::error::URL: ${FCLONES_URL}"
+            echo "::error::This is a NETWORK failure in the install step, NOT a test failure."
+            exit 1
+          fi
           sudo apt-get install -y /tmp/fclones.deb
           fdfind --version
           fclones --version

@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from scitex_storage._report import (
     duplicates_to_json_dict,
     format_count,
@@ -11,7 +13,7 @@ from scitex_storage._report import (
     format_size,
     to_json_dict,
 )
-from scitex_storage._scan import scan
+from scitex_storage._measure._scan import scan
 
 
 def _touch(path, size):
@@ -56,6 +58,7 @@ def test_format_count_uses_thousands_separator():
     assert rendered == "1,234"
 
 
+@pytest.mark.requires_fd
 def test_format_root_report_includes_root_path(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 10)
@@ -66,6 +69,7 @@ def test_format_root_report_includes_root_path(tmp_path):
     assert str(tmp_path.resolve()) in text
 
 
+@pytest.mark.requires_fd
 def test_format_root_report_lists_child_name(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 10)
@@ -76,6 +80,7 @@ def test_format_root_report_lists_child_name(tmp_path):
     assert "child" in text
 
 
+@pytest.mark.requires_fd
 def test_format_root_report_has_files_column_header(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 10)
@@ -108,6 +113,7 @@ def test_format_report_joins_multiple_roots(tmp_path):
     assert str(root_a.resolve()) in text and str(root_b.resolve()) in text
 
 
+@pytest.mark.requires_fd
 def test_to_json_dict_has_roots_key(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 10)
@@ -118,6 +124,7 @@ def test_to_json_dict_has_roots_key(tmp_path):
     assert "roots" in payload
 
 
+@pytest.mark.requires_fd
 def test_to_json_dict_root_has_expected_keys(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 10)
@@ -130,6 +137,7 @@ def test_to_json_dict_root_has_expected_keys(tmp_path):
     ][0].keys()
 
 
+@pytest.mark.requires_fd
 def test_to_json_dict_respects_top_limit(tmp_path):
     # Arrange
     for i in range(5):
@@ -180,7 +188,7 @@ def test_duplicates_to_json_dict_renders_paths_as_strings():
 
 
 def _archived_manifest(method):
-    from scitex_storage._archive import ArchiveManifest
+    from scitex_storage._transfer._archive import ArchiveManifest
 
     return ArchiveManifest(
         source="/data/old",
@@ -195,7 +203,7 @@ def _archived_manifest(method):
 
 
 def _archive_plan(tmp_path):
-    from scitex_storage._archive import ArchivePlan
+    from scitex_storage._transfer._archive import ArchivePlan
 
     return ArchivePlan(
         source=tmp_path / "old",

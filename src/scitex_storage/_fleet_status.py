@@ -17,7 +17,7 @@ behaviour is rendering and classification, not I/O, so:
   threshold / three-state / dark-mode case is exercised by constructing
   plain dataclasses, which is data, not a mock.
 * :func:`gather_fleet_snapshot` is the thin I/O layer: one ``statvfs``
-  per local path for space, plus :func:`scitex_storage._inodes.probe`
+  per local path for space, plus :func:`scitex_storage._measure._inodes.probe`
   for inodes. Tested against the real local filesystem only — no
   network, no ssh, no fakes.
 
@@ -43,11 +43,11 @@ import socket
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from ._inodes import COULD_NOT_LOOK, MEASURED, NOT_APPLICABLE, probe
+from ._measure._inodes import COULD_NOT_LOOK, MEASURED, NOT_APPLICABLE, probe
 
 #: Percent used at/over which a filesystem row is flagged red on the
 #: dashboard — for BOTH space and inodes. Deliberately lower than
-#: :data:`scitex_storage._inodes.DEFAULT_WARN_PERCENT` (90): a glance-able
+#: :data:`scitex_storage._measure._inodes.DEFAULT_WARN_PERCENT` (90): a glance-able
 #: dashboard should surface a filesystem that is *getting* full a little
 #: earlier than an unattended cron alarms, because a human looking at the
 #: board can act before the cliff rather than at it.
@@ -86,7 +86,7 @@ class HostStorage:
     """One filesystem row on the dashboard (a host may contribute several).
 
     ``used_pct`` (space) and ``inode_used_pct`` are ``float | None`` — the
-    same discipline as :class:`scitex_storage._inodes.InodeUsage`: ``None``
+    same discipline as :class:`scitex_storage._measure._inodes.InodeUsage`: ``None``
     means "not a measured number", never "0". ``verdict`` classifies the
     INODE measurement specifically (space is almost always measurable,
     inodes are the metric that goes three-state on a wedged NAS or an APFS

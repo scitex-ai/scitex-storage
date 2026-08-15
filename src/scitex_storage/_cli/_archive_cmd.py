@@ -8,7 +8,7 @@ import json
 
 import click
 
-from .._archive import (
+from .._transfer._archive import (
     DESTINATIONS,
     _rsync_binary,
     apply_archive,
@@ -16,12 +16,12 @@ from .._archive import (
     plan_archive,
     plan_restore,
 )
-from .._archive_transport import (
+from .._transfer._archive_transport import (
     RETIRED_DESTINATIONS,
     probe_transport,
     resolve_destination,
 )
-from .._scan import MissingSystemDependencyError
+from .._measure._scan import MissingSystemDependencyError
 from .._report import (
     archive_plan_to_json_dict,
     format_archive_report,
