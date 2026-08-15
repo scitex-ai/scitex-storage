@@ -2,12 +2,28 @@
 
 import json
 import os
+import shutil
 import time
 
 import pytest
 from click.testing import CliRunner
 
 from scitex_storage._cli import main
+
+# `sweep` walks the tree via `scan`, which shells out to `fd`. Resolved ONCE at
+# import, before any fixture can mutate PATH, mirroring _REAL_RSYNC_BIN in
+# tests/scitex_storage/test__archive.py.
+#
+# SKIP, never silently pass: without `fd` the command raises
+# MissingSystemDependencyError and exits non-zero, which is CORRECT behaviour,
+# not a regression. Asserting exit 0 there would fail for the environment
+# rather than for the code. A skip says "could not look"; a pass would claim
+# "looked and it was fine".
+_FD_BIN = shutil.which("fd") or shutil.which("fdfind")
+_needs_fd = pytest.mark.skipif(
+    _FD_BIN is None,
+    reason="needs the `fd` binary (fd-find); scan shells out to it",
+)
 
 
 def _touch(path, size=1, mtime=None):
@@ -57,6 +73,7 @@ def _hog(tmp_path, name, n_files=10, age_seconds=2 * 24 * 3600):
     return d
 
 
+@_needs_fd
 def test_cli_sweep_exits_zero(tmp_path):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
