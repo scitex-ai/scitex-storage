@@ -360,6 +360,7 @@ def test_plan_archive_raises_for_non_directory_source(tmp_path, sandbox_home):
         plan_archive(a_file, "nas")
 
 
+@pytest.mark.requires_fd
 def test_plan_archive_computes_size_bytes(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -371,6 +372,7 @@ def test_plan_archive_computes_size_bytes(tmp_path, sandbox_home):
     assert plan.size_bytes == 30
 
 
+@pytest.mark.requires_fd
 def test_plan_archive_computes_file_count(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -382,6 +384,7 @@ def test_plan_archive_computes_file_count(tmp_path, sandbox_home):
     assert plan.file_count == 2
 
 
+@pytest.mark.requires_fd
 def test_plan_archive_default_remote_path_mirrors_source(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -392,6 +395,7 @@ def test_plan_archive_default_remote_path_mirrors_source(tmp_path, sandbox_home)
     assert plan.remote_path == f"~/scitex-storage-archive{source}"
 
 
+@pytest.mark.requires_fd
 def test_plan_archive_explicit_remote_path_overrides_default(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -402,6 +406,7 @@ def test_plan_archive_explicit_remote_path_overrides_default(tmp_path, sandbox_h
     assert plan.remote_path == "~/custom/target"
 
 
+@pytest.mark.requires_fd
 def test_plan_archive_refuses_an_unsafe_remote_path(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -412,6 +417,7 @@ def test_plan_archive_refuses_an_unsafe_remote_path(tmp_path, sandbox_home):
         plan_archive(source, "nas", remote_path="/")
 
 
+@pytest.mark.requires_fd
 def test_plan_archive_does_not_touch_the_source(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -422,6 +428,7 @@ def test_plan_archive_does_not_touch_the_source(tmp_path, sandbox_home):
     assert f.exists()
 
 
+@pytest.mark.requires_fd
 def test_plan_archive_returns_an_archiveplan_instance(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -432,6 +439,7 @@ def test_plan_archive_returns_an_archiveplan_instance(tmp_path, sandbox_home):
     assert isinstance(plan, ArchivePlan)
 
 
+@pytest.mark.requires_fd
 def test_plan_archive_manifest_path_is_deterministic(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -446,6 +454,7 @@ def test_plan_archive_manifest_path_is_deterministic(tmp_path, sandbox_home):
 # --- apply_archive --------------------------------------------------------------
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_removes_the_source_on_success(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -457,6 +466,7 @@ def test_apply_archive_removes_the_source_on_success(tmp_path, sandbox_home):
     assert not source.exists()
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_writes_a_manifest_file_on_success(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -468,6 +478,7 @@ def test_apply_archive_writes_a_manifest_file_on_success(tmp_path, sandbox_home)
     assert plan.manifest_path.exists()
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_manifest_records_the_source_path(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -479,6 +490,7 @@ def test_apply_archive_manifest_records_the_source_path(tmp_path, sandbox_home):
     assert manifest.source == str(source)
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_records_that_the_check_was_a_tally(tmp_path, sandbox_home):
     """The manifest must say WHAT the check could see, not only that it passed.
 
@@ -498,6 +510,7 @@ def test_apply_archive_records_that_the_check_was_a_tally(tmp_path, sandbox_home
     assert manifest.verification_method == "tally"
 
 
+@pytest.mark.requires_fd
 def test_the_manifest_file_on_disk_carries_the_method(tmp_path, sandbox_home):
     """It has to be in the ARTEFACT, not only on the returned object.
 
@@ -539,6 +552,7 @@ def test_an_old_manifest_reads_back_as_unknown_not_tally():
     assert manifest.verification_method == "unknown"
 
 
+@pytest.mark.requires_fd
 def test_the_content_gate_is_off_by_default(tmp_path, sandbox_home):
     """Opt-in, because rsync --checksum already reads every byte on both sides.
 
@@ -556,6 +570,7 @@ def test_the_content_gate_is_off_by_default(tmp_path, sandbox_home):
     assert manifest.verification_method == "tally"
 
 
+@pytest.mark.requires_fd
 def test_the_content_gate_records_itself_when_asked_for(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -569,6 +584,7 @@ def test_the_content_gate_records_itself_when_asked_for(tmp_path, sandbox_home):
     assert manifest.verification_method == "content"
 
 
+@pytest.mark.requires_fd
 def test_a_faithful_destination_still_passes_the_content_gate(tmp_path, sandbox_home):
     """POSITIVE CONTROL: a gate that never passes is a gate nobody can use."""
     # Arrange
@@ -603,6 +619,7 @@ def refused_on_content(tmp_path, sandbox_home):
     return source, raised
 
 
+@pytest.mark.requires_fd
 def test_wrong_content_at_the_destination_refuses_the_delete(refused_on_content):
     """The whole reason the gate exists: the tally passes, this does not."""
     # Arrange
@@ -613,6 +630,7 @@ def test_wrong_content_at_the_destination_refuses_the_delete(refused_on_content)
     assert refused is True
 
 
+@pytest.mark.requires_fd
 def test_wrong_content_leaves_the_source_intact(refused_on_content):
     # Arrange
     source, _raised = refused_on_content
@@ -622,6 +640,7 @@ def test_wrong_content_leaves_the_source_intact(refused_on_content):
     assert survived is True
 
 
+@pytest.mark.requires_fd
 def test_the_same_destination_passes_the_tally_it_fails_on_content(tmp_path, sandbox_home):
     """DISCRIMINATING CONTROL — proves the gate adds something.
 
@@ -639,6 +658,7 @@ def test_the_same_destination_passes_the_tally_it_fails_on_content(tmp_path, san
     assert manifest.verified == "verified"
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_creates_the_remote_parent_directory_first(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -651,6 +671,7 @@ def test_apply_archive_creates_the_remote_parent_directory_first(tmp_path, sandb
     assert "mkdir -p" in runner.calls[0][-1]
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_mkdir_command_leaves_the_leading_tilde_unquoted(
     tmp_path, sandbox_home
 ):
@@ -667,6 +688,7 @@ def test_apply_archive_mkdir_command_leaves_the_leading_tilde_unquoted(
     assert "'~" not in runner.calls[0][-1]
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_rsync_source_has_a_trailing_slash(tmp_path, sandbox_home):
     # Arrange -- without the trailing slash, rsync nests source itself one
     # level deeper on the remote side instead of copying its contents
@@ -682,6 +704,7 @@ def test_apply_archive_rsync_source_has_a_trailing_slash(tmp_path, sandbox_home)
     assert _rsync_call(runner)[-2] == f"{plan.source}/"
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_mkdir_runs_before_the_rsync_call(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -701,6 +724,7 @@ def test_apply_archive_mkdir_runs_before_the_rsync_call(tmp_path, sandbox_home):
 # code raises before ever reaching the rsync call).
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_leaves_source_untouched_on_mkdir_failure(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -715,6 +739,7 @@ def test_apply_archive_leaves_source_untouched_on_mkdir_failure(tmp_path, sandbo
     assert f.exists()
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_raises_on_mkdir_failure(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -726,6 +751,7 @@ def test_apply_archive_raises_on_mkdir_failure(tmp_path, sandbox_home):
         apply_archive(plan, runner=_FakeRunner(returncode=1, stderr="mkdir error"))
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_does_not_write_manifest_on_mkdir_failure(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -743,6 +769,7 @@ def test_apply_archive_does_not_write_manifest_on_mkdir_failure(tmp_path, sandbo
 # A staged runner lets mkdir succeed so the rsync call specifically fails.
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_leaves_source_untouched_on_sync_failure_after_mkdir_ok(
     tmp_path, sandbox_home
 ):
@@ -760,6 +787,7 @@ def test_apply_archive_leaves_source_untouched_on_sync_failure_after_mkdir_ok(
     assert f.exists()
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_raises_on_sync_failure_after_mkdir_ok(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -772,6 +800,7 @@ def test_apply_archive_raises_on_sync_failure_after_mkdir_ok(tmp_path, sandbox_h
         apply_archive(plan, runner=runner)
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_checksum_true_adds_the_rsync_flag(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -784,6 +813,7 @@ def test_apply_archive_checksum_true_adds_the_rsync_flag(tmp_path, sandbox_home)
     assert "--checksum" in _rsync_call(runner)
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_checksum_false_omits_the_rsync_flag(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -796,6 +826,7 @@ def test_apply_archive_checksum_false_omits_the_rsync_flag(tmp_path, sandbox_hom
     assert "--checksum" not in _rsync_call(runner)
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_passes_exclude_patterns_through(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -808,6 +839,7 @@ def test_apply_archive_passes_exclude_patterns_through(tmp_path, sandbox_home):
     assert "--exclude=*.tmp" in _rsync_call(runner)
 
 
+@pytest.mark.requires_fd
 def test_apply_archive_returns_an_archivemanifest_instance(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -831,6 +863,7 @@ def test_plan_restore_raises_when_no_manifest_exists(tmp_path, sandbox_home):
         plan_restore(never_archived)
 
 
+@pytest.mark.requires_fd
 def test_plan_restore_loads_a_previously_written_manifest(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -843,6 +876,7 @@ def test_plan_restore_loads_a_previously_written_manifest(tmp_path, sandbox_home
     assert restore_plan.manifest.source == str(source)
 
 
+@pytest.mark.requires_fd
 def test_plan_restore_returns_a_restoreplan_instance(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -1086,6 +1120,7 @@ def _plan_with_two_files(tmp_path, sandbox_home):
     return plan_archive(source, "nas")
 
 
+@pytest.mark.requires_fd
 def test_a_short_destination_tally_refuses_and_raises(tmp_path, sandbox_home):
     # Arrange -- destination reports 1 entry where the source has 2.
     plan = _plan_with_two_files(tmp_path, sandbox_home)
@@ -1098,6 +1133,7 @@ def test_a_short_destination_tally_refuses_and_raises(tmp_path, sandbox_home):
         apply_archive(plan, runner=_LyingTallyRunner("1\n999999\n"))
 
 
+@pytest.mark.requires_fd
 def test_a_short_destination_tally_LEAVES_THE_SOURCE_INTACT(tmp_path, sandbox_home):
     # The consequence that matters: refusing is worthless if it deleted first.
     # Arrange
@@ -1113,6 +1149,7 @@ def test_a_short_destination_tally_LEAVES_THE_SOURCE_INTACT(tmp_path, sandbox_ho
     assert plan.source.exists()
 
 
+@pytest.mark.requires_fd
 def test_an_unanswerable_probe_LEAVES_THE_SOURCE_INTACT(tmp_path, sandbox_home):
     # "I could not check" must block the delete exactly as firmly as
     # "the check failed" -- for a destructive action they have the same
@@ -1130,6 +1167,7 @@ def test_an_unanswerable_probe_LEAVES_THE_SOURCE_INTACT(tmp_path, sandbox_home):
     assert plan.source.exists()
 
 
+@pytest.mark.requires_fd
 def test_a_refused_archive_still_records_the_verdict_in_the_manifest(
     tmp_path, sandbox_home
 ):
@@ -1147,6 +1185,7 @@ def test_a_refused_archive_still_records_the_verdict_in_the_manifest(
     assert "mismatch" in plan.manifest_path.read_text()
 
 
+@pytest.mark.requires_fd
 def test_a_full_destination_refuses_before_transferring(tmp_path, sandbox_home):
     # The sweep lesson applied to archive: a verb that moves data OFF a
     # full filesystem must measure the destination it is moving TO.
@@ -1161,6 +1200,7 @@ def test_a_full_destination_refuses_before_transferring(tmp_path, sandbox_home):
         apply_archive(plan, runner=_FullDestinationRunner(avail_kb=0))
 
 
+@pytest.mark.requires_fd
 def test_a_full_destination_LEAVES_THE_SOURCE_INTACT(tmp_path, sandbox_home):
     # Arrange
     plan = _plan_with_two_files(tmp_path, sandbox_home)
@@ -1175,6 +1215,7 @@ def test_a_full_destination_LEAVES_THE_SOURCE_INTACT(tmp_path, sandbox_home):
     assert plan.source.exists()
 
 
+@pytest.mark.requires_fd
 def test_a_full_destination_TRANSFERS_NOTHING(tmp_path, sandbox_home):
     # Refusing after pushing the data would defeat the point: the preflight
     # exists to avoid filling a destination, not to report it afterwards.
@@ -1194,6 +1235,7 @@ def test_a_full_destination_TRANSFERS_NOTHING(tmp_path, sandbox_home):
     )
 
 
+@pytest.mark.requires_fd
 def test_a_roomy_destination_proceeds(tmp_path, sandbox_home):
     # The guard must not block the ordinary case: 1 TiB free.
     # Arrange
@@ -1206,6 +1248,7 @@ def test_a_roomy_destination_proceeds(tmp_path, sandbox_home):
     assert manifest.verified == "verified"
 
 
+@pytest.mark.requires_fd
 def test_a_verified_archive_records_verified_in_the_manifest(tmp_path, sandbox_home):
     # Arrange
     plan = _plan_with_two_files(tmp_path, sandbox_home)
