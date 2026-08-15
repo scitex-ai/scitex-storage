@@ -77,6 +77,7 @@ def test_plan_sweep_raises_for_missing_directory(tmp_path):
         plan_sweep(missing, threshold_files=10)
 
 
+@pytest.mark.requires_fd
 def test_plan_sweep_includes_child_meeting_threshold(tmp_path):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -86,6 +87,7 @@ def test_plan_sweep_includes_child_meeting_threshold(tmp_path):
     assert {c.name for c in plan.candidates} == {"hog"}
 
 
+@pytest.mark.requires_fd
 def test_plan_sweep_excludes_child_below_threshold(tmp_path):
     # Arrange
     _hog(tmp_path, "small", n_files=5)
@@ -95,6 +97,7 @@ def test_plan_sweep_excludes_child_below_threshold(tmp_path):
     assert plan.candidates == []
 
 
+@pytest.mark.requires_fd
 def test_plan_sweep_excludes_fresh_child_from_candidates(tmp_path):
     # Arrange
     _hog(tmp_path, "fresh", n_files=20, age_seconds=60)  # 1 minute old
@@ -104,6 +107,7 @@ def test_plan_sweep_excludes_fresh_child_from_candidates(tmp_path):
     assert plan.candidates == []
 
 
+@pytest.mark.requires_fd
 def test_plan_sweep_reports_fresh_child_as_skipped(tmp_path):
     # Arrange
     _hog(tmp_path, "fresh", n_files=20, age_seconds=60)
@@ -113,6 +117,7 @@ def test_plan_sweep_reports_fresh_child_as_skipped(tmp_path):
     assert {c.name for c in plan.skipped_fresh} == {"fresh"}
 
 
+@pytest.mark.requires_fd
 def test_plan_sweep_reclaimable_inodes_sums_file_count_minus_one(tmp_path):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -122,6 +127,7 @@ def test_plan_sweep_reclaimable_inodes_sums_file_count_minus_one(tmp_path):
     assert plan.reclaimable_inodes == 19
 
 
+@pytest.mark.requires_fd
 def test_plan_sweep_does_not_touch_the_filesystem(tmp_path):
     # Arrange
     hog = _hog(tmp_path, "hog", n_files=20)
@@ -131,6 +137,7 @@ def test_plan_sweep_does_not_touch_the_filesystem(tmp_path):
     assert hog.exists()
 
 
+@pytest.mark.requires_fd
 def test_plan_sweep_returns_a_sweepplan_instance(tmp_path):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -143,6 +150,7 @@ def test_plan_sweep_returns_a_sweepplan_instance(tmp_path):
 # --- apply_sweep: SLURM guard -----------------------------------------------
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_raises_without_slurm_job_id(tmp_path, no_slurm_job):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -156,6 +164,7 @@ def test_apply_sweep_raises_without_slurm_job_id(tmp_path, no_slurm_job):
 # --- apply_sweep: consent gate -----------------------------------------------
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_raises_for_unknown_confirm_name(tmp_path, slurm_job):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -166,6 +175,7 @@ def test_apply_sweep_raises_for_unknown_confirm_name(tmp_path, slurm_job):
         apply_sweep(plan, confirm_names=["typo-name"])
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_leaves_unconfirmed_candidate_untouched(tmp_path, slurm_job):
     # Arrange
     hog_a = _hog(tmp_path, "hog-a", n_files=20)
@@ -180,6 +190,7 @@ def test_apply_sweep_leaves_unconfirmed_candidate_untouched(tmp_path, slurm_job)
 # --- apply_sweep: happy path --------------------------------------------------
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_removes_the_original_directory(tmp_path, slurm_job):
     # Arrange
     hog = _hog(tmp_path, "hog", n_files=20)
@@ -190,6 +201,7 @@ def test_apply_sweep_removes_the_original_directory(tmp_path, slurm_job):
     assert not hog.exists()
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_creates_the_tar(tmp_path, slurm_job):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -200,6 +212,7 @@ def test_apply_sweep_creates_the_tar(tmp_path, slurm_job):
     assert (tmp_path / "hog.tar").exists()
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_reports_swept_candidate(tmp_path, slurm_job):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -210,6 +223,7 @@ def test_apply_sweep_reports_swept_candidate(tmp_path, slurm_job):
     assert [s.candidate.name for s in result.swept] == ["hog"]
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_member_count_matches_original_file_count(tmp_path, slurm_job):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -220,6 +234,7 @@ def test_apply_sweep_member_count_matches_original_file_count(tmp_path, slurm_jo
     assert result.swept[0].member_count == 20
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_reclaimed_inodes_is_member_count_minus_one(tmp_path, slurm_job):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -230,6 +245,7 @@ def test_apply_sweep_reclaimed_inodes_is_member_count_minus_one(tmp_path, slurm_
     assert result.reclaimed_inodes == 19
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_returns_a_sweepresult_instance(tmp_path, slurm_job):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -240,6 +256,7 @@ def test_apply_sweep_returns_a_sweepresult_instance(tmp_path, slurm_job):
     assert isinstance(result, SweepResult)
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_never_dereferences_a_symlinked_subdirectory(tmp_path, slurm_job):
     # Arrange
     outside = tmp_path / "outside"
@@ -253,6 +270,7 @@ def test_apply_sweep_never_dereferences_a_symlinked_subdirectory(tmp_path, slurm
     assert result.swept[0].member_count == 20
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_raises_if_tar_path_already_exists(tmp_path, slurm_job):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -264,6 +282,7 @@ def test_apply_sweep_raises_if_tar_path_already_exists(tmp_path, slurm_job):
         apply_sweep(plan, confirm_names=["hog"])
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_does_not_remove_original_when_tar_path_collides(tmp_path, slurm_job):
     # Arrange
     hog = _hog(tmp_path, "hog", n_files=20)
@@ -281,6 +300,7 @@ def test_apply_sweep_does_not_remove_original_when_tar_path_collides(tmp_path, s
 # --- apply_sweep: walltime-aware stopping ------------------------------------
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_stops_before_a_candidate_it_cannot_finish(tmp_path, slurm_job):
     # Arrange -- 60s left, needs 300s min -- must stop before starting
     os.environ["SLURM_JOB_END_TIME"] = str(time.time() + 60)
@@ -295,6 +315,7 @@ def test_apply_sweep_stops_before_a_candidate_it_cannot_finish(tmp_path, slurm_j
     assert result.swept == []
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_reports_stopped_candidate_when_walltime_is_low(tmp_path, slurm_job):
     # Arrange
     os.environ["SLURM_JOB_END_TIME"] = str(time.time() + 60)
@@ -309,6 +330,7 @@ def test_apply_sweep_reports_stopped_candidate_when_walltime_is_low(tmp_path, sl
     assert [c.name for c in result.stopped_low_walltime] == ["hog"]
 
 
+@pytest.mark.requires_fd
 def test_apply_sweep_proceeds_when_plenty_of_walltime_remains(tmp_path, slurm_job):
     # Arrange
     os.environ["SLURM_JOB_END_TIME"] = str(time.time() + 3600)
