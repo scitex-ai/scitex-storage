@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import secrets
-import tempfile
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -68,15 +67,20 @@ TEMPLATES = [
     },
 ]
 
-# SQLite lives in the temp dir so local runs don't pollute the project
-_DB_DIR = Path(tempfile.gettempdir()) / "scitex_storage_gui"
-_DB_DIR.mkdir(parents=True, exist_ok=True)
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": str(_DB_DIR / "db.sqlite3"),
-    }
-}
+# No DATABASES. This layer declares ZERO models -- ``views.py`` renders
+# ``scitex_storage._measure._scan`` results straight off the filesystem, and
+# there is no ``models.py`` anywhere under ``_django/``. Django reads an empty
+# ``DATABASES`` as "this project has no database" (it installs the dummy
+# backend for the ``default`` alias), and ``runserver``'s migration check
+# returns early rather than erroring, so nothing here needs a connection.
+#
+# The block this replaces pointed a local dev GUI at a private on-disk file
+# and ran ``migrate --run-syncdb`` on every launch to create tables that no
+# code ever read. Re-pointing that at the fleet's PostgreSQL primary would be
+# worse than deleting it: a `gui open` on any workstation would then write
+# ``django_migrations`` / ``django_content_type`` into the fleet's live
+# ``scitex`` database, and a GUI that only lists directories would suddenly
+# need the primary reachable to start. Deleting is the honest fix.
 
 STATIC_URL = "/static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

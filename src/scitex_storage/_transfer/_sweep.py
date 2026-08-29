@@ -73,8 +73,8 @@ class SweepCandidate:
 
 #: Fraction of the artifact size that must ALSO be free after writing it.
 #: A tar built to the exact byte leaves a filesystem at 0 bytes free, which
-#: breaks every other writer on it -- including, on this fleet, the SQLite
-#: card board that every agent writes to. Headroom is not politeness.
+#: breaks every other writer on it -- including, on this fleet, the card
+#: board that every agent writes to. Headroom is not politeness.
 SPACE_MARGIN = 0.05
 
 

@@ -109,9 +109,10 @@ def run(
 
     django.setup()
 
-    from django.core.management import call_command
-
-    call_command("migrate", "--run-syncdb", verbosity=0)
+    # No `migrate` step: `settings.py` declares no DATABASES because this
+    # layer declares no models. The call that used to sit here built
+    # `django_migrations` / `django_content_type` on every launch and nothing
+    # ever read them.
 
     # The adapter imports cleanly even when scitex-app is absent -- it defers
     # the ImportError to CALL time on purpose. So both the import and the call
