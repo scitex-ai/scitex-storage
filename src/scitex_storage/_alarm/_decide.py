@@ -16,7 +16,7 @@ went to 364 MB free on a 393 GB volume -- 100% -- and NOTHING reported it.
 It surfaced only because a routine ``head`` inside an unrelated five-minute
 cron on another agent happened to write and died with ENOSPC. The detection
 mechanism was "an agent happens to run a command that writes". The next
-occurrence corrupts a SQLite mid-transaction instead of killing a text
+occurrence corrupts a database mid-transaction instead of killing a text
 filter, and the host carries sac's state DB. A dashboard would not have
 helped: nobody was looking at it, which is what a dashboard is for.
 
