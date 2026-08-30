@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import secrets
-import tempfile
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -68,15 +67,12 @@ TEMPLATES = [
     },
 ]
 
-# SQLite lives in the temp dir so local runs don't pollute the project
-_DB_DIR = Path(tempfile.gettempdir()) / "scitex_storage_gui"
-_DB_DIR.mkdir(parents=True, exist_ok=True)
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": str(_DB_DIR / "db.sqlite3"),
-    }
-}
+# No database at all. This app declares no models and no migrations; the
+# GUI reads the filesystem and the fleet snapshot. Django accepts an empty
+# mapping and installs its dummy backend, so an accidental ORM call fails
+# loudly instead of quietly succeeding against a scratch file under the
+# temp dir that nothing else would ever read.
+DATABASES: dict[str, dict[str, str]] = {}
 
 STATIC_URL = "/static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
