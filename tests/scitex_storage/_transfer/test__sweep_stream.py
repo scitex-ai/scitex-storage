@@ -28,8 +28,8 @@ import io
 import subprocess
 from pathlib import Path
 
-from scitex_storage._sweep import InsufficientSpaceError, SweepCandidate
-from scitex_storage._sweep_stream import (
+from scitex_storage._transfer._sweep import InsufficientSpaceError, SweepCandidate
+from scitex_storage._transfer._sweep_stream import (
     StreamVerificationError,
     remote_sha256,
     stream_sweep_to_remote,

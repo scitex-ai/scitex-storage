@@ -37,7 +37,7 @@ from pathlib import Path
 
 import pytest
 
-from scitex_storage._sweep import SweepCandidate, _sweep_one
+from scitex_storage._transfer._sweep import SweepCandidate, _sweep_one
 
 #: Small enough that a tar of the fixture cannot fit, large enough that
 #: tarfile gets a header written before it dies -- so the failure lands

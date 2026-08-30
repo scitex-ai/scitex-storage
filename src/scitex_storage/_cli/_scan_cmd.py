@@ -10,8 +10,8 @@ from pathlib import Path
 import click
 
 from .._report import format_report, to_json_dict
-from .._scan import MissingSystemDependencyError
-from .._scan import scan as _scan
+from .._measure._scan import MissingSystemDependencyError
+from .._measure._scan import scan as _scan
 from ._compat import spec_command_kwargs
 
 # Where research junk accumulates first on a SciTeX box: the tool's own

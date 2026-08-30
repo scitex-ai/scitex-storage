@@ -22,6 +22,13 @@ scitex-storage's CLI/package imports several cross-package modules under
   REQUIRED (a hard ``[project.dependencies]`` entry, unguarded) — archive
   tiering has no meaning without a transport, unlike the optional
   scitex-dev help/completion/system-deps niceties above.
+* ``scitex_io`` (``_document_pipeline/_extract.py``) — ``load``, called as
+  ``scitex_io.load(pdf, mode="text", ocr=...)`` to read a PDF's text
+  (embedded layer, with an OCR fallback via scitex-cv). REQUIRED (a hard
+  ``[project.dependencies]`` entry) — scitex-io OWNS PDF reading for the
+  ecosystem now, so the document pipeline dogfoods it rather than driving a
+  PDF library directly. Imported lazily inside ``extract_text`` (not at
+  package-import time), but unguarded: there is no fallback reader.
 * ``scitex_app._django`` / ``scitex_app._standalone``
   (``_django/_app_adapter.py``) — the (currently private) Django
   AppConfig base class + standalone-server launcher every scitex-hub
@@ -63,7 +70,8 @@ actually resolves — catching a renamed/moved upstream API before it ships.
 exactly the cross-package modules imported under ``src/`` (audit-project
 verifies it). Keep it in sync with the imports in ``_cli/_compat.py``,
 ``_cli/__init__.py``, ``_system_deps.py``, ``_archive.py``,
-``_django/_app_adapter.py``, and ``_fleet_status.py``.
+``_document_pipeline/_extract.py``, ``_django/_app_adapter.py``, and
+``_fleet_status.py``.
 """
 
 from __future__ import annotations
@@ -78,6 +86,7 @@ CROSS_PACKAGE_IMPORTS = [
     "scitex_dev._cli._completion",
     "scitex_dev.system_deps",
     "scitex_ssh",
+    "scitex_io",
     "scitex_app._django",
     "scitex_app._standalone",
     "scitex_ui",
@@ -91,16 +100,26 @@ CROSS_PACKAGE_IMPORTS = [
 @pytest.mark.parametrize("module_name", CROSS_PACKAGE_IMPORTS)
 def test_cross_package_dependency_imports_cleanly(module_name):
     # Arrange — skip when the optional sibling isn't installed (lean install).
-    pytest.importorskip(module_name)
-    # Act
+    # Scope that skip to the ROOT distribution. Skipping on the FULL dotted
+    # path swallows a renamed/moved submodule -- it raises
+    # ModuleNotFoundError, an ImportError subclass, so importorskip SKIPS and
+    # the gate reports GREEN on exactly the breakage it exists to catch.
+    # Root-presence does not imply submodule-presence, which is why the two
+    # statements are kept separate rather than inlined.
+    root = module_name.split(".")[0]
+    pytest.importorskip(root)
+    # Act — hard import of the FULL path: installed-but-renamed must FAIL here.
     module = importlib.import_module(module_name)
     # Assert
     assert module is not None
 
 
 def test_compat_uses_the_real_clihelp_when_scitex_dev_is_installed():
-    # Arrange — only meaningful once scitex-dev is on the path.
-    pytest.importorskip("scitex_dev.ecosystem")
+    # Arrange — only meaningful once scitex-dev is on the path. Skip on the
+    # ROOT, then hard-import the submodule, so a renamed `ecosystem` fails
+    # loudly here instead of skipping green.
+    pytest.importorskip("scitex_dev")
+    importlib.import_module("scitex_dev.ecosystem")
     from scitex_storage._cli import _compat
 
     # Act
@@ -110,8 +129,11 @@ def test_compat_uses_the_real_clihelp_when_scitex_dev_is_installed():
 
 
 def test_cli_wires_shell_completion_when_scitex_dev_is_installed():
-    # Arrange — only meaningful once scitex-dev is on the path.
-    pytest.importorskip("scitex_dev._cli._completion")
+    # Arrange — only meaningful once scitex-dev is on the path. Skip on the
+    # ROOT, then hard-import the submodule, so a renamed `_cli._completion`
+    # fails loudly here instead of skipping green.
+    pytest.importorskip("scitex_dev")
+    importlib.import_module("scitex_dev._cli._completion")
     from scitex_storage._cli import main
 
     # Act
@@ -122,7 +144,7 @@ def test_cli_wires_shell_completion_when_scitex_dev_is_installed():
 
 def test_archive_module_resolves_sync_dir_from_scitex_ssh():
     # Arrange -- a hard dependency, so this should always resolve.
-    from scitex_storage import _archive
+    from scitex_storage._transfer import _archive
 
     # Act
     # Assert
@@ -131,8 +153,11 @@ def test_archive_module_resolves_sync_dir_from_scitex_ssh():
 
 def test_app_adapter_resolves_the_real_scitex_app_config_when_installed():
     # Arrange — only meaningful once scitex-app + Django are on the path.
+    # Both skips are ROOT-scoped; the `from scitex_app._django import ...`
+    # below is the hard import, so a renamed submodule fails rather than
+    # skipping green.
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
+    pytest.importorskip("scitex_app")
     from scitex_app._django import ScitexAppConfig as RealScitexAppConfig
 
     from scitex_storage._django._app_adapter import ScitexAppConfig
@@ -156,8 +181,11 @@ def _boot_django_for_storage_gui():
 
 def test_storage_config_app_defaults_true_when_django_is_installed():
     # Arrange — boot Django against the GUI's own standalone settings.
+    # Both skips are ROOT-scoped; the submodule is then hard-imported so a
+    # rename fails rather than skipping green.
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
+    pytest.importorskip("scitex_app")
+    importlib.import_module("scitex_app._django")
     _boot_django_for_storage_gui()
     from django.apps import apps
 
@@ -170,8 +198,11 @@ def test_storage_config_app_defaults_true_when_django_is_installed():
 
 def test_storage_config_app_slug_matches_manifest_when_django_is_installed():
     # Arrange — boot Django against the GUI's own standalone settings.
+    # Both skips are ROOT-scoped; the submodule is then hard-imported so a
+    # rename fails rather than skipping green.
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
+    pytest.importorskip("scitex_app")
+    importlib.import_module("scitex_app._django")
     _boot_django_for_storage_gui()
     from django.apps import apps
 

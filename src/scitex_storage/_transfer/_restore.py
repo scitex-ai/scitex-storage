@@ -79,7 +79,7 @@ def apply_restore(
     ``sync_dir`` and ``exec_remote``.
 
     Requires ``rsync`` only when ``runner is None`` — same reasoning as
-    :func:`~scitex_storage._archive.apply_archive`.
+    :func:`~scitex_storage._transfer._archive.apply_archive`.
     """
     if runner is None:
         _rsync_binary()

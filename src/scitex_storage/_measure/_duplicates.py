@@ -23,7 +23,7 @@ naive "hash every candidate fully" approach) instead of a hand-rolled
 reimplementation. ``fclones`` is a **system** (non-PyPI) runtime dependency
 of this verb only (see ``_system_deps.py`` and the README) — never required
 to *install* scitex-storage. A missing binary raises
-:class:`~scitex_storage._scan.MissingSystemDependencyError` with install
+:class:`~scitex_storage._measure._scan.MissingSystemDependencyError` with install
 instructions rather than silently falling back to a slow pure-Python hash.
 """
 

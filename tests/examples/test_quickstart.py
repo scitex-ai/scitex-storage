@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "quickstart.py"
 
 
@@ -31,6 +33,7 @@ def _run_example() -> subprocess.CompletedProcess:
     )
 
 
+@pytest.mark.requires_fd
 def test_quickstart_example_exits_zero():
     # Arrange
     example = EXAMPLE
@@ -40,6 +43,7 @@ def test_quickstart_example_exits_zero():
     assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
 
 
+@pytest.mark.requires_fd
 def test_quickstart_example_reports_the_large_child_as_biggest():
     # Arrange
     example = EXAMPLE

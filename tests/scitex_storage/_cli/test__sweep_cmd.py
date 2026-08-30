@@ -57,6 +57,7 @@ def _hog(tmp_path, name, n_files=10, age_seconds=2 * 24 * 3600):
     return d
 
 
+@pytest.mark.requires_fd
 def test_cli_sweep_exits_zero(tmp_path):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -98,6 +99,7 @@ def test_cli_sweep_apply_without_confirm_is_rejected(tmp_path, slurm_job):
     assert result.exit_code != 0
 
 
+@pytest.mark.requires_fd
 def test_cli_sweep_apply_with_confirm_removes_the_directory(tmp_path, slurm_job):
     # Arrange
     hog = _hog(tmp_path, "hog", n_files=20)
@@ -140,6 +142,7 @@ def test_cli_sweep_apply_without_slurm_job_id_fails(tmp_path, no_slurm_job):
     assert hog.exists()
 
 
+@pytest.mark.requires_fd
 def test_cli_sweep_json_flag_reports_candidates(tmp_path):
     # Arrange
     _hog(tmp_path, "hog", n_files=20)
@@ -152,6 +155,7 @@ def test_cli_sweep_json_flag_reports_candidates(tmp_path):
     assert len(json.loads(result.output)["candidates"]) == 1
 
 
+@pytest.mark.requires_fd
 def test_cli_sweep_min_age_hours_excludes_fresh_candidate(tmp_path):
     # Arrange
     _hog(tmp_path, "fresh", n_files=20, age_seconds=60)

@@ -15,7 +15,7 @@ from __future__ import annotations
 import html
 
 from .._fleet_status import FleetSnapshot, HostStorage, _now_iso
-from .._inodes import COULD_NOT_LOOK, MEASURED, NOT_APPLICABLE
+from .._measure._inodes import COULD_NOT_LOOK, MEASURED, NOT_APPLICABLE
 
 # Inline, self-contained, dark by default (the operator's eyes are light
 # sensitive — see the constitution). No external assets, no CDN, no fonts.

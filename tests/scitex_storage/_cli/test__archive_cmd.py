@@ -69,6 +69,7 @@ def sandbox_home(tmp_path):
             os.environ["HOME"] = prev
 
 
+@pytest.mark.requires_fd
 def test_cli_archive_exits_zero(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -120,6 +121,7 @@ def test_cli_archive_defaults_to_dry_run(tmp_path, sandbox_home):
     assert f.exists()
 
 
+@pytest.mark.requires_fd
 def test_cli_archive_explicit_dry_run_flag_exits_zero(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -142,17 +144,69 @@ def test_cli_archive_yes_with_dry_run_does_not_mutate(tmp_path, sandbox_home):
     assert f.exists()
 
 
+@pytest.mark.requires_fd
 def test_cli_archive_json_reports_the_destination(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
     _touch(source / "a.bin")
     runner = CliRunner()
     # Act
+    result = runner.invoke(
+        main, ["archive", str(source), "--to", "scitex-nas-01", "--json"]
+    )
+    # Assert
+    assert json.loads(result.output)["destination"] == "scitex-nas-01"
+
+
+@pytest.mark.requires_fd
+def test_cli_archive_json_reports_the_LIVE_host_for_a_retired_alias(
+    tmp_path, sandbox_home
+):
+    # Arrange -- `--to nas` must plan against the host that will actually be
+    # dialled, not the name typed. The plan's destination reaches the MANIFEST,
+    # which is what `restore` reads months later: recording a retired alias
+    # there would produce an archive that cannot be restored from.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    runner = CliRunner()
+    # Act
     result = runner.invoke(main, ["archive", str(source), "--to", "nas", "--json"])
     # Assert
-    assert json.loads(result.output)["destination"] == "nas"
+    assert json.loads(result.output)["destination"] == "scitex-nas-03"
 
 
+@pytest.mark.requires_fd
+def test_cli_archive_json_records_what_the_caller_typed(tmp_path, sandbox_home):
+    # Arrange -- the rewrite must be VISIBLE, or the caller keeps typing a dead
+    # name forever. In --json the notice belongs in the payload: a stderr line
+    # is lost or interleaved the moment anyone merges the streams (this test
+    # failed exactly that way when the notice was written to stderr).
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(main, ["archive", str(source), "--to", "nas2", "--json"])
+    # Assert
+    assert json.loads(result.output)["destination_rewritten_from"] == "nas2"
+
+
+@pytest.mark.requires_fd
+def test_cli_archive_json_stays_parseable_for_a_current_alias(tmp_path, sandbox_home):
+    # Arrange -- the no-rewrite path must not gain a stray line either. Parsing
+    # IS the assertion: a NOTE printed alongside the document would raise here
+    # rather than fail a comparison, which is how the stderr version was caught.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(
+        main, ["archive", str(source), "--to", "scitex-nas-02", "--json"]
+    )
+    # Assert
+    assert "destination_rewritten_from" not in json.loads(result.output)
+
+
+@pytest.mark.requires_fd
 def test_cli_archive_json_reports_applied_false_on_dry_run(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -239,6 +293,31 @@ def test_cli_restore_dry_run_fails_when_rsync_is_absent(
     result = runner.invoke(main, ["restore", str(source)])
     # Assert
     assert result.exit_code != 0
+
+
+def test_cli_archive_exposes_the_content_gate_flag():
+    # Arrange -- REACHABILITY is the whole point of this test. apply_archive
+    # has carried `verify_content_too` since the content gate shipped, but the
+    # `archive` command never passed it and offered no flag, so the only
+    # caller that performs the irreversible delete could not turn the gate on.
+    # A safety feature the dangerous path cannot reach is not shipped.
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(main, ["archive", "--help"])
+    # Assert
+    assert "--verify-content" in result.output
+
+
+def test_cli_archive_content_gate_defaults_to_off():
+    # Arrange -- opt-in on purpose: rsync --checksum already reads every byte,
+    # so this is a second opinion from a different instrument and costs a full
+    # re-read of both trees. Pinning the default so it cannot drift silently
+    # into every archive, which would be a large cost nobody asked for.
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(main, ["archive", "--help"])
+    # Assert
+    assert "--no-verify-content" in result.output
 
 
 # EOF

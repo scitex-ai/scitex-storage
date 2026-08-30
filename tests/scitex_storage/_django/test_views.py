@@ -72,8 +72,12 @@ def test_index_renders_200_for_a_real_directory(tmp_path):
     assert response.status_code == 200
 
 
+@pytest.mark.requires_fd
 def test_index_renders_the_real_directory_name_from_a_real_scan(tmp_path):
-    # Arrange
+    # Arrange -- the only test in this module that needs `fd`: it asserts on
+    # the output of a REAL scan, and the view renders an empty tree rather
+    # than raising when the binary is missing, so the failure arrives as a
+    # bare "'alpha' not in <html>" with nothing pointing at fd.
     pytest.importorskip("django")
     pytest.importorskip("scitex_app._django")
     pytest.importorskip("scitex_ui")

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scitex_storage._regenerable import (
+from scitex_storage._measure._regenerable import (
     NOT_REGENERABLE,
     REGENERABLE,
     is_regenerable,

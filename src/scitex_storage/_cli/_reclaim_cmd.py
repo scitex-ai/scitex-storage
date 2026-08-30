@@ -16,7 +16,7 @@ import json
 
 import click
 
-from .._reclaim import (
+from .._transfer._reclaim import (
     apply_reclaim,
     list_manifests,
     plan_reclaim,

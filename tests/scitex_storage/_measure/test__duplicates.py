@@ -1,4 +1,4 @@
-"""Unit + integration tests for scitex_storage._duplicates (fclones-backed).
+"""Unit + integration tests for scitex_storage._measure._duplicates (fclones-backed).
 
 Layered like test__scan.py's fd-dependency section: pure-logic / JSON-
 protocol tests control PATH via a real env-var mutation (this repo forbids
@@ -19,8 +19,8 @@ import sys
 
 import pytest
 
-from scitex_storage._duplicates import find_duplicates
-from scitex_storage._scan import MissingSystemDependencyError
+from scitex_storage._measure._duplicates import find_duplicates
+from scitex_storage._measure._scan import MissingSystemDependencyError
 
 _HAVE_FCLONES = bool(shutil.which("fclones"))
 requires_fclones = pytest.mark.skipif(

@@ -47,7 +47,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from ._space import remote_free_bytes
+from .._measure._space import remote_free_bytes
 from ._sweep import InsufficientSpaceError, SweepCandidate, check_space
 
 #: Read size for the tar->ssh pump. Large enough that the hash and the

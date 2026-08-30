@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from scitex_storage._report import (
     duplicates_to_json_dict,
     format_count,
@@ -11,7 +13,7 @@ from scitex_storage._report import (
     format_size,
     to_json_dict,
 )
-from scitex_storage._scan import scan
+from scitex_storage._measure._scan import scan
 
 
 def _touch(path, size):
@@ -56,6 +58,7 @@ def test_format_count_uses_thousands_separator():
     assert rendered == "1,234"
 
 
+@pytest.mark.requires_fd
 def test_format_root_report_includes_root_path(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 10)
@@ -66,6 +69,7 @@ def test_format_root_report_includes_root_path(tmp_path):
     assert str(tmp_path.resolve()) in text
 
 
+@pytest.mark.requires_fd
 def test_format_root_report_lists_child_name(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 10)
@@ -76,6 +80,7 @@ def test_format_root_report_lists_child_name(tmp_path):
     assert "child" in text
 
 
+@pytest.mark.requires_fd
 def test_format_root_report_has_files_column_header(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 10)
@@ -108,6 +113,7 @@ def test_format_report_joins_multiple_roots(tmp_path):
     assert str(root_a.resolve()) in text and str(root_b.resolve()) in text
 
 
+@pytest.mark.requires_fd
 def test_to_json_dict_has_roots_key(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 10)
@@ -118,6 +124,7 @@ def test_to_json_dict_has_roots_key(tmp_path):
     assert "roots" in payload
 
 
+@pytest.mark.requires_fd
 def test_to_json_dict_root_has_expected_keys(tmp_path):
     # Arrange
     _touch(tmp_path / "child" / "a.bin", 10)
@@ -130,6 +137,7 @@ def test_to_json_dict_root_has_expected_keys(tmp_path):
     ][0].keys()
 
 
+@pytest.mark.requires_fd
 def test_to_json_dict_respects_top_limit(tmp_path):
     # Arrange
     for i in range(5):
@@ -177,6 +185,60 @@ def test_duplicates_to_json_dict_renders_paths_as_strings():
     payload = duplicates_to_json_dict(groups)
     # Assert
     assert payload["groups"] == [["/a", "/b"]]
+
+
+def _archived_manifest(method):
+    from scitex_storage._transfer._archive import ArchiveManifest
+
+    return ArchiveManifest(
+        source="/data/old",
+        destination="nas2",
+        remote_path="~/scitex-storage-archive/data/old",
+        size_bytes=10,
+        file_count=1,
+        checksummed=True,
+        archived_at=0.0,
+        verification_method=method,
+    )
+
+
+def _archive_plan(tmp_path):
+    from scitex_storage._transfer._archive import ArchivePlan
+
+    return ArchivePlan(
+        source=tmp_path / "old",
+        destination="nas2",
+        remote_path="~/scitex-storage-archive/old",
+        size_bytes=10,
+        file_count=1,
+        manifest_path=tmp_path / "m.json",
+    )
+
+
+def test_format_archive_report_names_the_gate_that_cleared_the_delete(tmp_path):
+    # Arrange -- a TALLY-only verdict with rsync checksumming ON. The old line
+    # printed "checksummed=True" alone, which reads as "content verified" when
+    # the delete was in fact cleared by a count+size tally. One word standing
+    # for two different guarantees is how an operator over-trusts a delete.
+    from scitex_storage._report import format_archive_report
+
+    manifest = _archived_manifest("tally")
+    # Act
+    text = format_archive_report(_archive_plan(tmp_path), applied=True, manifest=manifest)
+    # Assert
+    assert "delete cleared by: tally" in text
+
+
+def test_format_archive_report_says_content_when_the_content_gate_ran(tmp_path):
+    # Arrange -- same rsync flag, different gate. The two runs must not render
+    # identically, or the report cannot tell them apart for the reader either.
+    from scitex_storage._report import format_archive_report
+
+    manifest = _archived_manifest("content")
+    # Act
+    text = format_archive_report(_archive_plan(tmp_path), applied=True, manifest=manifest)
+    # Assert
+    assert "delete cleared by: content" in text
 
 
 # EOF

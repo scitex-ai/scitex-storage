@@ -49,8 +49,8 @@ import json
 
 import click
 
-from .._classify import COULD_NOT_LOOK, MOVABLE, NOT_MOVABLE, Classification
-from .._survey import DEFAULT_COLD_AFTER_SECONDS, survey
+from .._measure._classify import COULD_NOT_LOOK, MOVABLE, NOT_MOVABLE, Classification
+from .._measure._survey import DEFAULT_COLD_AFTER_SECONDS, survey
 from ._compat import spec_command_kwargs
 
 #: Declared numeric codes with documented meanings. See the module

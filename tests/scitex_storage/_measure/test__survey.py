@@ -19,8 +19,8 @@ from __future__ import annotations
 import os
 import time
 
-from scitex_storage._classify import COULD_NOT_LOOK
-from scitex_storage._survey import (
+from scitex_storage._measure._classify import COULD_NOT_LOOK
+from scitex_storage._measure._survey import (
     DEFAULT_COLD_AFTER_SECONDS,
     coverage_signal,
     stat_tree,

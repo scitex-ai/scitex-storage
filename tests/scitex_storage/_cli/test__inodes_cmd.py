@@ -22,7 +22,7 @@ import pytest
 from click.testing import CliRunner
 
 from scitex_storage._cli._inodes_cmd import _format_report, _usage_dict, inodes_cmd
-from scitex_storage._inodes import (
+from scitex_storage._measure._inodes import (
     COULD_NOT_LOOK,
     InodeUsage,
     probe,

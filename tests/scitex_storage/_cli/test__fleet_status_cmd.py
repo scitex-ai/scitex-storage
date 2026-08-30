@@ -135,7 +135,11 @@ def test_json_output_reports_null_not_zero_for_an_unread_inode(runner):
     # Act
     result = runner.invoke(fleet_status_cmd, ["--demo", "--json"])
     rows = json.loads(result.output)["rows"]
-    nas = next(r for r in rows if r["host"] == "nas")
+    # `scitex-nas-03` is the host formerly called `nas` (renamed 2026-08-07).
+    # Kept as a lookup by NAME rather than by index: `next(...)` raising
+    # StopIteration is what caught the rename here, and an index would have
+    # silently asserted about whichever row happened to be third.
+    nas = next(r for r in rows if r["host"] == "scitex-nas-03")
     # Assert
     assert nas["inode_used_pct"] is None
 

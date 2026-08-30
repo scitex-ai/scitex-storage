@@ -1,20 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Read the embedded text layer of a searchable PDF.
+"""Extract a PDF's text, via scitex-io (embedded layer, with OCR fallback).
 
-ScanSnap (and most scanners) with OCR-on embed a real text layer in the
-PDF. Reading that layer is a cheap, deterministic, dependency-light
-extraction — no OCR pass, no image processing — which is why the MVP
-targets it first. :func:`extract_text` is a PURE function of a path: same
-bytes in, same string out, no I/O beyond the read, nothing global touched.
+Reading is DELEGATED to ``scitex_io.load(pdf, mode="text", ocr=...)`` rather
+than driving a PDF library here: scitex-io owns PDF reading for the whole
+ecosystem now, and dogfooding it is the point of this phase. With ``ocr=True``
+scitex-io reads the embedded text layer first and, only when that layer is
+empty, renders the pages and OCRs them through ``scitex_cv.ocr`` (EasyOCR,
+ja+en) -- so a ScanSnap PDF scanned WITH OCR-on returns its embedded text with
+no OCR pass, while an image-only scan (OCR off, or a photo) is no longer a
+silent empty string. ``ocr=False`` restores the text-layer-only behaviour.
 
-DELIBERATELY OUT OF SCOPE (documented TODO, not this MVP): an image-only PDF
-(scanned with OCR OFF, or a photo) has NO text layer, so this returns an
-empty string for it rather than guessing. The planned fallback is a second
-EasyOCR pass (already on the host, ja+en) gated on "extracted text is empty
-/ too short" — see the ``document_sorter.ocr`` config block. The pipeline
-already routes an empty extraction to ``misc`` (never a silent wrong guess),
-so wiring that fallback is additive and safe to defer.
+:func:`extract_text` stays a PURE function of ``(path, ocr)``: same bytes in,
+same string out, no global state touched. An empty extraction (image-only PDF
+with OCR disabled, or scitex-cv unavailable) returns ``""``, which the
+classifier routes to ``misc`` -- never a silent wrong guess.
+
+THE OCR STACK IS OPTIONAL AND IS NOT DECLARED HERE, on purpose. scitex-io's
+OCR path rasterises pages with PyMuPDF and recognises them with
+``scitex-cv[ocr]``; it RAISES ``ImportError`` when either is missing rather
+than degrading. PyMuPDF is AGPL-3.0, so pulling it into storage's base install
+would hand every consumer a copyleft obligation to get a fallback most of them
+never reach. So we ask for OCR, and treat its absence as the documented
+empty-extraction case -- see :func:`extract_text` for how that is kept
+distinct from "no PDF backend at all", which stays loud.
 """
 
 from __future__ import annotations
@@ -22,27 +31,39 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def extract_text(pdf_path: str | Path) -> str:
-    """Return the concatenated embedded text of every page in ``pdf_path``.
+def extract_text(pdf_path: str | Path, *, ocr: bool = True) -> str:
+    """Return the text of ``pdf_path`` via ``scitex_io.load(mode="text")``.
 
-    Uses ``pypdf`` (pure-Python, no system binary). Pages are joined with a
-    blank line. A page with no text layer contributes an empty string rather
-    than raising, so an image-only PDF yields ``""`` (which the classifier
-    routes to ``misc``). Raises ``FileNotFoundError`` for a missing path and
-    lets a genuinely corrupt PDF raise from ``pypdf`` -- a file that cannot
-    be read is a loud failure, not a silently-empty extraction.
+    ``ocr`` (default True) is forwarded to scitex-io: when the embedded text
+    layer is empty it renders + OCRs the pages via scitex-cv; when False it
+    reads the text layer only. Raises ``FileNotFoundError`` for a missing path
+    (a file that cannot be read is a loud failure, not a silently-empty
+    extraction). Returns ``""`` when the PDF genuinely yields no text.
+
+    A MISSING OCR STACK DEGRADES; A MISSING PDF BACKEND DOES NOT. scitex-io
+    raises ``ImportError`` for both, so we tell them apart by RETRYING with
+    ``ocr=False``: if the text-layer read then succeeds, only the OCR extras
+    were missing and the documented ``""`` is correct. If it raises too, no
+    PDF backend is installed at all -- a packaging fault, not an empty
+    document -- and the ORIGINAL error propagates. Retrying rather than
+    matching on the message keeps this working when the wording changes; an
+    error string is not an API.
     """
     path = Path(pdf_path)
     if not path.is_file():
         raise FileNotFoundError(f"no PDF to extract at {path}")
 
-    from pypdf import PdfReader
+    import scitex_io
 
-    reader = PdfReader(str(path))
-    parts: list[str] = []
-    for page in reader.pages:
-        parts.append(page.extract_text() or "")
-    return "\n\n".join(parts).strip()
+    try:
+        text = scitex_io.load(str(path), mode="text", ocr=ocr)
+    except ImportError:
+        if not ocr:
+            raise
+        text = scitex_io.load(str(path), mode="text", ocr=False)
+    if not text:
+        return ""
+    return str(text).strip()
 
 
 # EOF

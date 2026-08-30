@@ -251,3 +251,55 @@ def test_critical_sorts_above_warn_in_the_message():
     assert text.index("[critical]") < text.index("[warn]")
 
 # EOF
+
+
+# --------------------------------------------------------------------------
+# The QUIET message must state its DENOMINATOR, not just its numerator.
+# "0 unmeasured" is the same sentence whether two local filesystems were
+# checked or the whole fleet was, and the reader cannot audit a denominator
+# that is never printed. Measured 2026-08-11: run in a container this line
+# read "storage ok: nothing alarming (0 unmeasured)" while three NAS units
+# were unreachable and compute-04 -- the host this alarm was written for --
+# was never in scope at all.
+# --------------------------------------------------------------------------
+
+
+def test_quiet_message_states_how_many_filesystems_were_checked():
+    # Arrange
+    snapshot = FleetSnapshot(rows=[_row(), _row(mount="/data")])
+    # Act
+    text = format_alarm(evaluate_snapshot(snapshot))
+    # Assert
+    assert "2 filesystem(s)" in text
+
+
+def test_quiet_message_names_the_host_it_actually_looked_at():
+    # Arrange -- naming the host is what reveals that a "fleet" alarm ran
+    # against one machine.
+    snapshot = FleetSnapshot(rows=[_row(host="compute-04")])
+    # Act
+    text = format_alarm(evaluate_snapshot(snapshot))
+    # Assert
+    assert "compute-04" in text
+
+
+def test_quiet_message_summarises_when_several_hosts_were_checked():
+    # Arrange -- listing every host would blow the "read under pressure"
+    # budget, so multi-host collapses to a count. The count still separates
+    # a one-host run from a fleet sweep, which is the whole point.
+    snapshot = FleetSnapshot(
+        rows=[_row(host="compute-04"), _row(host="scitex-nas-01")]
+    )
+    # Act
+    text = format_alarm(evaluate_snapshot(snapshot))
+    # Assert
+    assert "2 hosts" in text
+
+
+def test_quiet_message_still_reports_the_unmeasured_count():
+    # Arrange -- the numerator must not be lost while adding the denominator.
+    snapshot = FleetSnapshot(rows=[_row()])
+    # Act
+    text = format_alarm(evaluate_snapshot(snapshot))
+    # Assert
+    assert "0 unmeasured" in text

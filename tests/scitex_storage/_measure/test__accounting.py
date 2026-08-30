@@ -1,4 +1,4 @@
-"""Unit tests for scitex_storage._accounting (S5, the accounting audit).
+"""Unit tests for scitex_storage._measure._accounting (S5, the accounting audit).
 
 Every case is drawn from the 2026-07-22 ywata-note-win incident, where
 this check would have produced the answer in the first hour instead of
@@ -15,12 +15,12 @@ from __future__ import annotations
 
 import pytest
 
-from scitex_storage._accounting import (
+from scitex_storage._measure._accounting import (
     RESIDUAL_THRESHOLD,
     Accounting,
     accounting_signal,
 )
-from scitex_storage._classify import COULD_NOT_LOOK, MOVABLE
+from scitex_storage._measure._classify import COULD_NOT_LOOK, MOVABLE
 
 TB = 1024**4
 GB = 1024**3
