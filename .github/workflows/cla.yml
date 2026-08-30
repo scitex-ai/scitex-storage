@@ -37,7 +37,7 @@ permissions:
 
 jobs:
   call:
-    uses: scitex-ai/.github/.github/workflows/cla.yml@a29fe1bf604605732ca84f73901d02986ff8bf96  # main@2026-08-05
+    uses: scitex-ai/.github/.github/workflows/cla.yml@f5d19f5b7424fcf985137bb6acff54f5d0e11749  # main@2026-08-05
     with:
       # EPHEMERAL RUNNER, AND THIS IS A SAFETY DECISION, NOT A CI-SPEED ONE.
       #
