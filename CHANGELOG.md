@@ -55,7 +55,7 @@ does a check actually let you conclude?**
   surfaced only because a routine `head` inside an unrelated five-minute cron
   on another agent happened to write and died with `ENOSPC` — the detection
   mechanism was *"an agent happens to run a command that writes"*. The next
-  occurrence corrupts a SQLite mid-transaction rather than killing a text
+  occurrence corrupts a database mid-transaction rather than killing a text
   filter, and that host carries the fleet's agent state DB.
   - **The measurement layer already existed and needed nothing.** `_observe`
     gathers the fleet, `HostStorage` carries space and inode percentages with
