@@ -35,6 +35,12 @@ scitex-storage's CLI/package imports several cross-package modules under
   plugin needs. OPTIONAL/guarded via the ``gui`` extra (see
   ``pyproject.toml``) — imported ONLY from the isolated adapter module,
   never elsewhere (see that module's docstring for why).
+* ``scitex_app.sdk`` (``_django/project_files.py``) — ``get_files`` /
+  ``FilesBackend``, the SDK file primitives the project-scoped List/Read/
+  Download slice is built on. OPTIONAL/guarded via the ``gui`` extra,
+  same ``scitex_app`` distribution as the adapter imports above — a lean
+  install without the GUI extra simply has no ``scitex_app`` and the
+  ``_django`` package (and its tests) are skipped.
 * ``scitex_ui`` (``_django/settings.py`` / ``_django/_server.py``) —
   supplies the shared workspace shell template + CSS/JS the GUI's
   templates extend. OPTIONAL/guarded, same ``gui`` extra.
@@ -89,6 +95,7 @@ CROSS_PACKAGE_IMPORTS = [
     "scitex_io",
     "scitex_app._django",
     "scitex_app._standalone",
+    "scitex_app.sdk",
     "scitex_ui",
     "scitex_ui.branding",
     "scitex_dev.gui_runtime",
