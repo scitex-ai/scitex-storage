@@ -28,12 +28,15 @@ from __future__ import annotations
 
 from django.http import HttpResponse
 from django.shortcuts import render
+from django.views.decorators.http import require_GET
 
 from scitex_ui.branding import shell_context
 
 from scitex_storage._report import format_count, format_size
 from scitex_storage._measure._scan import MissingSystemDependencyError, scan
 
+from . import project_files
+from .project_files import StorageFileError
 from ._favicon import FAVICON_HREF
 
 #: What each of the shell's three panes IS for this app, per scitex-ui's
@@ -182,6 +185,66 @@ def sunburst(request) -> HttpResponse:
 def healthz(request) -> HttpResponse:
     """Trivial liveness check — not part of the manifest'd UI routes."""
     return HttpResponse("ok")
+
+
+# --------------------------------------------------------------------------- #
+# Project-scoped file API (compass §14: List + Read + Download)
+# --------------------------------------------------------------------------- #
+# Thin adapters over ``project_files``. The authz and project-scope come from
+# the hub via ``request`` (see project_files' module docstring); the file
+# primitives come from ``scitex_app.sdk.get_files``. No second user/project
+# model lives here or in project_files.
+#
+# Every handler catches ``StorageFileError`` and maps it to its typed HTTP
+# status via ``STATUS_BY_CODE`` — a project-file failure is a 404/403/400/507,
+# NEVER a bare 500. The existing ``scan`` views keep their own error handling
+# (browser-facing page); these are machine-facing API routes.
+# --------------------------------------------------------------------------- #
+def _json_error(exc: StorageFileError) -> HttpResponse:
+    from django.http import JsonResponse
+
+    return JsonResponse(exc.to_payload(), status=exc.status)
+
+
+@require_GET
+def project_list(request) -> HttpResponse:
+    """List one directory level of the current project.
+
+    ``?path=`` is RELATIVE to the project root (never absolute — an absolute
+    ``?path=`` resolves outside the root and is denied as ``permission_denied``
+    before any filesystem access).
+    """
+    from django.http import JsonResponse
+
+    rel = request.GET.get("path", "")
+    try:
+        payload = project_files.list_files(request, rel)
+    except StorageFileError as exc:
+        return _json_error(exc)
+    return JsonResponse(payload)
+
+
+@require_GET
+def project_read(request) -> HttpResponse:
+    """Read one text file from the current project (``?path=``)."""
+    from django.http import JsonResponse
+
+    rel = request.GET.get("path", "")
+    try:
+        payload = project_files.read_file(request, rel)
+    except StorageFileError as exc:
+        return _json_error(exc)
+    return JsonResponse(payload)
+
+
+@require_GET
+def project_download(request) -> HttpResponse:
+    """Stream one file from the current project as an attachment (``?path=``)."""
+    rel = request.GET.get("path", "")
+    try:
+        return project_files.download_file(request, rel)
+    except StorageFileError as exc:
+        return _json_error(exc)
 
 
 # EOF
