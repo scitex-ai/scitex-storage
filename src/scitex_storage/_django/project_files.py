@@ -89,6 +89,7 @@ __all__ = [
     "NotAFile",
     "DiskFull",
     "WriteError",
+    "FileConflict",
     "InvalidPath",
     "resolve_project_scope",
     "build_backend",
@@ -96,6 +97,8 @@ __all__ = [
     "read_file",
     "download_file",
     "write_file",
+    "rename_file",
+    "delete_file",
     "STATUS_BY_CODE",
 ]
 
@@ -108,6 +111,7 @@ STATUS_BY_CODE = {
     "disk_full": 507,
     "invalid_path": 400,
     "write_error": 500,
+    "file_conflict": 409,
 }
 
 #: Candidate import locations for the hub's ``get_current_project``. Only the
@@ -294,6 +298,19 @@ class WriteError(StorageFileError):
 
     code = "write_error"
     status = STATUS_BY_CODE["write_error"]
+
+
+class FileConflict(StorageFileError):
+    """A rename/move would overwrite an existing file (SDK ``rename`` raises
+    ``FileExistsError`` when the destination already exists).
+
+    409 is the HTTP code for a state conflict the client must resolve -- pick
+    a different destination or use an explicit overwrite (out of scope for this
+    slice).
+    """
+
+    code = "file_conflict"
+    status = STATUS_BY_CODE["file_conflict"]
 
 
 # --------------------------------------------------------------------------- #
@@ -543,6 +560,89 @@ def _unlink_quiet(path: Path) -> None:
         path.unlink()
     except OSError:
         pass
+
+
+def _resolve_regular_file(scope: ProjectScope, rel_path: str) -> Path:
+    """Resolve ``rel_path`` to a REGULAR FILE inside the scope, else raise.
+
+    File-scoped (L494): a directory target is denied with :class:`NotAFile`
+    because folder operations are the separate L495 slice -- the leaf keeps the
+    file/move/delete contract isolated rather than letting an SDK directory
+    rename masquerade as a file operation. Missing -> :class:`ProjectNotFound`;
+    containment escape -> :class:`PermissionDenied` (via :func:`_contained`).
+    """
+    target = _contained(scope.project_dir, rel_path)
+    if not target.exists():
+        raise ProjectNotFound(f"not found: {rel_path!r}")
+    if not target.is_file():
+        raise NotAFile(f"target is not a regular file: {rel_path!r}")
+    return target
+
+
+def rename_file(request, old_rel: str, new_rel: str) -> dict:
+    """Rename / move one file within the current project (L494).
+
+    The SDK's ``rename`` is the move primitive (a cross-directory rename on the
+    same filesystem), so this single operation covers both the Rename and Move
+    halves of L494. Both source and destination are containment-checked; the
+    source must exist and be a regular file; an existing destination is a typed
+    :class:`FileConflict` (409), not a silent overwrite.
+
+    Returns ``{"project", "from", "to"}``.
+    """
+    scope = _scope_or_no_project(request)
+    src = _resolve_regular_file(scope, old_rel)
+    # The destination may not exist (that's a rename); check its containment and
+    # that it is not a directory (renaming a file over a dir would fail the SDK
+    # with FileExistsError -> conflict, but we state it explicitly).
+    dest = _contained(scope.project_dir, new_rel)
+    if dest.exists() and not dest.is_file():
+        raise FileConflict(f"destination is not a file: {new_rel!r}")
+    backend = build_backend(scope)
+    try:
+        backend.rename(old_rel, new_rel)
+    except FileNotFoundError as exc:
+        raise ProjectNotFound(str(exc)) from exc
+    except FileExistsError as exc:
+        raise FileConflict(
+            f"destination already exists: {new_rel!r}"
+        ) from exc
+    except ValueError as exc:
+        # SDK traversal guard (source or dest escaping the root).
+        raise PermissionDenied(str(exc)) from exc
+    except PermissionError as exc:
+        raise PermissionDenied(str(exc)) from exc
+    return {
+        "project": _scope_summary(scope),
+        "from": old_rel,
+        "to": new_rel,
+    }
+
+
+def delete_file(request, rel_path: str) -> dict:
+    """Delete one file from the current project (L494).
+
+    The target must exist and be a regular file; a directory is denied with
+    :class:`NotAFile` (folder operations are L495). Returns ``{"project",
+    "path"}``.
+    """
+    scope = _scope_or_no_project(request)
+    _resolve_regular_file(scope, rel_path)  # raises if missing / not a file
+    backend = build_backend(scope)
+    try:
+        backend.delete(rel_path)
+    except FileNotFoundError as exc:
+        raise ProjectNotFound(str(exc)) from exc
+    except PermissionError as exc:
+        raise PermissionDenied(str(exc)) from exc
+    except OSError as exc:
+        if exc.errno in (28,):  # ENOSPC (unusual for delete, but typed)
+            raise DiskFull(str(exc)) from exc
+        raise
+    return {
+        "project": _scope_summary(scope),
+        "path": rel_path,
+    }
 
 
 def _relative(root: Path, target: str) -> str:

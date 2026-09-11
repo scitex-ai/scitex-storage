@@ -31,6 +31,8 @@ urlpatterns = [
     path("api/read", views.project_read, name="project_read"),
     path("api/download", views.project_download, name="project_download"),
     path("api/write", views.project_write, name="project_write"),
+    path("api/rename", views.project_rename, name="project_rename"),
+    path("api/delete", views.project_delete, name="project_delete"),
 ]
 
 # EOF
