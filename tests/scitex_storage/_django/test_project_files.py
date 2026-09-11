@@ -957,23 +957,24 @@ def test_delete_traversal_denied_403(project_pair, _with_resolver):
     assert result == (403, "permission_denied")
 
 
-def test_delete_symlink_escape_denied_403(project_pair, _with_resolver):
+def test_delete_symlink_to_outside_file_unlinks_only_link(project_pair, _with_resolver):
     _boot_django_for_storage_gui()
     # Arrange
     from scitex_storage._django.views import project_delete
 
+    outside = project_pair["proj_b"]._root / "B_secret.txt"
     link = project_pair["proj_a"]._root / "sneaky"
-    link.symlink_to(project_pair["proj_b"]._root / "B_secret.txt")
+    link.symlink_to(outside)
 
     # Act
     response = project_delete(_post_to(
         project_pair["user_a"], "/storage/api/delete",
         {"path": "sneaky"},
     ))
-    result = (response.status_code, _j(response)["error"])
+    result = (response.status_code, os.path.lexists(link), outside.read_text())
 
     # Assert
-    assert result == (403, "permission_denied")
+    assert result == (200, False, "TOPSECRET-B\n")
 
 
 def test_delete_cross_user_cannot_touch_other_project(project_pair, _with_resolver):
@@ -1317,9 +1318,10 @@ def test_delete_folder_traversal_denied_403(project_pair, _with_resolver):
     assert result == (403, "permission_denied")
 
 
-def test_delete_folder_symlink_escape_denied_403(project_pair, _with_resolver):
-    """Deleting a symlinked directory that resolves outside is denied --
-    rmtree must never run on a path outside the project root."""
+def test_delete_symlink_to_outside_directory_unlinks_only_link(
+    project_pair, _with_resolver
+):
+    """A final symlink is an entry, never a recursive-delete traversal."""
     _boot_django_for_storage_gui()
     # Arrange
     from scitex_storage._django.views import project_delete
@@ -1333,10 +1335,264 @@ def test_delete_folder_symlink_escape_denied_403(project_pair, _with_resolver):
         {"path": "sneaky"},
     ))
     b_intact = (project_pair["proj_b"]._root / "B_secret.txt").exists()
-    result = (response.status_code, _j(response)["error"], b_intact)
+    result = (response.status_code, os.path.lexists(link), b_intact)
+
+    # Assert
+    assert result == (200, False, True)
+
+
+@pytest.mark.parametrize("root_alias", [".", "./", "sub/..", "sub/../."])
+def test_delete_refuses_every_project_root_alias(
+    project_pair, _with_resolver, root_alias
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    root = project_pair["proj_a"]._root
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"], "/storage/api/delete", {"path": root_alias}
+    ))
+    result = (
+        response.status_code,
+        _j(response)["error"],
+        root.exists(),
+        (root / "A_secret.txt").exists(),
+    )
+
+    # Assert
+    assert result == (403, "permission_denied", True, True)
+
+
+def test_delete_symlink_to_in_project_directory_unlinks_only_link(
+    project_pair, _with_resolver
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    root = project_pair["proj_a"]._root
+    link = root / "sub-link"
+    link.symlink_to(root / "sub", target_is_directory=True)
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"], "/storage/api/delete", {"path": "sub-link"}
+    ))
+    result = (
+        response.status_code,
+        os.path.lexists(link),
+        (root / "sub" / "inner.txt").exists(),
+    )
+
+    # Assert
+    assert result == (200, False, True)
+
+
+def test_delete_final_symlink_chain_unlinks_only_named_link(
+    project_pair, _with_resolver
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    root = project_pair["proj_a"]._root
+    first = root / "first-link"
+    second = root / "second-link"
+    first.symlink_to(root / "sub", target_is_directory=True)
+    second.symlink_to(first, target_is_directory=True)
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"], "/storage/api/delete", {"path": "second-link"}
+    ))
+    result = (
+        response.status_code,
+        os.path.lexists(second),
+        first.is_symlink(),
+        (root / "sub" / "inner.txt").exists(),
+    )
+
+    # Assert
+    assert result == (200, False, True, True)
+
+
+@pytest.mark.parametrize("outside", [False, True])
+def test_delete_refuses_symlink_in_parent_chain(
+    project_pair, _with_resolver, outside
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    root = project_pair["proj_a"]._root
+    target = project_pair["proj_b"]._root if outside else root / "sub"
+    link = root / "parent-link"
+    link.symlink_to(target, target_is_directory=True)
+    protected = target / ("B_secret.txt" if outside else "inner.txt")
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"],
+        "/storage/api/delete",
+        {"path": f"parent-link/{protected.name}"},
+    ))
+    result = (response.status_code, _j(response)["error"], protected.exists())
 
     # Assert
     assert result == (403, "permission_denied", True)
+
+
+def test_delete_directory_symlink_swap_is_typed_and_never_follows_referent(
+    project_pair, _with_resolver
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import (
+        FileConflict,
+        _delete_directory_at,
+    )
+
+    root = project_pair["proj_a"]._root
+    victim = root / "victim"
+    victim.mkdir()
+    (victim / "local.txt").write_text("local\n", encoding="utf-8")
+    outside = project_pair["proj_b"]._root
+    stale_stat = victim.stat(follow_symlinks=False)
+    victim.rename(root / "moved-victim")
+    victim.symlink_to(outside, target_is_directory=True)
+    root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+
+    # Act
+    try:
+        _delete_directory_at(root_fd, "victim", "victim", stale_stat)
+    except FileConflict as exc:
+        error = (exc.status, exc.code)
+    else:
+        error = (None, None)
+    finally:
+        os.close(root_fd)
+    result = (
+        *error,
+        (outside / "B_secret.txt").exists(),
+        (root / "moved-victim" / "local.txt").exists(),
+    )
+
+    # Assert
+    assert result == (409, "file_conflict", True, True)
+
+
+def test_delete_root_symlink_swap_fails_before_opening_referent(
+    project_pair, _with_resolver
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import (
+        StorageFileError,
+        _open_verified_project_root,
+    )
+
+    root = project_pair["proj_a"]._root
+    outside = project_pair["proj_b"]._root
+    stale_stat = root.stat(follow_symlinks=False)
+    root.rename(root.parent / "moved-project-a")
+    root.symlink_to(outside, target_is_directory=True)
+
+    # Act
+    try:
+        descriptor = _open_verified_project_root(root, stale_stat)
+    except StorageFileError as exc:
+        error = (exc.status, exc.code)
+    else:
+        os.close(descriptor)
+        error = (None, None)
+    result = (
+        *error,
+        (outside / "B_secret.txt").exists(),
+        (root.parent / "moved-project-a" / "A_secret.txt").exists(),
+    )
+
+    # Assert
+    assert result == (403, "permission_denied", True, True)
+
+
+def test_delete_public_path_replacement_survives_staged_final_removal(
+    project_pair, _with_resolver
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import (
+        _delete_staged_directory,
+        _stage_directory_at,
+    )
+
+    root = project_pair["proj_a"]._root
+    victim = root / "victim"
+    victim.mkdir()
+    (victim / "old.txt").write_text("old\n", encoding="utf-8")
+    expected = victim.stat(follow_symlinks=False)
+    parent_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    child_fd = os.open(victim, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    stage_fd, stage_name = _stage_directory_at(
+        parent_fd, "victim", "victim", expected
+    )
+    victim.mkdir()
+    (victim / "replacement.txt").write_text("new\n", encoding="utf-8")
+
+    # Act
+    try:
+        _delete_staged_directory(
+            parent_fd,
+            child_fd,
+            stage_fd,
+            stage_name,
+            "victim",
+            expected,
+        )
+    finally:
+        os.close(stage_fd)
+        os.close(child_fd)
+        os.close(parent_fd)
+    result = (
+        (victim / "replacement.txt").read_text(),
+        (victim / "old.txt").exists(),
+        list(root.glob(".scitex-storage-delete-*")),
+    )
+
+    # Assert
+    assert result == ("new\n", False, [])
+
+
+def test_delete_fails_closed_without_required_platform_primitives(
+    project_pair, _with_resolver
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import (
+        WriteError,
+        _require_safe_delete_primitives,
+        _safe_delete_primitives_available,
+    )
+
+    available = _safe_delete_primitives_available(
+        dir_fd_support=frozenset(),
+        fd_support=frozenset(),
+        follow_symlinks_support=frozenset(),
+        has_flags=False,
+    )
+
+    # Act
+    try:
+        _require_safe_delete_primitives(available)
+    except WriteError as exc:
+        error = (exc.status, exc.code)
+    else:
+        error = (None, None)
+
+    # Assert
+    assert (available, error) == (False, (500, "write_error"))
 
 
 def test_delete_folder_cross_user_cannot_touch_other_project(project_pair, _with_resolver):
