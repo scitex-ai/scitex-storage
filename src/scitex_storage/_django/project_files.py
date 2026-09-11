@@ -69,6 +69,7 @@ from __future__ import annotations
 import errno
 import mimetypes
 import os
+import secrets
 import stat
 import tempfile
 from dataclasses import dataclass
@@ -632,13 +633,13 @@ def delete_file(request, rel_path: str) -> dict:
     """
     scope = _scope_or_no_project(request)
     parts = _delete_parts(rel_path)
-    root = scope.project_dir.resolve()
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
-    nofollow_flags = flags | getattr(os, "O_NOFOLLOW", 0)
+    _require_safe_delete_primitives()
+    root = scope.project_dir
+    nofollow_flags = _directory_open_flags()
 
     descriptors: list[int] = []
     try:
-        parent_fd = os.open(root, flags)
+        parent_fd = _open_verified_project_root(root)
         descriptors.append(parent_fd)
         for component in parts[:-1]:
             try:
@@ -670,6 +671,85 @@ def delete_file(request, rel_path: str) -> dict:
         "project": _scope_summary(scope),
         "path": rel_path,
     }
+
+
+def _directory_open_flags() -> int:
+    return os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+
+
+def _safe_delete_primitives_available(
+    *,
+    dir_fd_support=None,
+    fd_support=None,
+    follow_symlinks_support=None,
+    has_flags: Optional[bool] = None,
+) -> bool:
+    """Return whether this runtime can enforce descriptor-anchored deletion."""
+    dir_fd_support = os.supports_dir_fd if dir_fd_support is None else dir_fd_support
+    fd_support = os.supports_fd if fd_support is None else fd_support
+    follow_symlinks_support = (
+        os.supports_follow_symlinks
+        if follow_symlinks_support is None
+        else follow_symlinks_support
+    )
+    if has_flags is None:
+        has_flags = all(
+            hasattr(os, flag)
+            for flag in ("O_DIRECTORY", "O_CLOEXEC", "O_NOFOLLOW")
+        )
+    required_dir_fd = {os.open, os.stat, os.unlink, os.rmdir, os.rename, os.mkdir}
+    return (
+        has_flags
+        and required_dir_fd.issubset(dir_fd_support)
+        and os.listdir in fd_support
+        and os.stat in follow_symlinks_support
+    )
+
+
+def _require_safe_delete_primitives(available: Optional[bool] = None) -> None:
+    if available is None:
+        available = _safe_delete_primitives_available()
+    if not available:
+        raise WriteError(
+            "safe project deletion is unavailable on this platform; no files changed"
+        )
+
+
+def _same_inode(left: os.stat_result, right: os.stat_result) -> bool:
+    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+
+
+def _open_verified_project_root(
+    root: Path, expected_stat: Optional[os.stat_result] = None
+) -> int:
+    """Open the canonical root without following a replacement symlink."""
+    try:
+        observed = expected_stat or os.stat(root, follow_symlinks=False)
+    except FileNotFoundError as exc:
+        raise NoProject("project root does not exist") from exc
+    except PermissionError as exc:
+        raise PermissionDenied(str(exc)) from exc
+    except OSError as exc:
+        raise WriteError(f"could not inspect project root: {exc}") from exc
+    if not stat.S_ISDIR(observed.st_mode):
+        raise PermissionDenied("project root is not a physical directory")
+
+    try:
+        root_fd = os.open(root, _directory_open_flags())
+    except FileNotFoundError as exc:
+        raise NoProject("project root does not exist") from exc
+    except (NotADirectoryError, PermissionError) as exc:
+        raise PermissionDenied("project root changed before deletion") from exc
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise PermissionDenied("project root changed to a symlink") from exc
+        raise WriteError(f"could not open project root safely: {exc}") from exc
+
+    opened = os.fstat(root_fd)
+    if not _same_inode(observed, opened):
+        os.close(root_fd)
+        raise FileConflict("project root changed before deletion")
+    return root_fd
 
 
 def _delete_parts(rel_path: str) -> tuple[str, ...]:
@@ -728,14 +808,8 @@ def _delete_directory_at(
     expected_stat: os.stat_result,
 ) -> None:
     """Remove a directory only while it retains its observed identity."""
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_DIRECTORY", 0)
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
     try:
-        child_fd = os.open(name, flags, dir_fd=parent_fd)
+        child_fd = os.open(name, _directory_open_flags(), dir_fd=parent_fd)
     except FileNotFoundError as exc:
         raise ProjectNotFound(f"not found: {display_path!r}") from exc
     except PermissionError as exc:
@@ -753,24 +827,24 @@ def _delete_directory_at(
 
     try:
         opened_stat = os.fstat(child_fd)
-        if (opened_stat.st_dev, opened_stat.st_ino) != (
-            expected_stat.st_dev,
-            expected_stat.st_ino,
-        ):
+        if not _same_inode(opened_stat, expected_stat):
             raise FileConflict(
                 f"target changed while it was being deleted: {display_path!r}"
             )
-        for child_name in os.listdir(child_fd):
-            _delete_entry_at(child_fd, child_name, f"{display_path}/{child_name}")
-        current_stat = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-        if (current_stat.st_dev, current_stat.st_ino) != (
-            opened_stat.st_dev,
-            opened_stat.st_ino,
-        ):
-            raise FileConflict(
-                f"target changed while it was being deleted: {display_path!r}"
+        stage_fd, stage_name = _stage_directory_at(
+            parent_fd, name, display_path, opened_stat
+        )
+        try:
+            _delete_staged_directory(
+                parent_fd,
+                child_fd,
+                stage_fd,
+                stage_name,
+                display_path,
+                opened_stat,
             )
-        os.rmdir(name, dir_fd=parent_fd)
+        finally:
+            os.close(stage_fd)
     except FileNotFoundError as exc:
         raise ProjectNotFound(f"not found: {display_path!r}") from exc
     except PermissionError as exc:
@@ -779,6 +853,72 @@ def _delete_directory_at(
         raise WriteError(f"could not delete {display_path!r}: {exc}") from exc
     finally:
         os.close(child_fd)
+
+
+def _stage_directory_at(
+    parent_fd: int,
+    name: str,
+    display_path: str,
+    expected_stat: os.stat_result,
+) -> tuple[int, str]:
+    """Atomically move a directory away from its public name before removal."""
+    for _attempt in range(8):
+        stage_name = f".scitex-storage-delete-{secrets.token_hex(16)}"
+        try:
+            os.mkdir(stage_name, mode=0o700, dir_fd=parent_fd)
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise WriteError("could not allocate a private delete staging directory")
+
+    stage_fd: Optional[int] = None
+    try:
+        stage_stat = os.stat(stage_name, dir_fd=parent_fd, follow_symlinks=False)
+        stage_fd = os.open(stage_name, _directory_open_flags(), dir_fd=parent_fd)
+        if not _same_inode(stage_stat, os.fstat(stage_fd)):
+            raise FileConflict("delete staging directory changed unexpectedly")
+        os.rename(name, "target", src_dir_fd=parent_fd, dst_dir_fd=stage_fd)
+        moved_stat = os.stat("target", dir_fd=stage_fd, follow_symlinks=False)
+        if not _same_inode(moved_stat, expected_stat):
+            os.close(stage_fd)
+            stage_fd = None
+            raise FileConflict(
+                f"target changed while it was being deleted: {display_path!r}; "
+                f"replacement preserved in {stage_name!r}"
+            )
+        return stage_fd, stage_name
+    except StorageFileError:
+        raise
+    except FileNotFoundError as exc:
+        raise ProjectNotFound(f"not found: {display_path!r}") from exc
+    except PermissionError as exc:
+        raise PermissionDenied(str(exc)) from exc
+    except OSError as exc:
+        raise WriteError(f"could not stage {display_path!r}: {exc}") from exc
+    finally:
+        if stage_fd is not None and "moved_stat" not in locals():
+            os.close(stage_fd)
+
+
+def _delete_staged_directory(
+    parent_fd: int,
+    child_fd: int,
+    stage_fd: int,
+    stage_name: str,
+    display_path: str,
+    expected_stat: os.stat_result,
+) -> None:
+    """Remove a verified directory from its private, unpredictable staging path."""
+    for child_name in os.listdir(child_fd):
+        _delete_entry_at(child_fd, child_name, f"{display_path}/{child_name}")
+    current_stat = os.stat("target", dir_fd=stage_fd, follow_symlinks=False)
+    if not _same_inode(current_stat, expected_stat):
+        raise FileConflict(
+            f"staged target changed while it was being deleted: {display_path!r}"
+        )
+    os.rmdir("target", dir_fd=stage_fd)
+    os.rmdir(stage_name, dir_fd=parent_fd)
 
 
 def make_dir(request, rel_path: str) -> dict:

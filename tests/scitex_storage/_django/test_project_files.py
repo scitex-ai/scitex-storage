@@ -1484,6 +1484,117 @@ def test_delete_directory_symlink_swap_is_typed_and_never_follows_referent(
     assert result == (409, "file_conflict", True, True)
 
 
+def test_delete_root_symlink_swap_fails_before_opening_referent(
+    project_pair, _with_resolver
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import (
+        StorageFileError,
+        _open_verified_project_root,
+    )
+
+    root = project_pair["proj_a"]._root
+    outside = project_pair["proj_b"]._root
+    stale_stat = root.stat(follow_symlinks=False)
+    root.rename(root.parent / "moved-project-a")
+    root.symlink_to(outside, target_is_directory=True)
+
+    # Act
+    try:
+        descriptor = _open_verified_project_root(root, stale_stat)
+    except StorageFileError as exc:
+        error = (exc.status, exc.code)
+    else:
+        os.close(descriptor)
+        error = (None, None)
+    result = (
+        *error,
+        (outside / "B_secret.txt").exists(),
+        (root.parent / "moved-project-a" / "A_secret.txt").exists(),
+    )
+
+    # Assert
+    assert result == (403, "permission_denied", True, True)
+
+
+def test_delete_public_path_replacement_survives_staged_final_removal(
+    project_pair, _with_resolver
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import (
+        _delete_staged_directory,
+        _stage_directory_at,
+    )
+
+    root = project_pair["proj_a"]._root
+    victim = root / "victim"
+    victim.mkdir()
+    (victim / "old.txt").write_text("old\n", encoding="utf-8")
+    expected = victim.stat(follow_symlinks=False)
+    parent_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    child_fd = os.open(victim, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    stage_fd, stage_name = _stage_directory_at(
+        parent_fd, "victim", "victim", expected
+    )
+    victim.mkdir()
+    (victim / "replacement.txt").write_text("new\n", encoding="utf-8")
+
+    # Act
+    try:
+        _delete_staged_directory(
+            parent_fd,
+            child_fd,
+            stage_fd,
+            stage_name,
+            "victim",
+            expected,
+        )
+    finally:
+        os.close(stage_fd)
+        os.close(child_fd)
+        os.close(parent_fd)
+    result = (
+        (victim / "replacement.txt").read_text(),
+        (victim / "old.txt").exists(),
+        list(root.glob(".scitex-storage-delete-*")),
+    )
+
+    # Assert
+    assert result == ("new\n", False, [])
+
+
+def test_delete_fails_closed_without_required_platform_primitives(
+    project_pair, _with_resolver
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import (
+        WriteError,
+        _require_safe_delete_primitives,
+        _safe_delete_primitives_available,
+    )
+
+    available = _safe_delete_primitives_available(
+        dir_fd_support=frozenset(),
+        fd_support=frozenset(),
+        follow_symlinks_support=frozenset(),
+        has_flags=False,
+    )
+
+    # Act
+    try:
+        _require_safe_delete_primitives(available)
+    except WriteError as exc:
+        error = (exc.status, exc.code)
+    else:
+        error = (None, None)
+
+    # Assert
+    assert (available, error) == (False, (500, "write_error"))
+
+
 def test_delete_folder_cross_user_cannot_touch_other_project(project_pair, _with_resolver):
     _boot_django_for_storage_gui()
     # Arrange
