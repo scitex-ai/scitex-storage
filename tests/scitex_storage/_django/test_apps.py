@@ -97,14 +97,19 @@ def test_manifest_is_embedded_package():
     assert data["embedded_package"] is True
 
 
-def test_manifest_wip_is_false():
+def test_manifest_declares_wip_until_dogfood_stable():
     # Arrange
     # (nothing to arrange)
     # Act
     data = _load_manifest()
-    # Assert -- this scaffold is real (proves the mounting contract),
-    # not a placeholder hub should hide from the app gallery.
-    assert data["wip"] is False
+    # Assert -- compass §14 item 7: Storage is kept internal / Development
+    # only and must not be exposed publicly until daily internal use is
+    # stable. The leaf manifest declares that with wip=true; the hub App
+    # Store gate reads the manifest's visibility, so the leaf declares the
+    # wip state rather than the hub inferring it. (Replaces the prior
+    # test_manifest_wip_is_false, whose "not a placeholder" rationale was
+    # the opposite of the card's visibility instruction.)
+    assert data["wip"] is True
 
 
 def test_manifest_dependencies_field_lists_this_package():

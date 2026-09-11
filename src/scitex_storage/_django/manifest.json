@@ -14,7 +14,7 @@
     "Inspect any path via ?path= (no default -- avoids an unbounded scan on load)"
   ],
   "allowed_extensions": [],
-  "wip": false,
+  "wip": true,
   "standalone": true,
   "standalone_command": "scitex-storage gui serve",
   "standalone_port": 31290,
