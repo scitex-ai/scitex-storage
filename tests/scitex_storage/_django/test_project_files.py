@@ -98,6 +98,16 @@ def _post_request_for(user, body):
     return request
 
 
+def _post_to(user, url, body):
+    """A POST with a JSON body to an arbitrary URL (rename/delete endpoints)."""
+    from django.test import RequestFactory
+
+    data = json.dumps(body)
+    request = RequestFactory().post(url, data=data, content_type="application/json")
+    request.user = user
+    return request
+
+
 @pytest.fixture
 def project_pair(tmp_path):
     """Two independent project roots + users + a resolver mapping user->proj."""
@@ -667,6 +677,343 @@ def test_write_on_anonymous_request_is_no_project_404(project_pair, _with_resolv
 
     # Act
     response = project_write(request)
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (404, "no_project")
+
+
+# --------------------------------------------------------------------------- #
+# RENAME / MOVE  (compass §14 L494)
+# --------------------------------------------------------------------------- #
+def test_rename_same_directory(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    root = project_pair["proj_a"]._root
+    (root / "orig.txt").write_text("move me\n", encoding="utf-8")
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_a"], "/storage/api/rename",
+        {"old_path": "orig.txt", "new_path": "renamed.txt"},
+    ))
+    result = (
+        response.status_code,
+        (root / "renamed.txt").exists(),
+        (root / "orig.txt").exists(),
+        _j(response)["from"],
+        _j(response)["to"],
+    )
+
+    # Assert
+    assert result == (200, True, False, "orig.txt", "renamed.txt")
+
+
+def test_move_cross_directory(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    root = project_pair["proj_a"]._root
+    (root / "orig.txt").write_text("moved\n", encoding="utf-8")
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_a"], "/storage/api/rename",
+        {"old_path": "orig.txt", "new_path": "sub/moved.txt"},
+    ))
+    result = (
+        response.status_code,
+        (root / "sub" / "moved.txt").exists(),
+        (root / "orig.txt").exists(),
+    )
+
+    # Assert
+    assert result == (200, True, False)
+
+
+def test_rename_over_existing_file_is_409(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    root = project_pair["proj_a"]._root
+    (root / "a.txt").write_text("a\n", encoding="utf-8")
+    (root / "b.txt").write_text("b\n", encoding="utf-8")
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_a"], "/storage/api/rename",
+        {"old_path": "a.txt", "new_path": "b.txt"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (409, "file_conflict")
+
+
+def test_rename_missing_source_is_404(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_a"], "/storage/api/rename",
+        {"old_path": "ghost.txt", "new_path": "x.txt"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (404, "project_not_found")
+
+
+def test_rename_source_directory_is_not_a_file(project_pair, _with_resolver):
+    """A directory source is denied (folder ops are L495, not a file rename)."""
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_a"], "/storage/api/rename",
+        {"old_path": "sub", "new_path": "sub2"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (400, "not_a_file")
+
+
+def test_rename_traversal_source_denied_403(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_a"], "/storage/api/rename",
+        {"old_path": "../proj_B/A_secret.txt", "new_path": "stolen.txt"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+def test_rename_traversal_dest_denied_403(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    (project_pair["proj_a"]._root / "src.txt").write_text("s\n", encoding="utf-8")
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_a"], "/storage/api/rename",
+        {"old_path": "src.txt", "new_path": "../proj_B/pwned.txt"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+def test_rename_symlink_escape_denied_403(project_pair, _with_resolver):
+    """A symlink source that resolves outside the root is denied."""
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    link = project_pair["proj_a"]._root / "sneaky"
+    link.symlink_to(project_pair["proj_b"]._root / "B_secret.txt")
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_a"], "/storage/api/rename",
+        {"old_path": "sneaky", "new_path": "renamed.txt"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+def test_rename_cross_user_denied(project_pair, _with_resolver):
+    """Bob cannot rename a file that lives in Alice's project (scope)."""
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    a_root = project_pair["proj_a"]._root
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_b"], "/storage/api/rename",
+        {"old_path": "A_secret.txt", "new_path": "b_stole.txt"},
+    ))
+    a_after = (a_root / "A_secret.txt").exists()
+    result = (response.status_code, _j(response)["error"], a_after)
+
+    # Assert -- Bob's rename lands in B (not found) or is denied; A untouched.
+    assert result[0] in (403, 404) and result[2] is True
+
+
+def test_rename_missing_paths_is_400(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_a"], "/storage/api/rename",
+        {"old_path": "x.txt"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (400, "invalid_path")
+
+
+# --------------------------------------------------------------------------- #
+# DELETE  (compass §14 L494)
+# --------------------------------------------------------------------------- #
+def test_delete_removes_the_file(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    root = project_pair["proj_a"]._root
+    (root / "doomed.txt").write_text("bye\n", encoding="utf-8")
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"], "/storage/api/delete",
+        {"path": "doomed.txt"},
+    ))
+    result = (response.status_code, (root / "doomed.txt").exists())
+
+    # Assert
+    assert result == (200, False)
+
+
+def test_delete_missing_is_404(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"], "/storage/api/delete",
+        {"path": "ghost.txt"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (404, "project_not_found")
+
+
+def test_delete_directory_is_not_a_file(project_pair, _with_resolver):
+    """Deleting a directory is denied (folder ops are L495)."""
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"], "/storage/api/delete",
+        {"path": "sub"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (400, "not_a_file")
+
+
+def test_delete_traversal_denied_403(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"], "/storage/api/delete",
+        {"path": "../proj_B/B_secret.txt"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+def test_delete_symlink_escape_denied_403(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    link = project_pair["proj_a"]._root / "sneaky"
+    link.symlink_to(project_pair["proj_b"]._root / "B_secret.txt")
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"], "/storage/api/delete",
+        {"path": "sneaky"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+def test_delete_cross_user_cannot_touch_other_project(project_pair, _with_resolver):
+    """Bob deleting a path that lives in A's project leaves A untouched."""
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    a_root = project_pair["proj_a"]._root
+
+    # Act
+    project_delete(_post_to(
+        project_pair["user_b"], "/storage/api/delete",
+        {"path": "A_secret.txt"},
+    ))
+    result = (a_root / "A_secret.txt").exists()
+
+    # Assert
+    assert result is True
+
+
+def test_delete_missing_path_is_400(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"], "/storage/api/delete",
+        {},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (400, "invalid_path")
+
+
+def test_rename_on_anonymous_request_is_no_project_404(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from django.test import RequestFactory
+    from scitex_storage._django.views import project_rename
+
+    data = json.dumps({"old_path": "a", "new_path": "b"})
+    request = RequestFactory().post("/storage/api/rename", data=data, content_type="application/json")
+    request.user = None
+
+    # Act
+    response = project_rename(request)
     result = (response.status_code, _j(response)["error"])
 
     # Assert

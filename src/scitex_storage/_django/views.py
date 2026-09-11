@@ -288,4 +288,59 @@ def _parse_json_body(request) -> dict:
     return data
 
 
+@require_POST
+def project_rename(request) -> HttpResponse:
+    """Rename / move one file within the current project.
+
+    POST ``{old_path, new_path}``. Covers both the Rename and Move halves of
+    compass \u00a714 L494 (the SDK's ``rename`` is the move primitive). Scope +
+    authz from the hub resolver; containment on BOTH paths; an existing
+    destination is a typed ``file_conflict`` (409). Failures map via
+    :data:`STATUS_BY_CODE` -- never a bare 500.
+    """
+    from django.http import JsonResponse
+
+    body = _parse_json_body(request)
+    if isinstance(body, dict) and "error" in body:
+        return JsonResponse(body, status=body.pop("status", 400))
+    old_rel = body.get("old_path", "")
+    new_rel = body.get("new_path", "")
+    if not old_rel or not new_rel:
+        return JsonResponse(
+            {"error": "invalid_path", "message": "old_path and new_path are required"},
+            status=400,
+        )
+    try:
+        payload = project_files.rename_file(request, old_rel, new_rel)
+    except StorageFileError as exc:
+        return _json_error(exc)
+    return JsonResponse(payload)
+
+
+@require_POST
+def project_delete(request) -> HttpResponse:
+    """Delete one file from the current project.
+
+    POST ``{path}``. The target must be a regular file (a directory is a typed
+    ``not_a_file`` 400 -- folder operations are L495). Scope + authz from the
+    hub resolver; containment via the same guard as the read routes.
+    """
+    from django.http import JsonResponse
+
+    body = _parse_json_body(request)
+    if isinstance(body, dict) and "error" in body:
+        return JsonResponse(body, status=body.pop("status", 400))
+    rel = body.get("path", "")
+    if not rel:
+        return JsonResponse(
+            {"error": "invalid_path", "message": "path is required"},
+            status=400,
+        )
+    try:
+        payload = project_files.delete_file(request, rel)
+    except StorageFileError as exc:
+        return _json_error(exc)
+    return JsonResponse(payload)
+
+
 # EOF
