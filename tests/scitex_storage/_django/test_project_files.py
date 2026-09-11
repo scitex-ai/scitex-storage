@@ -86,6 +86,18 @@ def _request_for(user, path=""):
     return request
 
 
+def _post_request_for(user, body):
+    """A POST with a JSON body -- for the write endpoint."""
+    from django.test import RequestFactory
+
+    data = json.dumps(body)
+    request = RequestFactory().post(
+        "/storage/api/write", data=data, content_type="application/json"
+    )
+    request.user = user
+    return request
+
+
 @pytest.fixture
 def project_pair(tmp_path):
     """Two independent project roots + users + a resolver mapping user->proj."""
@@ -448,6 +460,213 @@ def test_standalone_no_hub_is_no_project_404():
 
     # Act
     response = project_list(request)
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (404, "no_project")
+
+
+# --------------------------------------------------------------------------- #
+# WRITE  (compass §14 L493 write-half)
+# --------------------------------------------------------------------------- #
+def test_write_creates_a_nested_file(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_write
+
+    # Act
+    response = project_write(_post_request_for(project_pair["user_a"], {
+        "path": "newdir/newfile.txt", "content": "hello write\n",
+    }))
+    written = (project_pair["proj_a"]._root / "newdir" / "newfile.txt")
+    result = (
+        response.status_code,
+        _j(response)["path"],
+        _j(response)["project"]["slug"],
+        written.read_text(encoding="utf-8"),
+    )
+
+    # Assert
+    assert result == (200, "newdir/newfile.txt", "A", "hello write\n")
+
+
+def test_write_overwrites_an_existing_file_atomically(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_write
+
+    # Act
+    response = project_write(_post_request_for(project_pair["user_a"], {
+        "path": "shared.txt", "content": "replaced\n",
+    }))
+    after = (project_pair["proj_a"]._root / "shared.txt").read_text(encoding="utf-8")
+    leftovers = [
+        p.name for p in project_pair["proj_a"]._root.iterdir()
+        if p.name.startswith(".tmp_")
+    ]
+    result = (response.status_code, after, leftovers)
+
+    # Assert -- replaced, and no temp file left behind (atomic replace).
+    assert result == (200, "replaced\n", [])
+
+
+def test_write_under_a_file_is_denied_403(project_pair, _with_resolver):
+    """The characterized defect: a path whose ancestor is a FILE would make
+    the SDK's mkdir(parents=True) raise FileExistsError -> a bare 500. Now it
+    is a typed 403 before any disk access."""
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_write
+
+    # "shared.txt" is an existing file in A's root; writing under it is the
+    # characterized FileExistsError -> bare-500 defect, now a typed 403.
+    # Act
+    response = project_write(_post_request_for(project_pair["user_a"], {
+        "path": "shared.txt/inner.txt", "content": "x\n",
+    }))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+def test_write_traversal_denied_403(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_write
+
+    # Act
+    response = project_write(_post_request_for(project_pair["user_a"], {
+        "path": "../proj_B/evil.txt", "content": "x\n",
+    }))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+def test_write_symlink_escape_denied_403(project_pair, _with_resolver):
+    """A symlink INSIDE the project pointing OUTSIDE it must be denied.
+
+    The target resolves outside the root, so os.replace would land the file
+    outside the project. The guard's resolve() catches this.
+    """
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_write
+
+    escape_target = project_pair["proj_b"]._root / "leaked.txt"
+    link = project_pair["proj_a"]._root / "sneaky"
+    link.symlink_to(project_pair["proj_b"]._root)
+
+    # Act
+    response = project_write(_post_request_for(project_pair["user_a"], {
+        "path": "sneaky/leaked.txt", "content": "x\n",
+    }))
+    result = (response.status_code, _j(response)["error"], escape_target.exists())
+
+    # Assert
+    assert result == (403, "permission_denied", False)
+
+
+def test_cross_user_cannot_write_into_another_project(project_pair, _with_resolver):
+    """Bob (project B) writing a path that would land in A is denied by scope;
+    A's tree is byte-identical afterwards."""
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_write
+
+    a_root = project_pair["proj_a"]._root
+    a_before = sorted(str(p.relative_to(a_root)) for p in a_root.rglob("*"))
+
+    # Act
+    project_write(_post_request_for(project_pair["user_b"], {
+        "path": "A_secret.txt", "content": "I stole this\n",
+    }))
+    a_after = sorted(str(p.relative_to(a_root)) for p in a_root.rglob("*"))
+    result = (
+        (a_root / "A_secret.txt").read_text(encoding="utf-8"),
+        a_before == a_after,
+    )
+
+    # Assert -- A's file untouched and A's tree unchanged.
+    assert result == ("TOPSECRET-A\n", True)
+
+
+def test_write_missing_content_is_400(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_write
+
+    # Act
+    response = project_write(_post_request_for(project_pair["user_a"], {
+        "path": "x.txt",
+    }))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (400, "invalid_path")
+
+
+def test_write_invalid_json_is_400(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from django.test import RequestFactory
+    from scitex_storage._django.views import project_write
+
+    request = RequestFactory().post(
+        "/storage/api/write", data="{not json", content_type="application/json"
+    )
+    request.user = project_pair["user_a"]
+
+    # Act
+    response = project_write(request)
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (400, "invalid_path")
+
+
+def test_write_disk_full_error_is_typed_507_not_bare(project_pair, _with_resolver):
+    """The disk-full failure is TYPED (507 ``disk_full``), not a bare 500.
+
+    The actual ENOSPC trigger is environmental (a genuinely full disk) and
+    cannot be honestly forced here -- and PA-306 bans mocking. So this test
+    proves the CONTRACT instead: ``DiskFull`` is a ``StorageFileError`` whose
+    code/status map to a 507 JSON response (not an unhandled traceback), and
+    ``STATUS_BY_CODE`` carries it. The view's ``except OSError: if errno==28:
+    raise DiskFull`` is the environmental branch this contract documents.
+    """
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django import project_files
+
+    err = project_files.DiskFull("no space left on device")
+
+    # Act
+    result = (
+        isinstance(err, project_files.StorageFileError),
+        err.code,
+        err.status,
+        project_files.STATUS_BY_CODE["disk_full"],
+    )
+
+    # Assert
+    assert result == (True, "disk_full", 507, 507)
+
+
+def test_write_on_anonymous_request_is_no_project_404(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from django.test import RequestFactory
+    from scitex_storage._django.views import project_write
+
+    data = json.dumps({"path": "x.txt", "content": "y"})
+    request = RequestFactory().post("/storage/api/write", data=data, content_type="application/json")
+    request.user = None  # anonymous
+
+    # Act
+    response = project_write(request)
     result = (response.status_code, _j(response)["error"])
 
     # Assert
