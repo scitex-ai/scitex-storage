@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -99,6 +100,7 @@ __all__ = [
     "write_file",
     "rename_file",
     "delete_file",
+    "make_dir",
     "STATUS_BY_CODE",
 ]
 
@@ -562,42 +564,39 @@ def _unlink_quiet(path: Path) -> None:
         pass
 
 
-def _resolve_regular_file(scope: ProjectScope, rel_path: str) -> Path:
-    """Resolve ``rel_path`` to a REGULAR FILE inside the scope, else raise.
+def _resolve_entry(scope: ProjectScope, rel_path: str) -> Path:
+    """Resolve ``rel_path`` to an EXISTING entry (file OR directory) in scope.
 
-    File-scoped (L494): a directory target is denied with :class:`NotAFile`
-    because folder operations are the separate L495 slice -- the leaf keeps the
-    file/move/delete contract isolated rather than letting an SDK directory
-    rename masquerade as a file operation. Missing -> :class:`ProjectNotFound`;
-    containment escape -> :class:`PermissionDenied` (via :func:`_contained`).
+    Compass line 495 (folder operations) generalizes the L494 file-only
+    resolver: rename and delete now operate on a file *or* a directory. A
+    missing target -> :class:`ProjectNotFound`; a containment escape
+    (``..`` / absolute / symlink-out) -> :class:`PermissionDenied` via
+    :func:`_contained`.
     """
     target = _contained(scope.project_dir, rel_path)
     if not target.exists():
         raise ProjectNotFound(f"not found: {rel_path!r}")
-    if not target.is_file():
-        raise NotAFile(f"target is not a regular file: {rel_path!r}")
     return target
 
 
 def rename_file(request, old_rel: str, new_rel: str) -> dict:
-    """Rename / move one file within the current project (L494).
+    """Rename / move one file OR directory within the current project.
 
     The SDK's ``rename`` is the move primitive (a cross-directory rename on the
     same filesystem), so this single operation covers both the Rename and Move
-    halves of L494. Both source and destination are containment-checked; the
-    source must exist and be a regular file; an existing destination is a typed
+    halves, for files and for folders (compass line 494 rename/move + line 495
+    folder rename/move). Both source AND destination are containment-checked;
+    the source must exist; an existing destination (file or dir) is a typed
     :class:`FileConflict` (409), not a silent overwrite.
 
     Returns ``{"project", "from", "to"}``.
     """
     scope = _scope_or_no_project(request)
-    src = _resolve_regular_file(scope, old_rel)
-    # The destination may not exist (that's a rename); check its containment and
-    # that it is not a directory (renaming a file over a dir would fail the SDK
-    # with FileExistsError -> conflict, but we state it explicitly).
+    _resolve_entry(scope, old_rel)  # raises if missing / containment-escape
+    # The destination may not exist (that's a rename); check its containment.
     dest = _contained(scope.project_dir, new_rel)
-    if dest.exists() and not dest.is_file():
-        raise FileConflict(f"destination is not a file: {new_rel!r}")
+    if dest.exists():
+        raise FileConflict(f"destination already exists: {new_rel!r}")
     backend = build_backend(scope)
     try:
         backend.rename(old_rel, new_rel)
@@ -620,25 +619,66 @@ def rename_file(request, old_rel: str, new_rel: str) -> dict:
 
 
 def delete_file(request, rel_path: str) -> dict:
-    """Delete one file from the current project (L494).
+    """Delete one file OR directory from the current project.
 
-    The target must exist and be a regular file; a directory is denied with
-    :class:`NotAFile` (folder operations are L495). Returns ``{"project",
-    "path"}``.
+    Compass line 495 (folder operations) generalizes the L494 file-only delete:
+    a directory target is removed recursively. The SDK ``delete`` unlinks a
+    single file, so a directory is removed via ``shutil.rmtree`` on the
+    CONTAINED (containment-checked) absolute target -- the guard has already
+    denied ``..`` / absolute / symlink-out, so the rmtree cannot escape the
+    project root. Returns ``{"project", "path"}``.
     """
     scope = _scope_or_no_project(request)
-    _resolve_regular_file(scope, rel_path)  # raises if missing / not a file
-    backend = build_backend(scope)
+    target = _resolve_entry(scope, rel_path)  # raises if missing / escape
+    if target.is_dir():
+        try:
+            shutil.rmtree(target)
+        except FileNotFoundError as exc:
+            raise ProjectNotFound(str(exc)) from exc
+        except PermissionError as exc:
+            raise PermissionDenied(str(exc)) from exc
+    else:
+        backend = build_backend(scope)
+        try:
+            backend.delete(rel_path)
+        except FileNotFoundError as exc:
+            raise ProjectNotFound(str(exc)) from exc
+        except PermissionError as exc:
+            raise PermissionDenied(str(exc)) from exc
+        except OSError as exc:
+            if exc.errno in (28,):  # ENOSPC (unusual for delete, but typed)
+                raise DiskFull(str(exc)) from exc
+            raise
+    return {
+        "project": _scope_summary(scope),
+        "path": rel_path,
+    }
+
+
+def make_dir(request, rel_path: str) -> dict:
+    """Create one (optionally nested) directory in the current project.
+
+    Compass line 495 (folder operations) -- the create half. The destination
+    must not already exist (an existing dir -> :class:`FileConflict` 409; an
+    existing file -> :class:`NotAFile` 400). Path containment is enforced by
+    :func:`_contained_for_write` (the same guard the write path uses), so
+    ``..`` / absolute / symlink-out / under-file are all denied before any
+    disk access. Missing intermediate directories are created (``parents=True``).
+
+    Returns ``{"project", "path"}``.
+    """
+    scope = _scope_or_no_project(request)
+    target = _contained_for_write(scope.project_dir, rel_path)
+    if target.exists():
+        if target.is_dir():
+            raise FileConflict(f"directory already exists: {rel_path!r}")
+        raise NotAFile(f"a file already exists at: {rel_path!r}")
     try:
-        backend.delete(rel_path)
-    except FileNotFoundError as exc:
-        raise ProjectNotFound(str(exc)) from exc
-    except PermissionError as exc:
-        raise PermissionDenied(str(exc)) from exc
+        target.mkdir(parents=True, exist_ok=False)
     except OSError as exc:
-        if exc.errno in (28,):  # ENOSPC (unusual for delete, but typed)
-            raise DiskFull(str(exc)) from exc
-        raise
+        if exc.errno in (28,):  # ENOSPC
+            raise DiskFull(f"no space to create directory {rel_path!r}") from exc
+        raise WriteError(f"could not create directory {rel_path!r}: {exc}") from exc
     return {
         "project": _scope_summary(scope),
         "path": rel_path,

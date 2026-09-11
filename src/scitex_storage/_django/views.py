@@ -343,4 +343,32 @@ def project_delete(request) -> HttpResponse:
     return JsonResponse(payload)
 
 
+@require_POST
+def project_mkdir(request) -> HttpResponse:
+    """Create one (optionally nested) directory in the current project.
+
+    POST ``{path}``. The create half of compass line 495 (folder operations).
+    A new directory -> 200; an existing directory -> ``file_conflict`` (409);
+    an existing file at the path -> ``not_a_file`` (400); a containment
+    escape (``..`` / absolute / symlink-out / under-file) -> ``permission_
+    denied`` (403). Scope + authz from the hub resolver.
+    """
+    from django.http import JsonResponse
+
+    body = _parse_json_body(request)
+    if isinstance(body, dict) and "error" in body:
+        return JsonResponse(body, status=body.pop("status", 400))
+    rel = body.get("path", "")
+    if not rel:
+        return JsonResponse(
+            {"error": "invalid_path", "message": "path is required"},
+            status=400,
+        )
+    try:
+        payload = project_files.make_dir(request, rel)
+    except StorageFileError as exc:
+        return _json_error(exc)
+    return JsonResponse(payload)
+
+
 # EOF

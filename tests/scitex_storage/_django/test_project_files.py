@@ -770,21 +770,28 @@ def test_rename_missing_source_is_404(project_pair, _with_resolver):
     assert result == (404, "project_not_found")
 
 
-def test_rename_source_directory_is_not_a_file(project_pair, _with_resolver):
-    """A directory source is denied (folder ops are L495, not a file rename)."""
+def test_rename_source_directory_moves_folder(project_pair, _with_resolver):
+    """L495: a directory source is renamed/moved (folder rename, no longer denied)."""
     _boot_django_for_storage_gui()
     # Arrange
     from scitex_storage._django.views import project_rename
+
+    root = project_pair["proj_a"]._root
+    (root / "sub" / "inner.txt").write_text("i\n", encoding="utf-8")
 
     # Act
     response = project_rename(_post_to(
         project_pair["user_a"], "/storage/api/rename",
         {"old_path": "sub", "new_path": "sub2"},
     ))
-    result = (response.status_code, _j(response)["error"])
+    result = (
+        response.status_code,
+        (root / "sub2" / "inner.txt").exists(),
+        (root / "sub").exists(),
+    )
 
     # Assert
-    assert result == (400, "not_a_file")
+    assert result == (200, True, False)
 
 
 def test_rename_traversal_source_denied_403(project_pair, _with_resolver):
@@ -915,21 +922,23 @@ def test_delete_missing_is_404(project_pair, _with_resolver):
     assert result == (404, "project_not_found")
 
 
-def test_delete_directory_is_not_a_file(project_pair, _with_resolver):
-    """Deleting a directory is denied (folder ops are L495)."""
+def test_delete_directory_removes_folder_recursively(project_pair, _with_resolver):
+    """L495: deleting a directory removes it recursively (no longer denied)."""
     _boot_django_for_storage_gui()
     # Arrange
     from scitex_storage._django.views import project_delete
+
+    root = project_pair["proj_a"]._root
 
     # Act
     response = project_delete(_post_to(
         project_pair["user_a"], "/storage/api/delete",
         {"path": "sub"},
     ))
-    result = (response.status_code, _j(response)["error"])
+    result = (response.status_code, (root / "sub").exists())
 
     # Assert
-    assert result == (400, "not_a_file")
+    assert result == (200, False)
 
 
 def test_delete_traversal_denied_403(project_pair, _with_resolver):
@@ -1018,3 +1027,331 @@ def test_rename_on_anonymous_request_is_no_project_404(project_pair, _with_resol
 
     # Assert
     assert result == (404, "no_project")
+
+
+# --------------------------------------------------------------------------- #
+# FOLDER OPERATIONS  (compass line 495 / card "L496")
+# mkdir (create) + folder rename/move + folder delete
+# --------------------------------------------------------------------------- #
+def test_mkdir_creates_a_nested_directory(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_mkdir
+
+    root = project_pair["proj_a"]._root
+
+    # Act
+    response = project_mkdir(_post_to(
+        project_pair["user_a"], "/storage/api/mkdir",
+        {"path": "data/raw/nested"},
+    ))
+    result = (
+        response.status_code,
+        (root / "data" / "raw" / "nested").is_dir(),
+        _j(response)["path"],
+        _j(response)["project"]["slug"],
+    )
+
+    # Assert
+    assert result == (200, True, "data/raw/nested", "A")
+
+
+def test_mkdir_existing_directory_is_409(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_mkdir
+
+    # "sub" already exists in A's project.
+    # Act
+    response = project_mkdir(_post_to(
+        project_pair["user_a"], "/storage/api/mkdir",
+        {"path": "sub"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (409, "file_conflict")
+
+
+def test_mkdir_over_a_file_is_400(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_mkdir
+
+    # "shared.txt" is an existing file in A's root.
+    # Act
+    response = project_mkdir(_post_to(
+        project_pair["user_a"], "/storage/api/mkdir",
+        {"path": "shared.txt"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (400, "not_a_file")
+
+
+def test_mkdir_traversal_denied_403(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_mkdir
+
+    # Act
+    response = project_mkdir(_post_to(
+        project_pair["user_a"], "/storage/api/mkdir",
+        {"path": "../proj_B/evil"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+def test_mkdir_absolute_path_denied_403(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_mkdir
+
+    # Act
+    response = project_mkdir(_post_to(
+        project_pair["user_a"], "/storage/api/mkdir",
+        {"path": "/etc/evil"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+def test_mkdir_symlink_escape_denied_403(project_pair, _with_resolver):
+    """mkdir under a symlink that resolves outside the project is denied."""
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_mkdir
+
+    link = project_pair["proj_a"]._root / "sneaky"
+    link.symlink_to(project_pair["proj_b"]._root)
+
+    # Act
+    response = project_mkdir(_post_to(
+        project_pair["user_a"], "/storage/api/mkdir",
+        {"path": "sneaky/newdir"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+def test_mkdir_under_file_denied_403(project_pair, _with_resolver):
+    """mkdir whose ancestor is a file (shared.txt) -> the characterized
+    FileExistsError class, now a typed 403 before any disk access."""
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_mkdir
+
+    # Act
+    response = project_mkdir(_post_to(
+        project_pair["user_a"], "/storage/api/mkdir",
+        {"path": "shared.txt/newdir"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+def test_mkdir_missing_path_is_400(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_mkdir
+
+    # Act
+    response = project_mkdir(_post_to(
+        project_pair["user_a"], "/storage/api/mkdir",
+        {},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (400, "invalid_path")
+
+
+def test_mkdir_cross_user_scoped_to_own_project(project_pair, _with_resolver):
+    """Bob's mkdir lands in B's project; A's tree is byte-identical."""
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_mkdir
+
+    a_root = project_pair["proj_a"]._root
+    a_before = sorted(str(p.relative_to(a_root)) for p in a_root.rglob("*"))
+
+    # Act
+    response = project_mkdir(_post_to(
+        project_pair["user_b"], "/storage/api/mkdir",
+        {"path": "B_newdir"},
+    ))
+    a_after = sorted(str(p.relative_to(a_root)) for p in a_root.rglob("*"))
+    b_dir = (project_pair["proj_b"]._root / "B_newdir")
+    result = (response.status_code, b_dir.is_dir(), a_before == a_after)
+
+    # Assert
+    assert result == (200, True, True)
+
+
+def test_mkdir_on_anonymous_request_is_no_project_404(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from django.test import RequestFactory
+    from scitex_storage._django.views import project_mkdir
+
+    data = json.dumps({"path": "x"})
+    request = RequestFactory().post("/storage/api/mkdir", data=data, content_type="application/json")
+    request.user = None
+
+    # Act
+    response = project_mkdir(request)
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (404, "no_project")
+
+
+# ---- folder rename/move regression (L494 now operates on dirs) ----
+def test_rename_folder_cross_directory(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    root = project_pair["proj_a"]._root
+    (root / "sub" / "inner.txt").write_text("i\n", encoding="utf-8")
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_a"], "/storage/api/rename",
+        {"old_path": "sub", "new_path": "data/sub_moved"},
+    ))
+    result = (
+        response.status_code,
+        (root / "data" / "sub_moved" / "inner.txt").exists(),
+        (root / "sub").exists(),
+    )
+
+    # Assert
+    assert result == (200, True, False)
+
+
+def test_rename_folder_over_existing_dir_is_409(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    (project_pair["proj_a"]._root / "other").mkdir()
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_a"], "/storage/api/rename",
+        {"old_path": "sub", "new_path": "other"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (409, "file_conflict")
+
+
+def test_rename_folder_traversal_denied_403(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    # Act
+    response = project_rename(_post_to(
+        project_pair["user_a"], "/storage/api/rename",
+        {"old_path": "sub", "new_path": "../proj_B/pwned_dir"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+# ---- folder delete regression (L494 now removes dirs recursively) ----
+def test_delete_nested_folder_removes_all_contents(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    root = project_pair["proj_a"]._root
+    (root / "sub" / "inner.txt").write_text("i\n", encoding="utf-8")
+    (root / "sub" / "deep").mkdir()
+    (root / "sub" / "deep" / "x.txt").write_text("x\n", encoding="utf-8")
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"], "/storage/api/delete",
+        {"path": "sub"},
+    ))
+    result = (
+        response.status_code,
+        (root / "sub").exists(),
+        (root / "sub" / "inner.txt").exists(),
+        (root / "sub" / "deep" / "x.txt").exists(),
+    )
+
+    # Assert
+    assert result == (200, False, False, False)
+
+
+def test_delete_folder_traversal_denied_403(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"], "/storage/api/delete",
+        {"path": "../proj_B"},
+    ))
+    result = (response.status_code, _j(response)["error"])
+
+    # Assert
+    assert result == (403, "permission_denied")
+
+
+def test_delete_folder_symlink_escape_denied_403(project_pair, _with_resolver):
+    """Deleting a symlinked directory that resolves outside is denied --
+    rmtree must never run on a path outside the project root."""
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    link = project_pair["proj_a"]._root / "sneaky"
+    link.symlink_to(project_pair["proj_b"]._root)
+
+    # Act
+    response = project_delete(_post_to(
+        project_pair["user_a"], "/storage/api/delete",
+        {"path": "sneaky"},
+    ))
+    b_intact = (project_pair["proj_b"]._root / "B_secret.txt").exists()
+    result = (response.status_code, _j(response)["error"], b_intact)
+
+    # Assert
+    assert result == (403, "permission_denied", True)
+
+
+def test_delete_folder_cross_user_cannot_touch_other_project(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_delete
+
+    a_root = project_pair["proj_a"]._root
+
+    # Act
+    project_delete(_post_to(
+        project_pair["user_b"], "/storage/api/delete",
+        {"path": "sub"},
+    ))
+    result = (a_root / "sub").exists()
+
+    # Assert -- A's directory survives Bob's delete (Bob is scoped to B).
+    assert result is True
