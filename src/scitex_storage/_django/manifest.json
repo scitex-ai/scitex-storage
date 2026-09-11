@@ -3,15 +3,17 @@
   "slug": "storage",
   "label": "SciTeX Storage",
   "icon": "fas fa-hard-drive",
-  "subtitle": "Fleet disk-usage triage: scan, sweep, archive, find duplicates",
-  "about": "Browse per-directory disk usage across hosts, backed by scitex-storage's read-only scan(). First scaffold: proves the scitex-hub mounting contract works end-to-end with real data, not the full disk-treemap UI yet.",
-  "description": "SciTeX Storage is a fleet storage triage tool. This GUI plugin surfaces scitex-storage's read-only, stat-only directory scan as a browsable table (size + inode usage per top-level child of a path), the first step toward a full multi-host treemap view with agentic judgment (orphaned junk vs. legitimate data) layered on top.",
+  "subtitle": "Project data management: browse, upload, download, move, delete",
+  "about": "Project-scoped data management inside your active SciTeX project. Browse files and folders, and create, upload, download, rename, move, and delete them — all scoped to the project you are working in, with fail-closed path containment and typed errors. Development-only (wip): not exposed in the public App Store until daily internal use is stable. The fleet disk-usage scan remains available at the scan view.",
+  "description": "SciTeX Storage is a project-scoped data-management app. It surfaces the active project's files and folders through a project file API (list, read, download, write, rename/move, delete, mkdir) built on the scitex_app SDK file primitives. Every operation is scoped to the requester's current project (via the hub's get_current_project + can_view), containment-checked so paths cannot escape the project root, and returns typed errors rather than bare 500s. It is intentionally WIP/internal (wip=true) and stays out of the public App Store until dogfood is stable. The earlier read-only fleet disk-usage scan is preserved at the scan view.",
   "author": "ywatanabe",
   "license": "AGPL-3.0-only",
   "pip_package": "scitex-storage",
   "capabilities": [
-    "Browse per-directory size + inode usage (read-only scan)",
-    "Inspect any path via ?path= (no default -- avoids an unbounded scan on load)"
+    "Browse the active project's files and folders (list)",
+    "Read + download project files (text + binary-safe attachment)",
+    "Create, upload, rename/move, and delete project files and folders",
+    "Fail-closed path containment; typed errors, never a bare 500"
   ],
   "allowed_extensions": [],
   "wip": true,
