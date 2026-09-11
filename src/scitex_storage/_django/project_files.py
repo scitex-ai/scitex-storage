@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -87,12 +88,14 @@ __all__ = [
     "PermissionDenied",
     "NotAFile",
     "DiskFull",
+    "WriteError",
     "InvalidPath",
     "resolve_project_scope",
     "build_backend",
     "list_files",
     "read_file",
     "download_file",
+    "write_file",
     "STATUS_BY_CODE",
 ]
 
@@ -104,6 +107,7 @@ STATUS_BY_CODE = {
     "not_a_file": 400,
     "disk_full": 507,
     "invalid_path": 400,
+    "write_error": 500,
 }
 
 #: Candidate import locations for the hub's ``get_current_project``. Only the
@@ -278,6 +282,20 @@ class InvalidPath(StorageFileError):
     status = STATUS_BY_CODE["invalid_path"]
 
 
+class WriteError(StorageFileError):
+    """A write failed for a reason other than full disk / containment.
+
+    Still TYPED (a JSON ``{error, message}`` response), so it satisfies the
+    "never a bare 500" contract -- a bare 500 is an unhandled stack trace,
+    not a structured response. Status 500 is honest here: the server could
+    not complete the write for a reason the caller cannot fix by retrying
+    with a different path.
+    """
+
+    code = "write_error"
+    status = STATUS_BY_CODE["write_error"]
+
+
 # --------------------------------------------------------------------------- #
 # Backend
 # --------------------------------------------------------------------------- #
@@ -321,6 +339,48 @@ def _contained(root: Path, rel_path: str) -> Path:
             f"path escapes the project root: {rel_path!r}"
         )
     return candidate
+
+
+def _contained_for_write(root: Path, rel_path: str) -> Path:
+    """:func:`_contained` PLUS the write-only ancestor check.
+
+    The SDK's ``write`` creates parent directories with ``mkdir(parents=True,
+    exist_ok=True)`` -- but if any EXISTING path component is a regular FILE,
+    that call raises ``FileExistsError`` (characterized last pass), which is not
+    a ``StorageFileError`` and would escape the view as a bare 500. We close
+    that class here, before touching the disk: walk the ancestors of the target
+    up to the root and deny when an existing ancestor is a file, a symlink that
+    does not resolve to a directory, or a broken symlink. A MISSING ancestor is
+    allowed -- the SDK creates it.
+
+    Symlink-escape (target resolving outside the root) is already caught by
+    :func:`_contained` (it ``resolve()``s).
+    """
+    target = _contained(root, rel_path)
+    root_resolved = root.resolve()
+    # Walk from the target's immediate parent up to (and including) root.
+    # Deny only when an existing ancestor is NOT a directory -- i.e. it is a
+    # regular file, a symlink-to-file, or a broken symlink. A MISSING ancestor
+    # is allowed: the SDK's mkdir(parents=True) creates it. This closes the
+    # characterized bare-500 class (parent-is-file -> FileExistsError) without
+    # breaking the fresh-nested-directory write.
+    parent = target.parent
+    for ancestor in (parent, *parent.parents):
+        if ancestor == root_resolved:
+            break
+        if ancestor.is_dir():
+            continue  # existing directory -- fine
+        if ancestor.is_symlink():
+            raise PermissionDenied(
+                f"target path passes through a symlink that is not a directory: "
+                f"{rel_path!r}"
+            )
+        if ancestor.exists():
+            raise PermissionDenied(
+                f"target path passes through a file: {rel_path!r}"
+            )
+        # else: missing -- the SDK will create it; allow.
+    return target
 
 
 def _open(scope: ProjectScope, rel_path: str, *, binary: bool = False):
@@ -429,6 +489,60 @@ def download_file(request, rel_path: str) -> HttpResponse:
     response["Content-Length"] = str(len(data))
     response["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(name)}"
     return response
+
+
+def write_file(request, rel_path: str, content: str) -> dict:
+    """Write one text file inside the current project, atomically.
+
+    Safe-atomic contract (the write half of compass \u00a714 L493):
+      * scope + authz from the hub resolver (``_scope_or_no_project``) -- no
+        second user/project model;
+      * path containment via :func:`_contained_for_write` (denies ``..``,
+        absolute, symlink-out, AND any path whose ancestor is a file/broken
+        symlink -- the SDK's ``mkdir(parents=True)`` ``FileExistsError`` class);
+      * the file is written to a temp file in the SAME directory then
+        ``os.replace``d over the target, so a mid-write failure never leaves a
+        partial/corrupt target (crash-safe atomicity);
+      * ENOSPC -> :class:`DiskFull` (507); the SDK's traversal ``ValueError``
+        and any containment violation -> typed 4xx, never a bare 500.
+
+    Returns ``{"project", "path", "size"}``.
+    """
+    scope = _scope_or_no_project(request)
+    target = _contained_for_write(scope.project_dir, rel_path)
+    # The SDK has no atomic-write API; this is the safe wrapper over the same
+    # backend. Create the (verified-file-free) missing parents, then write to a
+    # temp file in target's dir so os.replace is atomic on the same filesystem.
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=str(target.parent), prefix=".tmp_", suffix=".writing")
+    tmp = Path(tmp_path)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(str(tmp), str(target))
+    except OSError as exc:
+        # clean up the temp file on any failure, then translate
+        _unlink_quiet(tmp)
+        if exc.errno in (28,):  # ENOSPC
+            raise DiskFull(f"no space to write {rel_path!r}") from exc
+        raise WriteError(f"could not write {rel_path!r}: {exc}") from exc
+    except Exception:
+        _unlink_quiet(tmp)
+        raise
+    return {
+        "project": _scope_summary(scope),
+        "path": rel_path,
+        "size": len(content.encode("utf-8")),
+    }
+
+
+def _unlink_quiet(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        pass
 
 
 def _relative(root: Path, target: str) -> str:

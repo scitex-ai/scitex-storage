@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from django.http import HttpResponse
 from django.shortcuts import render
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 
 from scitex_ui.branding import shell_context
 
@@ -245,6 +245,47 @@ def project_download(request) -> HttpResponse:
         return project_files.download_file(request, rel)
     except StorageFileError as exc:
         return _json_error(exc)
+
+
+@require_POST
+def project_write(request) -> HttpResponse:
+    """Write one text file into the current project (POST ``{path, content}``).
+
+    The write half of compass \u00a714 L493. Scope + authz come from the hub
+    resolver via ``request``; containment (traversal, symlink-out, under-file)
+    is enforced in ``project_files._contained_for_write``; the write is atomic
+    (temp + ``os.replace``) so a mid-write failure never leaves a partial file.
+    Failures map to typed 4xx/507 via :data:`STATUS_BY_CODE` -- never a bare 500.
+    """
+    from django.http import JsonResponse
+
+    body = _parse_json_body(request)
+    if isinstance(body, dict) and "error" in body:
+        return JsonResponse(body, status=body.pop("status", 400))
+    rel = body.get("path", "")
+    content = body.get("content")
+    if not rel or content is None:
+        return JsonResponse(
+            {"error": "invalid_path", "message": "path and content are required"},
+            status=400,
+        )
+    try:
+        payload = project_files.write_file(request, rel, content)
+    except StorageFileError as exc:
+        return _json_error(exc)
+    return JsonResponse(payload)
+
+
+def _parse_json_body(request) -> dict:
+    import json
+
+    try:
+        data = json.loads(request.body.decode("utf-8") or "{}")
+    except (ValueError, UnicodeDecodeError):
+        return {"error": "invalid_path", "message": "invalid JSON body", "status": 400}
+    if not isinstance(data, dict):
+        return {"error": "invalid_path", "message": "JSON body must be an object", "status": 400}
+    return data
 
 
 # EOF
