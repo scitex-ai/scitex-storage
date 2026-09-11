@@ -66,9 +66,10 @@ so a new error kind that lacks a mapping fails loudly.
 
 from __future__ import annotations
 
+import errno
 import mimetypes
 import os
-import shutil
+import stat
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -621,38 +622,163 @@ def rename_file(request, old_rel: str, new_rel: str) -> dict:
 def delete_file(request, rel_path: str) -> dict:
     """Delete one file OR directory from the current project.
 
-    Compass line 495 (folder operations) generalizes the L494 file-only delete:
-    a directory target is removed recursively. The SDK ``delete`` unlinks a
-    single file, so a directory is removed via ``shutil.rmtree`` on the
-    CONTAINED (containment-checked) absolute target -- the guard has already
-    denied ``..`` / absolute / symlink-out, so the rmtree cannot escape the
-    project root. Returns ``{"project", "path"}``.
+    The project root itself is never a valid target.  The walk is anchored to
+    an open descriptor for that root and refuses symlinked parent components.
+    A symlink in the final component is unlinked as an entry; its referent is
+    never resolved or traversed.  Directories are recursively removed using
+    descriptor-relative operations with ``follow_symlinks=False``.
+
+    Returns ``{"project", "path"}``.
     """
     scope = _scope_or_no_project(request)
-    target = _resolve_entry(scope, rel_path)  # raises if missing / escape
-    if target.is_dir():
-        try:
-            shutil.rmtree(target)
-        except FileNotFoundError as exc:
-            raise ProjectNotFound(str(exc)) from exc
-        except PermissionError as exc:
-            raise PermissionDenied(str(exc)) from exc
-    else:
-        backend = build_backend(scope)
-        try:
-            backend.delete(rel_path)
-        except FileNotFoundError as exc:
-            raise ProjectNotFound(str(exc)) from exc
-        except PermissionError as exc:
-            raise PermissionDenied(str(exc)) from exc
-        except OSError as exc:
-            if exc.errno in (28,):  # ENOSPC (unusual for delete, but typed)
-                raise DiskFull(str(exc)) from exc
-            raise
+    parts = _delete_parts(rel_path)
+    root = scope.project_dir.resolve()
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+    nofollow_flags = flags | getattr(os, "O_NOFOLLOW", 0)
+
+    descriptors: list[int] = []
+    try:
+        parent_fd = os.open(root, flags)
+        descriptors.append(parent_fd)
+        for component in parts[:-1]:
+            try:
+                parent_fd = os.open(component, nofollow_flags, dir_fd=parent_fd)
+            except FileNotFoundError as exc:
+                raise ProjectNotFound(f"not found: {rel_path!r}") from exc
+            except (NotADirectoryError, PermissionError) as exc:
+                raise PermissionDenied(
+                    f"delete path has an unsafe parent component: {rel_path!r}"
+                ) from exc
+            except OSError as exc:
+                if exc.errno == errno.ELOOP:
+                    raise PermissionDenied(
+                        f"delete path has a symlink parent: {rel_path!r}"
+                    ) from exc
+                raise WriteError(f"could not inspect {rel_path!r}: {exc}") from exc
+            descriptors.append(parent_fd)
+        _delete_entry_at(parent_fd, parts[-1], rel_path)
+    except FileNotFoundError as exc:
+        raise ProjectNotFound(f"not found: {rel_path!r}") from exc
+    except PermissionError as exc:
+        raise PermissionDenied(str(exc)) from exc
+    except OSError as exc:
+        raise WriteError(f"could not access project root: {exc}") from exc
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
     return {
         "project": _scope_summary(scope),
         "path": rel_path,
     }
+
+
+def _delete_parts(rel_path: str) -> tuple[str, ...]:
+    """Validate a delete path without resolving its final symlink."""
+    if not isinstance(rel_path, str):
+        raise InvalidPath("path must be a string")
+    rel_path = rel_path.strip()
+    if not rel_path:
+        raise InvalidPath("path is empty")
+    if "\x00" in rel_path:
+        raise InvalidPath("path contains a null byte")
+
+    path = Path(rel_path)
+    if path.is_absolute() or ".." in path.parts:
+        raise PermissionDenied(f"path escapes the project root: {rel_path!r}")
+    if not path.parts:
+        raise PermissionDenied("refusing to delete the project root")
+    return path.parts
+
+
+def _delete_entry_at(parent_fd: int, name: str, display_path: str) -> None:
+    """Remove ``name`` below ``parent_fd`` without following symlinks."""
+    try:
+        entry_stat = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError as exc:
+        raise ProjectNotFound(f"not found: {display_path!r}") from exc
+    except PermissionError as exc:
+        raise PermissionDenied(str(exc)) from exc
+    except OSError as exc:
+        raise WriteError(f"could not inspect {display_path!r}: {exc}") from exc
+
+    if not stat.S_ISDIR(entry_stat.st_mode):
+        try:
+            os.unlink(name, dir_fd=parent_fd)
+        except FileNotFoundError as exc:
+            raise ProjectNotFound(f"not found: {display_path!r}") from exc
+        except IsADirectoryError as exc:
+            raise FileConflict(
+                f"target changed while it was being deleted: {display_path!r}"
+            ) from exc
+        except PermissionError as exc:
+            raise PermissionDenied(str(exc)) from exc
+        except OSError as exc:
+            if exc.errno == errno.ENOSPC:
+                raise DiskFull(str(exc)) from exc
+            raise WriteError(f"could not delete {display_path!r}: {exc}") from exc
+        return
+
+    _delete_directory_at(parent_fd, name, display_path, entry_stat)
+
+
+def _delete_directory_at(
+    parent_fd: int,
+    name: str,
+    display_path: str,
+    expected_stat: os.stat_result,
+) -> None:
+    """Remove a directory only while it retains its observed identity."""
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        child_fd = os.open(name, flags, dir_fd=parent_fd)
+    except FileNotFoundError as exc:
+        raise ProjectNotFound(f"not found: {display_path!r}") from exc
+    except PermissionError as exc:
+        raise PermissionDenied(str(exc)) from exc
+    except NotADirectoryError as exc:
+        raise FileConflict(
+            f"target changed while it was being deleted: {display_path!r}"
+        ) from exc
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise FileConflict(
+                f"target changed while it was being deleted: {display_path!r}"
+            ) from exc
+        raise WriteError(f"could not inspect {display_path!r}: {exc}") from exc
+
+    try:
+        opened_stat = os.fstat(child_fd)
+        if (opened_stat.st_dev, opened_stat.st_ino) != (
+            expected_stat.st_dev,
+            expected_stat.st_ino,
+        ):
+            raise FileConflict(
+                f"target changed while it was being deleted: {display_path!r}"
+            )
+        for child_name in os.listdir(child_fd):
+            _delete_entry_at(child_fd, child_name, f"{display_path}/{child_name}")
+        current_stat = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if (current_stat.st_dev, current_stat.st_ino) != (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
+        ):
+            raise FileConflict(
+                f"target changed while it was being deleted: {display_path!r}"
+            )
+        os.rmdir(name, dir_fd=parent_fd)
+    except FileNotFoundError as exc:
+        raise ProjectNotFound(f"not found: {display_path!r}") from exc
+    except PermissionError as exc:
+        raise PermissionDenied(str(exc)) from exc
+    except OSError as exc:
+        raise WriteError(f"could not delete {display_path!r}: {exc}") from exc
+    finally:
+        os.close(child_fd)
 
 
 def make_dir(request, rel_path: str) -> dict:

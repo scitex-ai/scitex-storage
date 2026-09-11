@@ -319,11 +319,12 @@ def project_rename(request) -> HttpResponse:
 
 @require_POST
 def project_delete(request) -> HttpResponse:
-    """Delete one file from the current project.
+    """Delete one file, symlink, or directory from the current project.
 
-    POST ``{path}``. The target must be a regular file (a directory is a typed
-    ``not_a_file`` 400 -- folder operations are L495). Scope + authz from the
-    hub resolver; containment via the same guard as the read routes.
+    POST ``{path}``. Directories are removed recursively. A final symlink is
+    unlinked without following its referent, symlinked parent components are
+    refused, and the project root is never a valid target. Scope + authz come
+    from the hub resolver.
     """
     from django.http import JsonResponse
 
