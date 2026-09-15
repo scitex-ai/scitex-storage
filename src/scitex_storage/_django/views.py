@@ -3,39 +3,24 @@
 # File: src/scitex_storage/_django/views.py
 """Views for the scitex-storage GUI plugin.
 
-This is the first scaffold's "real data" proof: ``index`` calls
-scitex-storage's EXISTING, already-tested ``scan()`` (from
-``scitex_storage._measure._scan``) against a real path and renders the result as
-an HTML table — not a placeholder. The full disk-treemap UI is a later
-phase (see the ``scitex-storage-gui-plugin-for-scitex-hub`` scitex-todo
-card).
-
-``?path=`` lets the caller point the scan anywhere. GET / with NO
-``?path=`` renders an empty landing page (the path form, no scan) --
-does NOT default to the user's home directory. That default was tried
-and found unsafe in practice: `scan()` is a synchronous, stat-only
-directory walk, but a real home directory can be enormous (a live
-production instance measured ~1TB, most of it in dotfiles/venv/build
-trees under no `.gitignore` boundary at `$HOME`) -- walking it
-synchronously inside a single Django request handler hangs the whole
-page load well past any reasonable client timeout, with nothing
-logged until (if ever) it completes, because Django's dev-server
-request-line log only fires after the view returns. Never scans on
-load; only scans once the caller explicitly submits a path.
+``index`` is the "Machines & storage" screen: the requester's own volumes
+(see :mod:`.volumes` for who decides which), each with capacity and
+reachability, and a one-level browser inside a volume (``?volume=&dir=``).
+There is no free-form path: every directory is resolved inside a volume the
+requester owns, and anything that resolves outside it is a 403.
 """
 
 from __future__ import annotations
 
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import render
+from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy
 from django.views.decorators.http import require_GET, require_POST
 
 from scitex_ui.branding import shell_context
 
-from scitex_storage._report import format_count, format_size
-from scitex_storage._measure._scan import MissingSystemDependencyError, scan
-
-from . import project_files
+from . import project_files, volumes
 from .project_files import StorageFileError
 from ._favicon import FAVICON_HREF
 
@@ -74,62 +59,58 @@ def _app_label(base: str) -> str:
     return f"{base} (hub)" if mode == "hub" else base
 
 
+#: Tabs beyond Machines are placeholders until their features ship.
+TABS = (
+    ("machines", gettext_lazy("Machines & storage"), False),
+    ("usage", gettext_lazy("Usage"), True),
+    ("move", gettext_lazy("Move"), True),
+    ("backup", gettext_lazy("Backup"), True),
+    ("duplicates", gettext_lazy("Duplicates"), True),
+)
+
+
+def _tab_context(active: str) -> list:
+    return [
+        {"key": key, "label": label, "soon": soon, "active": key == active}
+        for key, label, soon in TABS
+    ]
+
+
+def _machines(statuses) -> list:
+    groups: dict = {}
+    for st in statuses:
+        groups.setdefault(st.volume.machine or "-", []).append(st)
+    return [{"name": name, "volumes": vols} for name, vols in groups.items()]
+
+
 def index(request):
-    """Render one directory's ``scan()`` result as an HTML table.
-
-    Query params:
-        path: directory to scan. Omitted -> empty landing page (the
-            path form), no scan performed -- see module docstring for
-            why there is deliberately no default-to-home-directory
-            fallback.
-
-    Errors (missing path, not a directory, ``fd`` not installed) render
-    the same template with an ``error`` message instead of raising a
-    bare 500 — this is a browser-facing page, not an API.
-    """
-    raw_path = request.GET.get("path")
+    """Machines & storage overview, a volume listing, or a coming-soon tab."""
+    tab = request.GET.get("tab", "machines")
+    if tab not in {key for key, _label, _soon in TABS}:
+        tab = "machines"
     context = {
-        # shell_context first, then the explicit overrides below, so the
-        # pane declaration cannot shadow this view's own app_label/favicon.
         **shell_context("Storage", panes=SHELL_PANES),
         "app_label": _app_label("SciTeX Storage"),
         "favicon_href": FAVICON_HREF,
-        "requested_path": raw_path or "",
-        "error": None,
-        "root": None,
-        "children": [],
-        "total_size": None,
-        "total_files": None,
+        "tabs": _tab_context(tab),
+        "tab": tab,
     }
-
-    if raw_path is None:
+    if tab != "machines":
         return render(request, "scitex_storage/index.html", context)
 
-    try:
-        result = scan(raw_path)
-    except MissingSystemDependencyError as e:
-        context["error"] = (
-            "scitex-storage scan requires the `fd` binary, which is not "
-            f"installed on this server: {e}"
-        )
-        return render(request, "scitex_storage/index.html", context)
-    except (FileNotFoundError, NotADirectoryError) as e:
-        context["error"] = str(e)
+    user_volumes = volumes.resolve_user_volumes(request)
+    key = request.GET.get("volume")
+    if key:
+        volume = volumes.find_volume(user_volumes, key)
+        if volume is None:
+            return HttpResponseForbidden(_("That volume is not yours."))
+        try:
+            context["listing"] = volumes.list_dir(volume, request.GET.get("dir", ""))
+        except volumes.OutsideVolume:
+            return HttpResponseForbidden(_("That folder is outside the volume."))
         return render(request, "scitex_storage/index.html", context)
 
-    ordered = result.by_size()
-    context["root"] = str(result.root)
-    context["total_size"] = format_size(result.total_size)
-    context["total_files"] = format_count(result.total_files)
-    context["children"] = [
-        {
-            "name": c.name + ("/" if c.is_dir else ""),
-            "size": format_size(c.size),
-            "file_count": format_count(c.file_count),
-            "error": c.error,
-        }
-        for c in ordered
-    ]
+    context["machines"] = _machines(volumes.measure_all(user_volumes))
     return render(request, "scitex_storage/index.html", context)
 
 
