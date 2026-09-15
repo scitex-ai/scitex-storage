@@ -55,60 +55,86 @@ def _touch(path, size=1):
     return path
 
 
-def test_index_renders_200_for_a_real_directory(tmp_path):
+_VOLUME_ROOT = {}
+
+
+def provide_test_volumes(request):
+    """Volumes provider wired in via SCITEX_STORAGE_VOLUMES_PROVIDER."""
+    return [{"key": "mine", "label": "Mine", "path": _VOLUME_ROOT["path"], "machine": "box"}]
+
+
+def _get(tmp_path, params):
+    from django.test import RequestFactory, override_settings
+
+    from scitex_storage._django.views import index
+
+    _VOLUME_ROOT["path"] = str(tmp_path)
+    dotted = f"{__name__}.provide_test_volumes"
+    with override_settings(SCITEX_STORAGE_VOLUMES_PROVIDER=dotted):
+        return index(RequestFactory().get("/storage/", params))
+
+
+def _boot():
+    pytest.importorskip("django")
+    pytest.importorskip("scitex_app._django")
+    pytest.importorskip("scitex_ui")
+    _boot_django_for_storage_gui()
+
+
+def test_index_lists_the_requesters_volume(tmp_path):
     # Arrange
-    pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
-    _boot_django_for_storage_gui()
-    _touch(tmp_path / "child" / "a.bin", 100)
-    from django.test import RequestFactory
-
-    from scitex_storage._django.views import index
-
+    _boot()
     # Act
-    response = index(RequestFactory().get("/storage/", {"path": str(tmp_path)}))
+    body = _get(tmp_path, {}).content.decode()
     # Assert
-    assert response.status_code == 200
+    assert "Mine" in body
 
 
-@pytest.mark.requires_fd
-def test_index_renders_the_real_directory_name_from_a_real_scan(tmp_path):
-    # Arrange -- the only test in this module that needs `fd`: it asserts on
-    # the output of a REAL scan, and the view renders an empty tree rather
-    # than raising when the binary is missing, so the failure arrives as a
-    # bare "'alpha' not in <html>" with nothing pointing at fd.
-    pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
-    _boot_django_for_storage_gui()
+def test_volume_listing_shows_its_children(tmp_path):
+    # Arrange
+    _boot()
     _touch(tmp_path / "alpha" / "a.bin", 100)
-    from django.test import RequestFactory
-
-    from scitex_storage._django.views import index
-
     # Act
-    body = index(RequestFactory().get("/storage/", {"path": str(tmp_path)})).content.decode()
-    # Assert -- the child name from the REAL directory tree we built above
-    # appears in the rendered HTML, not a placeholder.
+    body = _get(tmp_path, {"volume": "mine"}).content.decode()
+    # Assert
     assert "alpha" in body
 
 
-def test_index_reports_a_friendly_error_for_a_missing_path(tmp_path):
+def test_unknown_volume_is_forbidden(tmp_path):
     # Arrange
-    pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
-    _boot_django_for_storage_gui()
-    missing = tmp_path / "does-not-exist"
-    from django.test import RequestFactory
-
-    from scitex_storage._django.views import index
-
+    _boot()
     # Act
-    body = index(RequestFactory().get("/storage/", {"path": str(missing)})).content.decode()
-    # Assert -- never a bare 500 / raw traceback for a browser-facing page.
-    assert "does not exist" in body
+    response = _get(tmp_path, {"volume": "someone-else"})
+    # Assert
+    assert response.status_code == 403
+
+
+def test_directory_outside_the_volume_is_forbidden(tmp_path):
+    # Arrange
+    _boot()
+    (tmp_path / "vol").mkdir()
+    # Act
+    response = _get(tmp_path / "vol", {"volume": "mine", "dir": "../"})
+    # Assert
+    assert response.status_code == 403
+
+
+def test_absolute_path_param_is_not_scanned(tmp_path):
+    # Arrange -- the old ?path= free-form scan must not come back.
+    _boot()
+    # Act
+    body = _get(tmp_path, {"path": "/etc"}).content.decode()
+    # Assert
+    assert "passwd" not in body
+
+
+def test_coming_soon_tab_renders(tmp_path):
+    # Arrange
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "move"}).content.decode()
+    # Assert
+    assert "Coming soon" in body
 
 
 def test_index_declares_every_shell_pane_so_none_reserves_width(tmp_path):

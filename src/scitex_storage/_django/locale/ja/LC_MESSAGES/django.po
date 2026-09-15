@@ -1,0 +1,108 @@
+# Japanese catalog for the scitex-storage GUI.
+msgid ""
+msgstr ""
+"Project-Id-Version: scitex-storage\n"
+"Language: ja\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Machines & storage"
+msgstr "マシンとストレージ"
+
+msgid "Usage"
+msgstr "使用状況"
+
+msgid "Move"
+msgstr "移動"
+
+msgid "Backup"
+msgstr "バックアップ"
+
+msgid "Duplicates"
+msgstr "重複ファイル"
+
+msgid "That volume is not yours."
+msgstr "このボリュームにはアクセスできません。"
+
+msgid "That folder is outside the volume."
+msgstr "このフォルダはボリュームの外にあります。"
+
+msgid "Storage"
+msgstr "ストレージ"
+
+msgid "The machines and disks you can reach, and how full they are."
+msgstr "利用できるマシンとディスク、その使用量を表示します。"
+
+msgid "Storage sections"
+msgstr "ストレージのセクション"
+
+msgid "Soon"
+msgstr "準備中"
+
+msgid "Coming soon"
+msgstr "近日公開"
+
+msgid "Per-directory usage over time, so you can see what is growing."
+msgstr "フォルダごとの使用量の推移を表示し、増えているデータを把握できます。"
+
+msgid ""
+"Move data you no longer use from fast storage to cold storage, verified "
+"before anything is removed."
+msgstr "使わなくなったデータを高速ストレージからコールドストレージへ移動します。削除前に必ず検証します。"
+
+msgid "Scheduled, verified backups of your data to a second machine."
+msgstr "別のマシンへ、検証付きの定期バックアップを行います。"
+
+msgid "Find duplicate files across your volumes and free the space."
+msgstr "ボリューム間の重複ファイルを見つけて空き容量を確保します。"
+
+msgid "Folder path"
+msgstr "フォルダのパス"
+
+msgid "Machines"
+msgstr "マシン"
+
+msgid "This folder does not exist yet."
+msgstr "このフォルダはまだ作成されていません。"
+
+msgid "The volume did not answer in time."
+msgstr "ボリュームから時間内に応答がありませんでした。"
+
+msgid "This folder cannot be read."
+msgstr "このフォルダを読み取れません。"
+
+msgid "This folder is empty."
+msgstr "このフォルダは空です。"
+
+msgid "Showing the first 500 entries."
+msgstr "最初の500件を表示しています。"
+
+msgid "Reachable"
+msgstr "接続可"
+
+msgid "Not mounted here"
+msgstr "このサーバーには未マウント"
+
+msgid "Unreachable"
+msgstr "接続不可"
+
+msgid "Disk used"
+msgstr "ディスク使用量"
+
+#, python-format
+msgid "%(used)s of %(total)s used (%(pct)s%%) · %(free)s free"
+msgstr "%(total)s 中 %(used)s 使用（%(pct)s%%）・空き %(free)s"
+
+msgid "Browse"
+msgstr "開く"
+
+msgid "No storage is assigned to your account yet."
+msgstr "このアカウントにはまだストレージが割り当てられていません。"
+
+msgid "Workspace files"
+msgstr "ワークスペースのファイル"
+
+msgid "Compute home"
+msgstr "計算ノードのホーム"
