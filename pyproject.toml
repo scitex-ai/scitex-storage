@@ -141,6 +141,9 @@ scitex-storage = "scitex_storage"
 [project.entry-points."scitex_dev.system_deps"]
 scitex-storage = "scitex_storage._system_deps:provide"
 
+[project.entry-points."scitex_hub.dev"]
+storage = "scitex_storage:validate_storage_contract"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/scitex_storage"]
 # Pre-built Sphinx HTML served in-wheel by scitex-cloud (PS-121); refreshed
