@@ -93,6 +93,7 @@ CROSS_PACKAGE_IMPORTS = [
     "scitex_dev.system_deps",
     "scitex_ssh",
     "scitex_io",
+    "scitex_app",
     "scitex_app._django",
     "scitex_app._standalone",
     "scitex_app.sdk",
