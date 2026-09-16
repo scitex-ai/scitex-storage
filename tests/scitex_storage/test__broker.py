@@ -9,6 +9,7 @@ from scitex_storage import (
     NasExecutor,
     NodeProjector,
     StorageContractEvidence,
+    StoragePlan,
     StorageReadback,
     StorageRequest,
     StorageResource,
@@ -148,7 +149,7 @@ def test_plan_rejects_unallowlisted_mode(tmp_path):
 
 
 class _Nas:
-    def apply(self, plan):
+    def apply(self, request):
         return None
 
     def readback(self, resource):
@@ -156,18 +157,18 @@ class _Nas:
 
 
 class _Projector:
-    def project(self, plan):
+    def project(self, request):
         return None
 
     def readback(self, resource):
         return None
 
 
-def test_contract_is_ready_only_with_complete_typed_evidence():
+def test_contract_remains_blocked_without_trusted_runtime_collector():
     # Arrange
     evidence = StorageContractEvidence(
-        nas_executor=_Nas(),
-        node_projector=_Projector(),
+        nas_authority="nas-provisioner-v1",
+        projector_authority="node-projector-v1",
         root_kinds=("home", "project", "dataset"),
         authoritative_identity=True,
         root_squash=True,
@@ -178,7 +179,10 @@ def test_contract_is_ready_only_with_complete_typed_evidence():
     # Act
     report = validate_storage_contract(evidence)
     # Assert
-    assert (report["ready"], report["blockers"]) == (True, [])
+    assert (report["ready"], report["blockers"]) == (
+        False,
+        ["trusted_runtime_collector"],
+    )
 
 
 def test_mapping_cannot_self_attest_runtime_readiness():
@@ -230,6 +234,8 @@ def test_plan_requires_nofollow(tmp_path):
 def _readback(plan, *, owner_uid=None):
     return StorageReadback(
         resource=plan.resource,
+        canonical_root=plan.canonical_root,
+        target=plan.target,
         owner_uid=plan.owner_uid if owner_uid is None else owner_uid,
         owner_gid=plan.owner_gid,
         mode=plan.mode,
@@ -238,6 +244,9 @@ def _readback(plan, *, owner_uid=None):
         audit_request_id=plan.audit.request_id,
         idempotency_key=plan.idempotency_key,
         nofollow_verified=True,
+        resolution_method="openat2-beneath-no-symlinks",
+        device_id=1,
+        inode=2,
     )
 
 
@@ -274,7 +283,7 @@ def test_readback_cannot_disable_nofollow_requirement(tmp_path):
     # Act
     report = validate_readback(plan, readback)
     # Assert
-    assert (report["ready"], report["blockers"]) == (False, ["nofollow"])
+    assert (report["ready"], report["blockers"]) == (False, ["plan_validation"])
 
 
 def test_request_forbids_undeclared_command_fields():
@@ -319,3 +328,70 @@ def test_request_json_schema_forbids_extra_properties():
     additional = StorageRequest.model_json_schema()["additionalProperties"]
     # Assert
     assert additional is expected
+
+
+def test_direct_plan_construction_rejects_privileged_escape(tmp_path):
+    # Arrange
+    root = tmp_path / "home"
+    root.mkdir()
+    payload = plan_storage(_request(), _policy(root)).model_dump()
+    payload.update(
+        {
+            "target": tmp_path / "outside",
+            "owner_uid": 0,
+            "owner_gid": 0,
+            "mode": 0o777,
+            "nofollow_required": False,
+        }
+    )
+    # Act
+    # Assert
+    with pytest.raises(ValidationError):
+        StoragePlan.model_validate(payload)
+
+
+def test_readback_revalidates_root_after_symlink_replacement(tmp_path):
+    # Arrange
+    root = tmp_path / "home"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    plan = plan_storage(_request(), _policy(root))
+    readback = _readback(plan)
+    root.rmdir()
+    root.symlink_to(outside, target_is_directory=True)
+    # Act
+    report = validate_readback(plan, readback)
+    # Assert
+    assert report["blockers"] == ["plan_validation"]
+
+
+def test_idempotency_key_binds_canonical_root(tmp_path):
+    # Arrange
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+    # Act
+    first = plan_storage(_request(), _policy(first_root))
+    second = plan_storage(_request(), _policy(second_root))
+    # Assert
+    assert first.idempotency_key != second.idempotency_key
+
+
+def test_runtime_evidence_is_json_serializable():
+    # Arrange
+    evidence = StorageContractEvidence(
+        nas_authority="nas-provisioner-v1",
+        projector_authority="node-projector-v1",
+        root_kinds=("home", "project", "dataset"),
+        authoritative_identity=True,
+        root_squash=True,
+        quota_readback=True,
+        projection_readback=True,
+        rollback_path=True,
+    )
+    # Act
+    payload = evidence.model_dump_json()
+    # Assert
+    assert '"nas_authority":"nas-provisioner-v1"' in payload
