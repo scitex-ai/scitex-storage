@@ -232,6 +232,7 @@ def test_plan_requires_nofollow(tmp_path):
 
 
 def _readback(plan, *, owner_uid=None):
+    stat = plan.target.lstat()
     return StorageReadback(
         resource=plan.resource,
         canonical_root=plan.canonical_root,
@@ -245,8 +246,8 @@ def _readback(plan, *, owner_uid=None):
         idempotency_key=plan.idempotency_key,
         nofollow_verified=True,
         resolution_method="openat2-beneath-no-symlinks",
-        device_id=1,
-        inode=2,
+        device_id=stat.st_dev,
+        inode=stat.st_ino,
     )
 
 
@@ -255,8 +256,9 @@ def test_readback_verification_accepts_exact_state(tmp_path):
     root = tmp_path / "home"
     root.mkdir()
     plan = plan_storage(_request(), _policy(root))
+    plan.target.mkdir()
     # Act
-    report = validate_readback(plan, _readback(plan))
+    report = validate_readback(_request(), _policy(root), _readback(plan))
     # Assert
     assert (report["ready"], report["blockers"]) == (True, [])
 
@@ -266,24 +268,32 @@ def test_readback_verification_rejects_owner_mismatch(tmp_path):
     root = tmp_path / "home"
     root.mkdir()
     plan = plan_storage(_request(), _policy(root))
+    plan.target.mkdir()
     # Act
-    report = validate_readback(plan, _readback(plan, owner_uid=20_002))
+    report = validate_readback(
+        _request(), _policy(root), _readback(plan, owner_uid=20_002)
+    )
     # Assert
     assert (report["ready"], report["blockers"]) == (False, ["owner_uid"])
 
 
-def test_readback_cannot_disable_nofollow_requirement(tmp_path):
+def test_plan_model_copy_cannot_keep_stale_digest(tmp_path):
     # Arrange
     root = tmp_path / "home"
     root.mkdir()
     plan = plan_storage(_request(), _policy(root)).model_copy(
-        update={"nofollow_required": False}
+        update={
+            "audit": AuditContext(
+                actor="attacker",
+                request_id="req-02",
+                reason="changed after digest",
+            )
+        }
     )
-    readback = _readback(plan).model_copy(update={"nofollow_verified": False})
     # Act
-    report = validate_readback(plan, readback)
     # Assert
-    assert (report["ready"], report["blockers"]) == (False, ["plan_validation"])
+    with pytest.raises(ValidationError, match="idempotency"):
+        StoragePlan.model_validate(plan.model_dump())
 
 
 def test_request_forbids_undeclared_command_fields():
@@ -356,14 +366,32 @@ def test_readback_revalidates_root_after_symlink_replacement(tmp_path):
     outside = tmp_path / "outside"
     root.mkdir()
     outside.mkdir()
-    plan = plan_storage(_request(), _policy(root))
+    policy = _policy(root)
+    plan = plan_storage(_request(), policy)
+    plan.target.mkdir()
     readback = _readback(plan)
+    plan.target.rmdir()
     root.rmdir()
     root.symlink_to(outside, target_is_directory=True)
     # Act
-    report = validate_readback(plan, readback)
+    report = validate_readback(_request(), policy, readback)
     # Assert
     assert report["blockers"] == ["plan_validation"]
+
+
+def test_readback_binds_live_filesystem_identity(tmp_path):
+    # Arrange
+    root = tmp_path / "home"
+    root.mkdir()
+    plan = plan_storage(_request(), _policy(root))
+    plan.target.mkdir()
+    readback = _readback(plan).model_copy(
+        update={"inode": plan.target.lstat().st_ino + 1}
+    )
+    # Act
+    report = validate_readback(_request(), _policy(root), readback)
+    # Assert
+    assert report["blockers"] == ["filesystem_identity"]
 
 
 def test_idempotency_key_binds_canonical_root(tmp_path):

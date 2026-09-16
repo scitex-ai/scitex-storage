@@ -99,6 +99,45 @@ class AuditContext(_ContractModel):
         return reason
 
 
+def _plan_digest(
+    *,
+    resource: StorageResource,
+    canonical_root: Path,
+    target: Path,
+    policy_uid_min: int,
+    policy_uid_max: int,
+    allowed_modes: tuple[int, ...],
+    owner_uid: int,
+    owner_gid: int,
+    mode: int,
+    quota_bytes: int,
+    quota_inodes: int,
+    audit: AuditContext,
+    nofollow_required: bool,
+) -> str:
+    """Hash every security-relevant plan field in one canonical form."""
+    payload = {
+        "schema_version": 1,
+        "kind": resource.kind,
+        "resource_id": resource.resource_id,
+        "canonical_root": str(canonical_root),
+        "target": str(target),
+        "policy_uid_min": policy_uid_min,
+        "policy_uid_max": policy_uid_max,
+        "allowed_modes": list(allowed_modes),
+        "owner_uid": owner_uid,
+        "owner_gid": owner_gid,
+        "mode": mode,
+        "quota_bytes": quota_bytes,
+        "quota_inodes": quota_inodes,
+        "audit": audit.model_dump(mode="json"),
+        "nofollow_required": nofollow_required,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 class BrokerPolicy(_ContractModel):
     """Allowlisted roots and managed POSIX identity range."""
 
@@ -188,6 +227,23 @@ class StoragePlan(_ContractModel):
             raise ValueError("plan target is outside its canonical non-symlink root")
         if not policy_ok:
             raise ValueError("plan weakens managed identity, mode, or no-follow policy")
+        expected_key = _plan_digest(
+            resource=self.resource,
+            canonical_root=self.canonical_root,
+            target=self.target,
+            policy_uid_min=self.policy_uid_min,
+            policy_uid_max=self.policy_uid_max,
+            allowed_modes=self.allowed_modes,
+            owner_uid=self.owner_uid,
+            owner_gid=self.owner_gid,
+            mode=self.mode,
+            quota_bytes=self.quota_bytes,
+            quota_inodes=self.quota_inodes,
+            audit=self.audit,
+            nofollow_required=self.nofollow_required,
+        )
+        if self.idempotency_key != expected_key:
+            raise ValueError("idempotency_key does not bind the complete plan")
         return self
 
 
@@ -282,26 +338,21 @@ def plan_storage(request: StorageRequest, policy: BrokerPolicy) -> StoragePlan:
     target.relative_to(root)
     if target.is_symlink():
         raise ValueError("resource target must not be a symlink")
-    payload = {
-        "schema_version": 1,
-        "kind": request.resource.kind,
-        "resource_id": request.resource.resource_id,
-        "canonical_root": str(root),
-        "target": str(target),
-        "policy_uid_min": policy.uid_min,
-        "policy_uid_max": policy.uid_max,
-        "allowed_modes": list(policy.allowed_modes),
-        "owner_uid": request.owner_uid,
-        "owner_gid": request.owner_gid,
-        "mode": request.mode,
-        "quota_bytes": request.quota_bytes,
-        "quota_inodes": request.quota_inodes,
-        "audit": request.audit.model_dump(mode="json"),
-        "nofollow_required": True,
-    }
-    idempotency_key = hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    idempotency_key = _plan_digest(
+        resource=request.resource,
+        canonical_root=root,
+        target=target,
+        policy_uid_min=policy.uid_min,
+        policy_uid_max=policy.uid_max,
+        allowed_modes=policy.allowed_modes,
+        owner_uid=request.owner_uid,
+        owner_gid=request.owner_gid,
+        mode=request.mode,
+        quota_bytes=request.quota_bytes,
+        quota_inodes=request.quota_inodes,
+        audit=request.audit,
+        nofollow_required=True,
+    )
     return StoragePlan(
         resource=request.resource,
         canonical_root=root,
@@ -320,11 +371,15 @@ def plan_storage(request: StorageRequest, policy: BrokerPolicy) -> StoragePlan:
 
 
 def validate_readback(
-    plan: StoragePlan, readback: StorageReadback
+    request: StorageRequest,
+    policy: BrokerPolicy,
+    readback: StorageReadback,
 ) -> dict[str, Any]:
-    """Compare executor readback with every security-relevant desired field."""
+    """Derive a trusted plan, then compare authoritative executor readback."""
     try:
-        plan = StoragePlan.model_validate(plan.model_dump())
+        request = StorageRequest.model_validate(request.model_dump())
+        policy = BrokerPolicy.model_validate(policy.model_dump())
+        plan = plan_storage(request, policy)
     except (ValidationError, ValueError):
         return {
             "schema_version": 1,
@@ -345,6 +400,13 @@ def validate_readback(
             "checks": [],
             "blockers": ["readback_validation"],
         }
+    try:
+        stat = plan.target.lstat()
+        filesystem_identity_ok = (
+            stat.st_dev == readback.device_id and stat.st_ino == readback.inode
+        )
+    except OSError:
+        filesystem_identity_ok = False
     observed = (
         ("resource", readback.resource == plan.resource),
         ("canonical_root", readback.canonical_root == plan.canonical_root),
@@ -364,6 +426,7 @@ def validate_readback(
             "resolution_method",
             readback.resolution_method == "openat2-beneath-no-symlinks",
         ),
+        ("filesystem_identity", filesystem_identity_ok),
     )
     checks = [
         {"name": name, "ok": ok, "observed": ok, "expected": True}
