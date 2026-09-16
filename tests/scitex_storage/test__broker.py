@@ -1,5 +1,7 @@
 """Fail-closed contract tests for the Hub Storage Broker capability."""
 
+import os
+
 import pytest
 from pydantic import ValidationError
 
@@ -111,6 +113,26 @@ def _policy(root):
         roots=(StorageRoot(kind="home", path=root),),
         uid_min=20_000,
         uid_max=59_999,
+    )
+
+
+def _live_request():
+    return StorageRequest(
+        resource=StorageResource(kind="home", resource_id="live-user"),
+        owner_uid=os.getuid(),
+        owner_gid=os.getgid(),
+        mode=0o700,
+        quota_bytes=1024,
+        quota_inodes=10,
+        audit=AuditContext(actor="hub-service", request_id="req-live", reason="test"),
+    )
+
+
+def _live_policy(root):
+    return BrokerPolicy(
+        roots=(StorageRoot(kind="home", path=root),),
+        uid_min=min(os.getuid(), os.getgid()),
+        uid_max=max(os.getuid(), os.getgid()),
     )
 
 
@@ -246,6 +268,7 @@ def _readback(plan, *, owner_uid=None):
         idempotency_key=plan.idempotency_key,
         nofollow_verified=True,
         resolution_method="openat2-beneath-no-symlinks",
+        object_type="directory",
         device_id=stat.st_dev,
         inode=stat.st_ino,
     )
@@ -255,10 +278,12 @@ def test_readback_verification_accepts_exact_state(tmp_path):
     # Arrange
     root = tmp_path / "home"
     root.mkdir()
-    plan = plan_storage(_request(), _policy(root))
-    plan.target.mkdir()
+    request = _live_request()
+    policy = _live_policy(root)
+    plan = plan_storage(request, policy)
+    plan.target.mkdir(mode=plan.mode)
     # Act
-    report = validate_readback(_request(), _policy(root), _readback(plan))
+    report = validate_readback(request, policy, _readback(plan))
     # Assert
     assert (report["ready"], report["blockers"]) == (True, [])
 
@@ -267,11 +292,13 @@ def test_readback_verification_rejects_owner_mismatch(tmp_path):
     # Arrange
     root = tmp_path / "home"
     root.mkdir()
-    plan = plan_storage(_request(), _policy(root))
-    plan.target.mkdir()
+    request = _live_request()
+    policy = _live_policy(root)
+    plan = plan_storage(request, policy)
+    plan.target.mkdir(mode=plan.mode)
     # Act
     report = validate_readback(
-        _request(), _policy(root), _readback(plan, owner_uid=20_002)
+        request, policy, _readback(plan, owner_uid=plan.owner_uid + 1)
     )
     # Assert
     assert (report["ready"], report["blockers"]) == (False, ["owner_uid"])
@@ -366,15 +393,16 @@ def test_readback_revalidates_root_after_symlink_replacement(tmp_path):
     outside = tmp_path / "outside"
     root.mkdir()
     outside.mkdir()
-    policy = _policy(root)
-    plan = plan_storage(_request(), policy)
-    plan.target.mkdir()
+    request = _live_request()
+    policy = _live_policy(root)
+    plan = plan_storage(request, policy)
+    plan.target.mkdir(mode=plan.mode)
     readback = _readback(plan)
     plan.target.rmdir()
     root.rmdir()
     root.symlink_to(outside, target_is_directory=True)
     # Act
-    report = validate_readback(_request(), policy, readback)
+    report = validate_readback(request, policy, readback)
     # Assert
     assert report["blockers"] == ["plan_validation"]
 
@@ -383,15 +411,33 @@ def test_readback_binds_live_filesystem_identity(tmp_path):
     # Arrange
     root = tmp_path / "home"
     root.mkdir()
-    plan = plan_storage(_request(), _policy(root))
-    plan.target.mkdir()
+    request = _live_request()
+    policy = _live_policy(root)
+    plan = plan_storage(request, policy)
+    plan.target.mkdir(mode=plan.mode)
     readback = _readback(plan).model_copy(
         update={"inode": plan.target.lstat().st_ino + 1}
     )
     # Act
-    report = validate_readback(_request(), _policy(root), readback)
+    report = validate_readback(request, policy, readback)
     # Assert
     assert report["blockers"] == ["filesystem_identity"]
+
+
+def test_readback_detects_live_permission_drift(tmp_path):
+    # Arrange
+    root = tmp_path / "home"
+    root.mkdir()
+    request = _live_request()
+    policy = _live_policy(root)
+    plan = plan_storage(request, policy)
+    plan.target.mkdir(mode=plan.mode)
+    readback = _readback(plan)
+    plan.target.chmod(0o777)
+    # Act
+    report = validate_readback(request, policy, readback)
+    # Assert
+    assert report["blockers"] == ["live_metadata"]
 
 
 def test_idempotency_key_binds_canonical_root(tmp_path):

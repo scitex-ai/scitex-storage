@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import stat as stat_module
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -262,6 +263,7 @@ class StorageReadback(_ContractModel):
     idempotency_key: str
     nofollow_verified: bool
     resolution_method: Literal["openat2-beneath-no-symlinks"]
+    object_type: Literal["directory"]
     device_id: int = Field(ge=0)
     inode: int = Field(gt=0)
 
@@ -401,12 +403,21 @@ def validate_readback(
             "blockers": ["readback_validation"],
         }
     try:
-        stat = plan.target.lstat()
+        live_stat = plan.target.lstat()
         filesystem_identity_ok = (
-            stat.st_dev == readback.device_id and stat.st_ino == readback.inode
+            live_stat.st_dev == readback.device_id
+            and live_stat.st_ino == readback.inode
+        )
+        live_metadata_ok = (
+            live_stat.st_uid == plan.owner_uid
+            and live_stat.st_gid == plan.owner_gid
+            and stat_module.S_IMODE(live_stat.st_mode) == plan.mode
+            and stat_module.S_ISDIR(live_stat.st_mode)
+            and readback.object_type == "directory"
         )
     except OSError:
         filesystem_identity_ok = False
+        live_metadata_ok = False
     observed = (
         ("resource", readback.resource == plan.resource),
         ("canonical_root", readback.canonical_root == plan.canonical_root),
@@ -427,6 +438,7 @@ def validate_readback(
             readback.resolution_method == "openat2-beneath-no-symlinks",
         ),
         ("filesystem_identity", filesystem_identity_ok),
+        ("live_metadata", live_metadata_ok),
     )
     checks = [
         {"name": name, "ok": ok, "observed": ok, "expected": True}
