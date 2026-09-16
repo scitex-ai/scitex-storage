@@ -29,6 +29,7 @@ classifiers = [
 
 dependencies = [
     "click",
+    "pydantic>=2.0",
     "scitex-ssh>=1.2.0",
     # `document-sorter` reads a PDF's text via scitex-io
     # (`scitex_io.load(pdf, mode="text", ocr=...)`), which OWNS PDF reading

@@ -10,12 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
 ResourceKind = Literal["home", "project", "dataset", "scratch"]
-_KINDS = frozenset({"home", "project", "dataset", "scratch"})
 _TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 
 
@@ -29,54 +29,68 @@ def _require_token(value: str, name: str) -> None:
         raise ValueError(f"{name} must be an opaque identifier, not a path or command")
 
 
-@dataclass(frozen=True)
-class StorageResource:
+class _ContractModel(BaseModel):
+    """Strict immutable model used at every broker trust boundary."""
+
+    model_config = ConfigDict(
+        strict=True,
+        frozen=True,
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+
+
+class StorageResource(_ContractModel):
     """Opaque resource identity accepted at the unprivileged broker boundary."""
 
     kind: ResourceKind
     resource_id: str
 
-    def __post_init__(self) -> None:
-        if self.kind not in _KINDS:
-            raise ValueError(f"unknown resource kind: {self.kind!r}")
-        _require_token(self.resource_id, "resource_id")
+    @field_validator("resource_id")
+    @classmethod
+    def _validate_resource_id(cls, value: str) -> str:
+        _require_token(value, "resource_id")
+        return value
 
 
-@dataclass(frozen=True)
-class StorageRoot:
+class StorageRoot(_ContractModel):
     """Trusted configuration that maps a resource kind to one canonical root."""
 
     kind: ResourceKind
     path: Path
 
-    def __post_init__(self) -> None:
-        if self.kind not in _KINDS:
-            raise ValueError(f"unknown storage root kind: {self.kind!r}")
-        path = Path(self.path)
+    @field_validator("path")
+    @classmethod
+    def _validate_path(cls, path: Path) -> Path:
         if not path.is_absolute() or path.resolve(strict=False) != path:
             raise ValueError(
                 "storage root must be an absolute canonical non-symlink path"
             )
-        object.__setattr__(self, "path", path)
+        return path
 
 
-@dataclass(frozen=True)
-class AuditContext:
+class AuditContext(_ContractModel):
     """Required attribution carried unchanged into executor readback."""
 
     actor: str
     request_id: str
     reason: str
 
-    def __post_init__(self) -> None:
-        _require_token(self.actor, "actor")
-        _require_token(self.request_id, "request_id")
-        if not self.reason.strip() or any(ord(char) < 32 for char in self.reason):
+    @field_validator("actor", "request_id")
+    @classmethod
+    def _validate_token(cls, value: str, info) -> str:
+        _require_token(value, info.field_name)
+        return value
+
+    @field_validator("reason")
+    @classmethod
+    def _validate_reason(cls, reason: str) -> str:
+        if not reason.strip() or any(ord(char) < 32 for char in reason):
             raise ValueError("reason must be non-empty printable text")
+        return reason
 
 
-@dataclass(frozen=True)
-class BrokerPolicy:
+class BrokerPolicy(_ContractModel):
     """Allowlisted roots and managed POSIX identity range."""
 
     roots: tuple[StorageRoot, ...]
@@ -84,12 +98,14 @@ class BrokerPolicy:
     uid_max: int
     allowed_modes: tuple[int, ...] = (0o700, 0o750, 0o770, 0o2770)
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _validate_policy(self):
         kinds = [root.kind for root in self.roots]
         if not kinds or len(kinds) != len(set(kinds)):
             raise ValueError("roots must contain one unique allowlisted root per kind")
         if self.uid_min < 1 or self.uid_max < self.uid_min:
             raise ValueError("managed UID/GID range is invalid")
+        return self
 
     def root_for(self, kind: ResourceKind) -> Path:
         for root in self.roots:
@@ -98,8 +114,7 @@ class BrokerPolicy:
         raise ValueError(f"resource kind {kind!r} has no allowlisted root")
 
 
-@dataclass(frozen=True)
-class StorageRequest:
+class StorageRequest(_ContractModel):
     """Desired state. Deliberately has no caller-supplied path or command."""
 
     resource: StorageResource
@@ -110,13 +125,15 @@ class StorageRequest:
     quota_inodes: int
     audit: AuditContext
 
-    def __post_init__(self) -> None:
-        if self.quota_bytes <= 0 or self.quota_inodes <= 0:
+    @field_validator("quota_bytes", "quota_inodes")
+    @classmethod
+    def _validate_quota(cls, value: int) -> int:
+        if value <= 0:
             raise ValueError("quota values must be positive")
+        return value
 
 
-@dataclass(frozen=True)
-class StoragePlan:
+class StoragePlan(_ContractModel):
     """Immutable desired state for a narrow privileged executor."""
 
     resource: StorageResource
@@ -131,8 +148,7 @@ class StoragePlan:
     nofollow_required: bool = True
 
 
-@dataclass(frozen=True)
-class StorageReadback:
+class StorageReadback(_ContractModel):
     """Structured post-operation state returned by a privileged executor."""
 
     resource: StorageResource
@@ -164,8 +180,7 @@ class NodeProjector(Protocol):
     def readback(self, resource: StorageResource) -> StorageReadback: ...
 
 
-@dataclass(frozen=True)
-class StorageContractEvidence:
+class StorageContractEvidence(_ContractModel):
     """Read-only runtime evidence required before reporting broker readiness."""
 
     nas_executor: object

@@ -1,8 +1,7 @@
 """Fail-closed contract tests for the Hub Storage Broker capability."""
 
-from dataclasses import replace
-
 import pytest
+from pydantic import ValidationError
 
 from scitex_storage import (
     AuditContext,
@@ -213,7 +212,7 @@ def test_readback_has_no_raw_command_surface():
     # Arrange
     dangerous = {"argv", "command", "shell", "path"}
     # Act
-    fields = set(StorageReadback.__dataclass_fields__)
+    fields = set(StorageReadback.model_fields)
     # Assert
     assert fields.isdisjoint(dangerous)
 
@@ -268,9 +267,55 @@ def test_readback_cannot_disable_nofollow_requirement(tmp_path):
     # Arrange
     root = tmp_path / "home"
     root.mkdir()
-    plan = replace(plan_storage(_request(), _policy(root)), nofollow_required=False)
-    readback = replace(_readback(plan), nofollow_verified=False)
+    plan = plan_storage(_request(), _policy(root)).model_copy(
+        update={"nofollow_required": False}
+    )
+    readback = _readback(plan).model_copy(update={"nofollow_verified": False})
     # Act
     report = validate_readback(plan, readback)
     # Assert
     assert (report["ready"], report["blockers"]) == (False, ["nofollow"])
+
+
+def test_request_forbids_undeclared_command_fields():
+    # Arrange
+    payload = {
+        "resource": {"kind": "home", "resource_id": "alice-01"},
+        "owner_uid": 20_001,
+        "owner_gid": 20_001,
+        "mode": 0o700,
+        "quota_bytes": 1024,
+        "quota_inodes": 10,
+        "audit": {"actor": "hub-service", "request_id": "req-03", "reason": "test"},
+        "shell": "chown -R 20001:20001 /",
+    }
+    # Act
+    # Assert
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        StorageRequest.model_validate(payload)
+
+
+def test_request_uses_strict_identity_types():
+    # Arrange
+    payload = {
+        "resource": {"kind": "home", "resource_id": "alice-01"},
+        "owner_uid": "20001",
+        "owner_gid": 20_001,
+        "mode": 0o700,
+        "quota_bytes": 1024,
+        "quota_inodes": 10,
+        "audit": {"actor": "hub-service", "request_id": "req-04", "reason": "test"},
+    }
+    # Act
+    # Assert
+    with pytest.raises(ValidationError, match="valid integer"):
+        StorageRequest.model_validate(payload)
+
+
+def test_request_json_schema_forbids_extra_properties():
+    # Arrange
+    expected = False
+    # Act
+    additional = StorageRequest.model_json_schema()["additionalProperties"]
+    # Assert
+    assert additional is expected
