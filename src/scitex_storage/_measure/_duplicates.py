@@ -30,6 +30,7 @@ instructions rather than silently falling back to a slow pure-Python hash.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -83,14 +84,7 @@ def find_duplicates(
     if not roots:
         return []
 
-    resolved: list[Path] = []
-    for raw_root in roots:
-        p = Path(raw_root).expanduser()
-        if not p.exists():
-            raise FileNotFoundError(f"path does not exist: {p}")
-        if not p.is_dir():
-            raise NotADirectoryError(f"not a directory: {p}")
-        resolved.append(p.resolve())
+    resolved = _resolve_dir_roots(roots)
 
     fclones_bin = _fclones_binary()
     cmd = [fclones_bin, "group", "--hidden", "--no-ignore", "--format", "json"]
@@ -205,6 +199,135 @@ def duplicates_signal(groups: list[list[Path]] | None) -> "Signal":
         f"zero-risk class: nothing moves, nothing is lost, no owner needs "
         f"consulting. Run this before any move.",
     )
+
+
+def _resolve_dir_roots(roots: list[str | Path]) -> list[Path]:
+    """Validate ``roots`` exactly as :func:`find_duplicates` does.
+
+    Shared so the stat-only stage and the hashing stage agree on what a
+    root is; fail-loud on a bad root in both stages.
+    """
+    resolved: list[Path] = []
+    for raw_root in roots:
+        p = Path(raw_root).expanduser()
+        if not p.exists():
+            raise FileNotFoundError(f"path does not exist: {p}")
+        if not p.is_dir():
+            raise NotADirectoryError(f"not a directory: {p}")
+        resolved.append(p.resolve())
+    return resolved
+
+
+def size_groups(
+    roots: list[str | Path], max_depth: int | None = None
+) -> dict[int, list[Path]]:
+    """Stat-only stage: group files by byte size, WITHOUT reading contents.
+
+    The cheap pre-pass before hashing: same size is necessary (not
+    sufficient) for byte-identity, so sizes shared by 2+ files are exactly
+    the candidate set ``fclones`` would hash. On a slow network mount this
+    answers "how much COULD overlap" in a stat-only walk, letting the
+    operator decide whether the content-reading stage is worth it.
+
+    Symlinked directories are never descended (same rule as
+    :func:`scitex_storage.scan` -- no network-mount storms); symlinked
+    files are skipped. Only sizes with 2+ files are returned, biggest
+    size first. Empty dict means no candidates, not an error.
+    """
+    by_size: dict[int, list[Path]] = {}
+
+    def walk(directory: str, depth: int) -> None:
+        try:
+            with os.scandir(directory) as it:
+                entries = list(it)
+        except OSError:
+            return
+        for entry in entries:
+            try:
+                if entry.is_symlink():
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    if max_depth is None or depth < max_depth:
+                        walk(entry.path, depth + 1)
+                elif entry.is_file(follow_symlinks=False):
+                    try:
+                        size = entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+                    by_size.setdefault(size, []).append(Path(entry.path))
+            except OSError:
+                continue
+
+    for root in _resolve_dir_roots(roots):
+        walk(str(root), 0)
+    return {
+        size: sorted(paths)
+        for size, paths in sorted(by_size.items(), reverse=True)
+        if len(paths) >= 2
+    }
+
+
+def candidate_bytes(by_size: dict[int, list[Path]]) -> int | None:
+    """Bytes at stake in a :func:`size_groups` result.
+
+    ``(n - 1) * size`` per shared size -- the most the hashing stage
+    could confirm as redundant. ``None`` (never 0) when there are no
+    candidates at all; 0 is a real measurement (only empty files share
+    sizes), matching the :func:`reclaimable_bytes` convention.
+    """
+    if not by_size:
+        return None
+    return sum((len(paths) - 1) * size for size, paths in by_size.items())
+
+
+def overlap_bytes(
+    groups: list[list[Path]], roots: list[str | Path]
+) -> dict[str, dict[str, int]]:
+    """Cross-root overlap matrix from confirmed duplicate ``groups``.
+
+    ``matrix[A][B]`` (A != B) is the bytes under root A that also exist
+    under root B -- the "how much of dump A is inside dump B" answer for
+    same-content-different-layout trees, where a name-based diff reports
+    zero overlap. ``matrix[A][A]`` is the redundant bytes strictly inside
+    A. Every pair is present (0 when nothing overlaps); sizes come from
+    ``lstat`` on a readable member, like :func:`reclaimable_bytes`.
+    """
+    resolved = [Path(r).expanduser().resolve() for r in roots]
+
+    def owner(path: Path) -> str | None:
+        for root in resolved:
+            if path == root or root in path.parents:
+                return str(root)
+        return None
+
+    matrix: dict[str, dict[str, int]] = {
+        str(a): {str(b): 0 for b in resolved} for a in resolved
+    }
+    for group in groups:
+        members: dict[str, list[Path]] = {}
+        for member in group:
+            root = owner(member)
+            if root is not None:
+                members.setdefault(root, []).append(member)
+        if not members:
+            continue
+        size: int | None = None
+        for member in group:
+            try:
+                size = member.lstat().st_size
+                break
+            except OSError:
+                continue
+        if size is None:
+            continue
+        for root_a, paths_a in members.items():
+            for root_b in members:
+                if root_b == root_a:
+                    continue
+                matrix[root_a][root_b] += len(paths_a) * size
+            if len(paths_a) >= 2:
+                matrix[root_a][root_a] += (len(paths_a) - 1) * size
+    return matrix
 
 
 # EOF
