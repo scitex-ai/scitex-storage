@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://scitex.ai">
-    <img src="docs/assets/images/scitex-logo-blue-cropped.png" alt="SciTeX" width="400">
+    <img src="docs/scitex-logo-blue-cropped.png" alt="SciTeX" width="400">
   </a>
 </p>
 
@@ -16,7 +16,8 @@
 <p align="center">
   <a href="https://pypi.org/project/scitex-storage/"><img src="https://img.shields.io/pypi/v/scitex-storage?label=pypi" alt="pypi"></a>
   <a href="https://pypi.org/project/scitex-storage/"><img src="https://img.shields.io/pypi/pyversions/scitex-storage?label=python" alt="python"></a>
-  <a href="https://github.com/scitex-ai/scitex-storage/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/scitex-ai/scitex-storage/ci.yml?branch=develop&label=ci" alt="ci"></a>
+  <a href="https://github.com/scitex-ai/scitex-storage/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/scitex-ai/scitex-storage/ci.yml?branch=develop&label=tests" alt="tests"></a>
+  <a href="https://scitex-storage.readthedocs.io/en/latest/"><img src="https://img.shields.io/readthedocs/scitex-storage?label=docs" alt="docs"></a>
 </p>
 <p align="center">
   <a href="https://codecov.io/gh/scitex-ai/scitex-storage"><img src="https://img.shields.io/codecov/c/github/scitex-ai/scitex-storage/develop?label=cov" alt="cov"></a>
@@ -29,18 +30,143 @@
 
 | # | Problem | Solution |
 |---|---------|----------|
-| 1 | **A disk hits 100% and you don't know which directory ate it** — `du -sh *` storms the filesystem and follows symlinks onto slow network mounts | **`scitex-storage scan`** — a read-only, stat-only walk (via `fd`) that reports total **bytes per top-level child**, sorted biggest-first, never following symlinked dirs |
-| 2 | **Inodes run out (`No space left on device` with GBs free)** — `du` measures bytes, not the millions of tiny files starving an HPC quota | **The `FILES` column** — every child's inode count, and `--sort files` to rank by it, so an inode hog surfaces even when it's small on disk |
-| 3 | **A build directory fills up with dated images (SIFs, tarballs, ...) and an age-only cleanup deletes one still in use** — the currently-live file is often the *oldest*-looking one still symlinked in | **`scitex-storage images prune`** — rotates to the newest N, but a file any symlink in the directory currently resolves to is never a candidate, regardless of age. Dry-run by default |
-| 4 | **A GPFS/HPC fileset hits its inode quota from millions of small files** — deleting real data isn't an option, and the fix (tar it) reads file content, which is barred from HPC login nodes | **`scitex-storage sweep`** — tars an inode-hog directory in place (many files → one), compute-node-only (refuses without `$SLURM_JOB_ID`), explicit per-directory `--confirm`, freshness-excludes anything still active |
-| 5 | **Local disk fills up with directories that should move to NAS, but "just delete after copying" risks a partial/failed copy silently losing data** | **`scitex-storage archive --to nas\|nas2`** — copy-verify-then-remove over ssh (scitex-ssh's `sync_dir`), checksummed by default, manifest written before the local copy is removed, `restore` reads it back |
-| 6 | **Duplicated project copies waste space** (`dataset (1).zip`, `dataset_final_v2.zip`, ...) | **`scitex-storage find-duplicates`** — an explicitly opt-in, separate verb (via `fclones`) that hashes file contents to report exact-duplicate groups; kept out of `scan` on purpose (see below) |
+| 1 | **Disk full, culprit unknown** — `du -sh *` storms the filesystem and follows symlinks onto slow network mounts | **`scitex-storage scan`** — a read-only, stat-only walk (via `fd`) that reports total **bytes per top-level child**, sorted biggest-first, never following symlinked dirs |
+| 2 | **Inodes exhausted, disk looks free** — `No space left on device` with GBs free: `du` measures bytes, not the millions of tiny files starving an HPC quota | **The `FILES` column** — every child's inode count, and `--sort files` to rank by it, so an inode hog surfaces even when it's small on disk |
+| 3 | **Stale-build cleanup deletes a live image** — a directory of dated images (SIFs, tarballs) where the currently-live file is often the oldest-looking one still symlinked in | **`scitex-storage images prune`** — rotates to the newest N, but a file any symlink in the directory currently resolves to is never a candidate, regardless of age. Dry-run by default |
+| 4 | **HPC fileset hits its inode quota** — millions of small files on GPFS; deleting real data is not an option, and the fix (tar it) reads file content, barred from login nodes | **`scitex-storage sweep`** — tars an inode-hog directory in place, compute-node-only (needs `$SLURM_JOB_ID`), explicit per-directory `--confirm`, skips anything still active |
+| 5 | **Copy-then-delete risks silent loss** — local disk fills with directories that should move to NAS, but "just delete after copying" risks a partial/failed copy silently losing data | **`scitex-storage archive`** — copy-verify-then-remove over ssh to `nas`/`nas2` (scitex-ssh's `sync_dir`), checksummed by default, manifest written first, `restore` reads it back |
+| 6 | **Duplicate copies pile up** — `dataset (1).zip`, `dataset_final_v2.zip`, and other near-identical names crowding the same directory | **`scitex-storage find-duplicates`** — an explicitly opt-in, separate verb (via `fclones`) that hashes file contents to report exact-duplicate groups; kept out of `scan` on purpose (see below) |
+
+## Quick Start
+
+```bash
+# No PATH → inventory ~/.scitex and ~/proj
+scitex-storage scan
+
+# A specific tree, ranked by inode count
+scitex-storage scan ~/proj --sort files
+```
+
+```
+scitex-storage scan  /home/user/.scitex
+=======================================
+88.4 GB in 412,003 files across 9 top-level children  (sorted by size)
+
+        SIZE       FILES  CHILD
+  ----------  ----------  ------------------------
+     71.2 GB     118,204  scholar/
+      9.1 GB     251,880  agent-container/
+      4.0 GB      12,033  todo/
+      ...
+  ----------  ----------  ------------------------
+     88.4 GB     412,003  TOTAL
+```
+
+Everything is **read-only**: `scan` only stats, never reads file contents,
+never follows symlinked directories, and never moves or deletes anything.
+It is safe to point at a nearly-full disk or an HPC login node.
+
+### Are you about to run out of inodes?
+
+Different question, much cheaper answer. A filesystem can have terabytes
+free and still fail **every write** because it is out of *inodes* — and
+the jobs that die rarely say so. `validate-inodes` is one `statvfs` per path:
+O(1) rather than O(files), no `fd`, no login shell, no module load.
+
+```bash
+# Am I about to hit the wall?
+scitex-storage validate-inodes /data/gpfs/projects/punim0264
+```
+
+```
+scitex-storage validate-inodes
+===========================
+   USED%          USED         TOTAL  MOUNT                 PATH
+  ------  ------------  ------------  --------------------  --------------------
+    96.2     6,731,073     7,000,000  /data/gpfs            /data/gpfs/projects/punim0264  <-- CRITICAL
+```
+
+That is a real reading (Spartan, 2026-07-17) — and that project was at
+**70% disk**. Space said fine; inodes were four percentage points from
+every write failing.
+
+On a GPFS **independent fileset** — how HPC per-project directories are
+usually carved out — `statvfs` reports *that project's quota*, so on those
+paths this answers the question that actually kills jobs, with no
+`mmlsquota` and no login shell.
+
+Verdicts are three-state and never conflated:
+
+| verdict | meaning |
+|---|---|
+| `measured` | real numbers from a real inode table |
+| `not-applicable` | btrfs/ZFS allocate inodes on demand and cannot run out — **never** rendered as a reassuring `0%` |
+| `could-not-look` | unreadable path or wedged mount — **never** rendered as `0%` either |
+
+<p align="center"><sub><b>Table 1.</b> Inode-verdict states: three-state and never conflated, so a monitor can tell healthy from never-looked-at.</sub></p>
+
+Exit codes carry the same distinction, because unattended callers read
+the exit code and not the table: `0` measured and under `--warn-at`
+(default 90%), `1` at/over it, `2` could not look. `2` is deliberately not
+`0` — a monitor that cannot tell *healthy* from *never read it* will
+report healthy for filesystems it never looked at.
+
+```bash
+# Cron: alarm on trouble, and alarm just as loudly on blindness.
+scitex-storage validate-inodes /data --json || notify "inode check failed ($?)"
+```
+
+```bash
+# Found something worth checking for exact duplicates? A SEPARATE,
+# explicitly opt-in command -- this one DOES read file contents to hash
+# them, so use --max-depth on a slow/nearly-full path.
+scitex-storage find-duplicates ~/proj/old-scan
+```
+
+```
+3 duplicate groups:
+
+  2 files, 5.0 GB each:
+    projects/2022-thesis/dataset.zip
+    projects/2022-thesis/dataset (1).zip
+  ...
+```
+
+```bash
+# Move a path ASIDE into a reversible archive instead of deleting it, so a
+# rough cleanup call costs a `reclaim-restore`, not lost data. Dry-run by
+# default; --yes to act; `reclaim --status` shows the restore rate (the
+# accuracy metric). Default archive is an adjacent atomic `.old/<ts>/`
+# (tidies, doesn't free inodes); --archive-root on another filesystem frees
+# them. Deleting archived data is a separate, later step.
+scitex-storage reclaim ./node_modules ./build --yes
+scitex-storage reclaim-restore 2026-0717-154500-123456   # undo a run
+```
 
 ## Installation
 
 ```bash
-pip install scitex-storage
+uv pip install "scitex-storage[all]"
 ```
+
+<details>
+<summary><b>Per-module extras</b></summary>
+
+<br>
+
+| Extra | Pulls in |
+|---|---|
+| `gui` | django, scitex-app, scitex-ui, scitex-dev (browsable GUI plugin) |
+| `all` | `gui` + `dev` + `docs` (recommended) |
+| `dev` | pytest, pytest-cov, + every optional dep so the test suite runs |
+| `docs` | Sphinx + RTD theme + myst-parser (docs build only) |
+
+```bash
+uv pip install "scitex-storage[gui]"   # GUI plugin only
+uv pip install -e ".[dev]"             # editable install for contributors
+```
+
+</details>
 
 ### System dependencies
 
@@ -52,11 +178,18 @@ you point this at multi-terabyte, multi-million-file storage (this tool is
 built to scan things like a 4TB NVMe, a multi-TB NAS, or an HDD array).
 `archive`/`restore` need `rsync` because that *is* their transport.
 
+<details>
+<summary><b>Which binary serves which verb</b></summary>
+
+<br>
+
 | Binary | Used by | Purpose | Project |
 |---|---|---|---|
 | `fd` (`fdfind` on Debian/Ubuntu) | `scan` | directory walk (replaces `os.walk`) | [sharkdp/fd](https://github.com/sharkdp/fd) |
 | `fclones` | `find-duplicates` | size+hash duplicate detection (replaces `hashlib`) | [pkolaczk/fclones](https://github.com/pkolaczk/fclones) |
 | `rsync` | `archive`, `restore` | the transport itself — both delegate to scitex-ssh's `sync_dir`, a wrapper over `rsync -a` over ssh | [rsync](https://rsync.samba.org/) |
+
+</details>
 
 ```bash
 # Debian / Ubuntu
@@ -126,110 +259,6 @@ CLI flags always override env vars. The full list of variables (with
 inline comments) lives in `.env.example` — both are consumed only by
 the optional GUI plugin above; the core CLI reads none of them.
 
-## Quick Start
-
-```bash
-# No PATH → inventory ~/.scitex and ~/proj
-scitex-storage scan
-
-# A specific tree, ranked by inode count
-scitex-storage scan ~/proj --sort files
-```
-
-```
-scitex-storage scan  /home/user/.scitex
-=======================================
-88.4 GB in 412,003 files across 9 top-level children  (sorted by size)
-
-        SIZE       FILES  CHILD
-  ----------  ----------  ------------------------
-     71.2 GB     118,204  scholar/
-      9.1 GB     251,880  agent-container/
-      4.0 GB      12,033  todo/
-      ...
-  ----------  ----------  ------------------------
-     88.4 GB     412,003  TOTAL
-```
-
-Everything is **read-only**: `scan` only stats, never reads file contents,
-never follows symlinked directories, and never moves or deletes anything.
-It is safe to point at a nearly-full disk or an HPC login node.
-
-### Are you about to run out of inodes?
-
-Different question, much cheaper answer. A filesystem can have terabytes
-free and still fail **every write** because it is out of *inodes* — and
-the jobs that die rarely say so. `validate-inodes` is one `statvfs` per path:
-O(1) rather than O(files), no `fd`, no login shell, no module load.
-
-```bash
-# Am I about to hit the wall?
-scitex-storage validate-inodes /data/gpfs/projects/punim0264
-```
-
-```
-scitex-storage validate-inodes
-===========================
-   USED%          USED         TOTAL  MOUNT                 PATH
-  ------  ------------  ------------  --------------------  --------------------
-    96.2     6,731,073     7,000,000  /data/gpfs            /data/gpfs/projects/punim0264  <-- CRITICAL
-```
-
-That is a real reading (Spartan, 2026-07-17) — and that project was at
-**70% disk**. Space said fine; inodes were four percentage points from
-every write failing.
-
-On a GPFS **independent fileset** — how HPC per-project directories are
-usually carved out — `statvfs` reports *that project's quota*, so on those
-paths this answers the question that actually kills jobs, with no
-`mmlsquota` and no login shell.
-
-Verdicts are three-state and never conflated:
-
-| verdict | meaning |
-|---|---|
-| `measured` | real numbers from a real inode table |
-| `not-applicable` | btrfs/ZFS allocate inodes on demand and cannot run out — **never** rendered as a reassuring `0%` |
-| `could-not-look` | unreadable path or wedged mount — **never** rendered as `0%` either |
-
-Exit codes carry the same distinction, because unattended callers read
-the exit code and not the table: `0` measured and under `--warn-at`
-(default 90%), `1` at/over it, `2` could not look. `2` is deliberately not
-`0` — a monitor that cannot tell *healthy* from *never read it* will
-report healthy for filesystems it never looked at.
-
-```bash
-# Cron: alarm on trouble, and alarm just as loudly on blindness.
-scitex-storage validate-inodes /data --json || notify "inode check failed ($?)"
-```
-
-```bash
-# Found something worth checking for exact duplicates? A SEPARATE,
-# explicitly opt-in command -- this one DOES read file contents to hash
-# them, so use --max-depth on a slow/nearly-full path.
-scitex-storage find-duplicates ~/proj/old-scan
-```
-
-```
-3 duplicate groups:
-
-  2 files, 5.0 GB each:
-    projects/2022-thesis/dataset.zip
-    projects/2022-thesis/dataset (1).zip
-  ...
-```
-
-```bash
-# Move a path ASIDE into a reversible archive instead of deleting it, so a
-# rough cleanup call costs a `reclaim-restore`, not lost data. Dry-run by
-# default; --yes to act; `reclaim --status` shows the restore rate (the
-# accuracy metric). Default archive is an adjacent atomic `.old/<ts>/`
-# (tidies, doesn't free inodes); --archive-root on another filesystem frees
-# them. Deleting archived data is a separate, later step.
-scitex-storage reclaim ./node_modules ./build --yes
-scitex-storage reclaim-restore 2026-0717-154500-123456   # undo a run
-```
-
 ## Architecture
 
 ```mermaid
@@ -263,6 +292,8 @@ flowchart LR
     Z --> AA[format_duplicates_report / duplicates_to_json_dict]
     AA --> F
 ```
+
+<p align="center"><sub><b>Figure 1.</b> Storage-triage pipelines (scan, images prune, sweep, archive/restore, find-duplicates) and the reports each emits.</sub></p>
 
 `scan`'s walk and `find-duplicates`'s hashing are both delegated to Rust
 CLIs for speed at multi-TB scale (see "System dependencies" above) instead
@@ -496,5 +527,5 @@ AGPL-3.0 — see [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <a href="https://scitex.ai" target="_blank"><img src="docs/assets/images/scitex-icon-navy-inverted.png" alt="SciTeX" width="40"/></a>
+  <a href="https://scitex.ai" target="_blank"><img src="docs/scitex-icon-navy-inverted.png" alt="SciTeX" width="40"/></a>
 </p>

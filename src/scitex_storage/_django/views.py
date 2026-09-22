@@ -12,13 +12,31 @@ requester owns, and anything that resolves outside it is a 403.
 
 from __future__ import annotations
 
-from django.http import HttpResponse, HttpResponseForbidden
-from django.shortcuts import render
-from django.utils.translation import gettext as _
-from django.utils.translation import gettext_lazy
-from django.views.decorators.http import require_GET, require_POST
+# Django + scitex-ui are the OPTIONAL ``gui`` extra (see pyproject.toml):
+# the core CLI never requires them. Every import below is guarded so a
+# minimal ``pip install scitex-storage`` keeps working and a GUI import
+# without the extra fails with an actionable message, not a bare
+# ModuleNotFoundError (PS-233 guarded-import contract; PS-148).
+try:
+    from django.conf import settings
+    from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
+    from django.shortcuts import render
+    from django.utils.translation import gettext as _
+    from django.utils.translation import gettext_lazy
+    from django.views.decorators.http import require_GET, require_POST
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage GUI views require Django: "
+        "pip install scitex-storage[gui]"
+    ) from exc
 
-from scitex_ui.branding import shell_context
+try:
+    from scitex_ui.branding import shell_context
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage GUI views require scitex-ui: "
+        "pip install scitex-storage[gui]"
+    ) from exc
 
 from . import project_files, volumes
 from .project_files import StorageFileError
@@ -53,8 +71,6 @@ def _app_label(base: str) -> str:
     setting configured by ``settings.py`` / ``_server.py``, defaulting
     to "standalone" (hub's mount overrides it to "hub").
     """
-    from django.conf import settings
-
     mode = getattr(settings, "SCITEX_APP_MODE", "standalone")
     return f"{base} (hub)" if mode == "hub" else base
 
@@ -182,8 +198,6 @@ def healthz(request) -> HttpResponse:
 # (browser-facing page); these are machine-facing API routes.
 # --------------------------------------------------------------------------- #
 def _json_error(exc: StorageFileError) -> HttpResponse:
-    from django.http import JsonResponse
-
     return JsonResponse(exc.to_payload(), status=exc.status)
 
 
@@ -195,8 +209,6 @@ def project_list(request) -> HttpResponse:
     ``?path=`` resolves outside the root and is denied as ``permission_denied``
     before any filesystem access).
     """
-    from django.http import JsonResponse
-
     rel = request.GET.get("path", "")
     try:
         payload = project_files.list_files(request, rel)
@@ -208,8 +220,6 @@ def project_list(request) -> HttpResponse:
 @require_GET
 def project_read(request) -> HttpResponse:
     """Read one text file from the current project (``?path=``)."""
-    from django.http import JsonResponse
-
     rel = request.GET.get("path", "")
     try:
         payload = project_files.read_file(request, rel)
@@ -238,8 +248,6 @@ def project_write(request) -> HttpResponse:
     (temp + ``os.replace``) so a mid-write failure never leaves a partial file.
     Failures map to typed 4xx/507 via :data:`STATUS_BY_CODE` -- never a bare 500.
     """
-    from django.http import JsonResponse
-
     body = _parse_json_body(request)
     if isinstance(body, dict) and "error" in body:
         return JsonResponse(body, status=body.pop("status", 400))
@@ -279,8 +287,6 @@ def project_rename(request) -> HttpResponse:
     destination is a typed ``file_conflict`` (409). Failures map via
     :data:`STATUS_BY_CODE` -- never a bare 500.
     """
-    from django.http import JsonResponse
-
     body = _parse_json_body(request)
     if isinstance(body, dict) and "error" in body:
         return JsonResponse(body, status=body.pop("status", 400))
@@ -307,8 +313,6 @@ def project_delete(request) -> HttpResponse:
     refused, and the project root is never a valid target. Scope + authz come
     from the hub resolver.
     """
-    from django.http import JsonResponse
-
     body = _parse_json_body(request)
     if isinstance(body, dict) and "error" in body:
         return JsonResponse(body, status=body.pop("status", 400))
@@ -335,8 +339,6 @@ def project_mkdir(request) -> HttpResponse:
     escape (``..`` / absolute / symlink-out / under-file) -> ``permission_
     denied`` (403). Scope + authz from the hub resolver.
     """
-    from django.http import JsonResponse
-
     body = _parse_json_body(request)
     if isinstance(body, dict) and "error" in body:
         return JsonResponse(body, status=body.pop("status", 400))

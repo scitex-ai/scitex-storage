@@ -22,6 +22,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
+# Django is the OPTIONAL ``gui`` extra (see pyproject.toml): this module
+# only runs inside a Django host. Guarded so the import failure names the
+# extra instead of surfacing a bare ModuleNotFoundError (PS-233; PS-148).
+try:
+    from django.conf import settings
+    from django.utils.module_loading import import_string
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage volumes require Django: "
+        "pip install scitex-storage[gui]"
+    ) from exc
+
 PROBE_TIMEOUT_S = 2.0
 MAX_ENTRIES = 500
 
@@ -112,9 +124,6 @@ def _coerce(item) -> Volume:
 
 
 def _provider() -> Optional[Callable]:
-    from django.conf import settings
-    from django.utils.module_loading import import_string
-
     dotted = getattr(settings, "SCITEX_STORAGE_VOLUMES_PROVIDER", "")
     return import_string(dotted) if dotted else None
 
@@ -124,8 +133,6 @@ def resolve_user_volumes(request) -> list:
     provider = _provider()
     if provider is not None:
         return [_coerce(v) for v in (provider(request) or [])]
-    from django.conf import settings
-
     if getattr(settings, "SCITEX_APP_MODE", "standalone") != "standalone":
         return []  # hosted without a provider: fail closed
     return [

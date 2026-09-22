@@ -61,6 +61,10 @@ dependencies = [
     # that extra is released (scitex-io PR #161).
     "pypdf>=4.0",
     "pyyaml>=6.0",
+    # PS-220 mandates scitex-logging for all human-facing output (no
+    # builtin print in src/); _server.py and _system_deps.py use it, so it
+    # is a hard core dependency, mirroring scitex-io.
+    "scitex-logging>=0.1.0",
 ]
 # NOTE: three SYSTEM (non-pip) runtime dependencies, each required by ONE
 # verb: `fd` (fd-find) for `scan`'s directory traversal, `fclones` for
@@ -158,6 +162,10 @@ artifacts = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-x -q"
+markers = [
+    "smoke: fast CLI happy-path tests (<60s, runs on every PR)",
+    "e2e: end-to-end workflows against real subsystems (mandatory on every PR)",
+]
 
 [tool.coverage.run]
 parallel = true
