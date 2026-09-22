@@ -109,3 +109,25 @@ Pitfalls hit (do not repeat)
 - ``cmd | head -1 && echo OK`` masks failure: ``head`` exits 0 even
   when the command failed. Check ``${PIPESTATUS}`` or avoid the pipe
   for write probes.
+
+Customer homes (login node + NAS-02)
+------------------------------------
+
+Customers from https://scitex.ai get SSH only on ``scitex-compute-01``,
+with 32 GB homes each from NAS-02:
+
+- ``scitex-compute-01`` mounts NAS-02 over NFS (same fstab pattern as
+  above) at ``/mnt/nfs-nas-02``; homes live at
+  ``/mnt/nfs-nas-02/homes/<user>``.
+- New account recipe (run on ``scitex-compute-01``)::
+
+    sudo useradd -m -d /mnt/nfs-nas-02/homes/<user> -s /bin/bash <user>
+    sudo chmod 700 /mnt/nfs-nas-02/homes/<user>
+
+  then install the customer's ``~/.ssh/authorized_keys``.
+- Quota note (honest): QNAP squashes all NFS users to guest, so there
+  is no per-customer hard quota without NAS-local users. Enforcement
+  today is monitoring (``scitex-storage`` space scans + alerts), not a
+  hard 32 GB cap — revisit with per-customer shares if abuse appears.
+- SSH stays open to all hosts for staff; customer accounts exist only
+  on ``scitex-compute-01``, which is the actual access boundary.
