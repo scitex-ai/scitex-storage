@@ -40,7 +40,13 @@ FIXED_HOST = "127.0.0.1"
 
 
 def _runtime():
-    from scitex_dev.gui_runtime import GuiRuntime
+    try:
+        from scitex_dev.gui_runtime import GuiRuntime
+    except ImportError as exc:
+        raise click.ClickException(
+            "The scitex-storage GUI requires scitex-dev. Install with: "
+            f"pip install scitex-storage[gui]  ({exc})"
+        ) from exc
 
     state_path = Path("~/.scitex/scitex-storage/runtime/gui.json").expanduser()
     return GuiRuntime(state_path)

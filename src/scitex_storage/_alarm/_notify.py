@@ -160,7 +160,13 @@ def operator_dm_notifier(to: str = "operator") -> Notifier:
     """
 
     def send(text: str) -> bool | None:
-        from scitex_cards import dm_send  # deferred: optional dependency
+        try:
+            from scitex_cards import dm_send  # deferred: optional dependency
+        except ImportError as exc:
+            raise ImportError(
+                "operator_dm_notifier requires scitex-cards: "
+                "pip install scitex-cards"
+            ) from exc
 
         dm_send(to=to, body=text)
         return None  # written to the store; being read is not established

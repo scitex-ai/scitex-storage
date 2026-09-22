@@ -8,7 +8,14 @@ Namespaced via ``app_name`` so hub's ``{% url 'scitex_storage:index' %}``
 never collides with another app's route names.
 """
 
-from django.urls import path
+# Django is the OPTIONAL ``gui`` extra (see pyproject.toml): hub mounts
+# this module inside its own Django project. Guarded per PS-233/PS-148.
+try:
+    from django.urls import path
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage URLs require Django: pip install scitex-storage[gui]"
+    ) from exc
 
 from . import views
 

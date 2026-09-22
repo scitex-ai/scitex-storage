@@ -55,8 +55,9 @@ class Policy:
     scitex-storage is a mechanism for handling storage. WHICH classes
     exist, what they are called, and how hard each is protected are the
     operator's decisions and belong in their config -- a lab archiving
-    microscopy, a clinic under retention law and a studio holding video
-    masters have nothing in common except the shape of the question.
+    microscopy, a clinic under retention law and a studio holding
+    original footage have nothing in common except the shape of the
+    question.
 
     So there is no built-in class list and no default policy table here.
     A class name is valid precisely when the caller supplied a policy
