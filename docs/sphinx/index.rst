@@ -16,6 +16,12 @@ SciTeX Storage
 
 .. toctree::
    :maxdepth: 2
+   :caption: Operations
+
+   nas-nfs-setup
+
+.. toctree::
+   :maxdepth: 2
    :caption: API Reference
 
    api/scitex_storage
