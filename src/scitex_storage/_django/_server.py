@@ -30,6 +30,23 @@ import sys
 import threading
 import webbrowser
 
+import scitex_logging as slogging
+
+log = slogging.getLogger(__name__)
+console = slogging.getConsole(__name__)
+
+# Django is the OPTIONAL ``gui`` extra (see pyproject.toml): this module
+# only runs via ``scitex-storage gui``. Guarded per PS-233/PS-148 so the
+# failure names the remedy.
+try:
+    import django
+    from django.core.management import call_command
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage GUI server requires Django: "
+        "pip install scitex-storage[gui]"
+    ) from exc
+
 
 def bare_django_warning(cause: BaseException | None) -> str:
     """Render the warning shown when the scitex-app shell is unavailable.
@@ -97,19 +114,15 @@ def run(
             f"`scitex-storage gui status` to check if a previous instance is "
             f"still up) and retry."
         )
-    print(f"SciTeX Storage GUI: http://{host}:{port}")
+    console.info(f"SciTeX Storage GUI: http://{host}:{port}")
     # "Ctrl+C" is only useful while you still have the terminal. Name the
     # commands that work AFTER it is gone -- the operator asked how to stop
     # the GUI and the banner had no answer for the case that actually
     # happens (started earlier, terminal closed, still listening).
-    print("Stop: Ctrl+C here, or `scitex-storage gui stop` from anywhere")
-    print("Check: `scitex-storage gui status`")
-
-    import django
+    console.info("Stop: Ctrl+C here, or `scitex-storage gui stop` from anywhere")
+    console.info("Check: `scitex-storage gui status`")
 
     django.setup()
-
-    from django.core.management import call_command
 
     call_command("migrate", "--run-syncdb", verbosity=0)
 
@@ -143,12 +156,10 @@ def run(
     # RuntimeError above); serving a silently unstyled page is the same class
     # of lie about what you are getting, and it is harder to notice because
     # the page renders. Degrading is acceptable; degrading QUIETLY is not.
-    print(bare_django_warning(shell_unavailable), file=sys.stderr)
+    log.warning(bare_django_warning(shell_unavailable))
 
     if open_browser:
         threading.Timer(1.0, webbrowser.open, args=[f"http://{host}:{port}"]).start()
-
-    from django.core.management import call_command
 
     noreload = [] if hot_reload else ["--noreload"]
     call_command("runserver", f"{host}:{port}", *noreload)
