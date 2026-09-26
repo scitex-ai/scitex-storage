@@ -129,12 +129,33 @@ def test_absolute_path_param_is_not_scanned(tmp_path):
 
 
 def test_coming_soon_tab_renders(tmp_path):
-    # Arrange
+    # Arrange -- Usage/Move/Duplicates are real views now (organize.py);
+    # Backup is the remaining placeholder.
     _boot()
     # Act
-    body = _get(tmp_path, {"tab": "move"}).content.decode()
+    body = _get(tmp_path, {"tab": "backup"}).content.decode()
     # Assert
     assert "Coming soon" in body
+
+
+def test_organize_tabs_render_real_content(tmp_path):
+    # Arrange
+    _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
+    # Act
+    usage = _get(tmp_path, {"tab": "usage"}).content.decode()
+    move = _get(tmp_path, {"tab": "move"}).content.decode()
+    duplicates = _get(tmp_path, {"tab": "duplicates"}).content.decode()
+    # Assert -- real tabs, not placeholders ...
+    assert "Coming soon" not in usage
+    assert "Coming soon" not in move
+    assert "Coming soon" not in duplicates
+    # ... with their real content: usage donut + fleet viz links (route
+    # names, never hardcoded paths), move planner form, read-only report.
+    assert "Where your bytes live" in usage
+    assert "Fleet visualizations" in usage
+    assert "Plan a move to cold storage" in move
+    assert "Read-only report." in duplicates
 
 
 def test_index_declares_every_shell_pane_so_none_reserves_width(tmp_path):

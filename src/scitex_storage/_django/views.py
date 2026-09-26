@@ -20,7 +20,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from scitex_ui.branding import shell_context
 
-from . import project_files, volumes
+from . import organize, project_files, volumes
 from .project_files import StorageFileError
 from ._favicon import FAVICON_HREF
 
@@ -60,12 +60,14 @@ def _app_label(base: str) -> str:
 
 
 #: Tabs beyond Machines are placeholders until their features ship.
+#: Usage/Duplicates/Move are real views (see :mod:`.organize`); only
+#: Backup is still a placeholder.
 TABS = (
     ("machines", gettext_lazy("Machines & storage"), False),
-    ("usage", gettext_lazy("Usage"), True),
-    ("move", gettext_lazy("Move"), True),
+    ("usage", gettext_lazy("Usage"), False),
+    ("move", gettext_lazy("Move"), False),
     ("backup", gettext_lazy("Backup"), True),
-    ("duplicates", gettext_lazy("Duplicates"), True),
+    ("duplicates", gettext_lazy("Duplicates"), False),
 )
 
 
@@ -95,6 +97,8 @@ def index(request):
         "tabs": _tab_context(tab),
         "tab": tab,
     }
+    if tab in organize.HANDLED_TABS:
+        return organize.serve(request, tab)
     if tab != "machines":
         return render(request, "scitex_storage/index.html", context)
 
