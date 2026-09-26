@@ -128,13 +128,51 @@ def test_absolute_path_param_is_not_scanned(tmp_path):
     assert "passwd" not in body
 
 
-def test_coming_soon_tab_renders(tmp_path):
+def test_backup_tab_is_still_coming_soon(tmp_path):
+    # Arrange -- Usage/Move/Duplicates are real views now (organize.py);
+    # Backup is the remaining placeholder.
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "backup"}).content.decode()
+    # Assert
+    assert "Coming soon" in body
+
+
+def test_usage_tab_renders_donut(tmp_path):
+    # Arrange
+    _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
+    # Act
+    body = _get(tmp_path, {"tab": "usage"}).content.decode()
+    # Assert
+    assert "Where your bytes live" in body
+
+
+def test_usage_tab_links_fleet_views(tmp_path):
+    # Arrange -- fleet links use route names, never hardcoded paths.
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "usage"}).content.decode()
+    # Assert
+    assert "Fleet visualizations" in body
+
+
+def test_move_tab_renders_planner(tmp_path):
     # Arrange
     _boot()
     # Act
     body = _get(tmp_path, {"tab": "move"}).content.decode()
     # Assert
-    assert "Coming soon" in body
+    assert "Plan a move to cold storage" in body
+
+
+def test_duplicates_tab_is_read_only_report(tmp_path):
+    # Arrange
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "duplicates"}).content.decode()
+    # Assert
+    assert "Read-only report." in body
 
 
 def test_index_declares_every_shell_pane_so_none_reserves_width(tmp_path):

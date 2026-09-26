@@ -25,5 +25,8 @@
   "dependencies": {
     "python": ["scitex-storage", "django", "scitex-app", "scitex-ui", "scitex-dev"],
     "system": ["fd-find"]
+  },
+  "mount_policy": {
+    "login_required": true
   }
 }

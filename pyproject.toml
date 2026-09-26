@@ -133,6 +133,14 @@ Repository = "https://github.com/scitex-ai/scitex-storage"
 Issues = "https://github.com/scitex-ai/scitex-storage/issues"
 Documentation = "https://scitex-storage.readthedocs.io"
 
+[project.entry-points."scitex.apps"]
+# Generic hub mount (thin-hub rule): ``pip install`` is the whole install.
+# The host mounts ``scitex_storage._django.urls`` at the manifest route
+# (apps/storage/) and lists the tile from ``_django/manifest.json``.
+# Usage/Duplicates/Move tabs are implemented leaf-side (organize.py),
+# so no host wrapper is needed for them.
+storage = "scitex_storage._django.apps:StorageConfig"
+
 [project.entry-points."scitex_dev.docs"]
 scitex-storage = "scitex_storage"
 
