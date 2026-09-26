@@ -88,6 +88,14 @@ def test_index_defaults_to_the_usage_tab(tmp_path):
     body = _get(tmp_path, {}).content.decode()
     # Assert -- no tab param means Usage, never the retired Machines tab.
     assert "Machines &amp; storage" not in body
+
+
+def test_index_default_has_no_machines_tab(tmp_path):
+    # Arrange
+    _boot()
+    # Act
+    body = _get(tmp_path, {}).content.decode()
+    # Assert
     assert "Machines & storage" not in body
 
 
@@ -98,6 +106,14 @@ def test_unknown_tab_falls_back_to_usage(tmp_path):
     body = _get(tmp_path, {"tab": "machines"}).content.decode()
     # Assert
     assert "Machines &amp; storage" not in body
+
+
+def test_retired_tab_leaves_no_machines_tab(tmp_path):
+    # Arrange
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "machines"}).content.decode()
+    # Assert
     assert "Machines & storage" not in body
 
 
