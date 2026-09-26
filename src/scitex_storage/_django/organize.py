@@ -2,9 +2,8 @@
 # -*- coding: utf-8 -*-
 """Organize views for the Storage app: Usage / Duplicates / Move tabs.
 
-This module implements the three organize tabs (the Machines tab lives in
-:mod:`.views`; Backup stays a ``[Soon]`` placeholder there), backed by the
-``scitex-storage`` Python API (ported from the scitex-hub mount glue, which
+This module implements the three organize tabs (Backup stays a ``[Soon]``
+placeholder in :mod:`.views`), backed by the ``scitex-storage`` Python API (ported from the scitex-hub mount glue, which
 used to carry them hub-side):
 
 * Usage — donut breakdown from ``volumes.measure_all`` (statvfs, always
@@ -41,7 +40,6 @@ from django.utils.translation import gettext_lazy as _
 HANDLED_TABS = ("usage", "duplicates", "move")
 
 ORGANIZE_TABS = (
-    ("machines", _("Machines & storage"), False),
     ("usage", _("Usage"), False),
     ("move", _("Move"), False),
     ("backup", _("Backup"), True),

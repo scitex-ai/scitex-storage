@@ -3,24 +3,22 @@
 # File: src/scitex_storage/_django/views.py
 """Views for the scitex-storage GUI plugin.
 
-``index`` is the "Machines & storage" screen: the requester's own volumes
-(see :mod:`.volumes` for who decides which), each with capacity and
-reachability, and a one-level browser inside a volume (``?volume=&dir=``).
-There is no free-form path: every directory is resolved inside a volume the
-requester owns, and anything that resolves outside it is a 403.
+``index`` serves the organize tabs (Usage / Duplicates / Move, plus the
+Backup placeholder) with a shared tab nav. There is deliberately no
+machine/volume browser: per-project storage is the workspace's business,
+and this app only reports usage, duplicates, and move plans.
 """
 
 from __future__ import annotations
 
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse
 from django.shortcuts import render
-from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
 from django.views.decorators.http import require_GET, require_POST
 
 from scitex_ui.branding import shell_context
 
-from . import organize, project_files, volumes
+from . import organize, project_files
 from .project_files import StorageFileError
 from ._favicon import FAVICON_HREF
 
@@ -59,11 +57,9 @@ def _app_label(base: str) -> str:
     return f"{base} (hub)" if mode == "hub" else base
 
 
-#: Tabs beyond Machines are placeholders until their features ship.
-#: Usage/Duplicates/Move are real views (see :mod:`.organize`); only
-#: Backup is still a placeholder.
+#: Tabs of the storage app. Usage/Duplicates/Move are real views (see
+#: :mod:`.organize`); only Backup is still a placeholder.
 TABS = (
-    ("machines", gettext_lazy("Machines & storage"), False),
     ("usage", gettext_lazy("Usage"), False),
     ("move", gettext_lazy("Move"), False),
     ("backup", gettext_lazy("Backup"), True),
@@ -78,18 +74,11 @@ def _tab_context(active: str) -> list:
     ]
 
 
-def _machines(statuses) -> list:
-    groups: dict = {}
-    for st in statuses:
-        groups.setdefault(st.volume.machine or "-", []).append(st)
-    return [{"name": name, "volumes": vols} for name, vols in groups.items()]
-
-
 def index(request):
-    """Machines & storage overview, a volume listing, or a coming-soon tab."""
-    tab = request.GET.get("tab", "machines")
+    """Organize tabs, defaulting to Usage. Unknown tabs fall back to Usage."""
+    tab = request.GET.get("tab", "usage")
     if tab not in {key for key, _label, _soon in TABS}:
-        tab = "machines"
+        tab = "usage"
     context = {
         **shell_context("Storage", panes=SHELL_PANES),
         "app_label": _app_label("SciTeX Storage"),
@@ -99,22 +88,6 @@ def index(request):
     }
     if tab in organize.HANDLED_TABS:
         return organize.serve(request, tab)
-    if tab != "machines":
-        return render(request, "scitex_storage/index.html", context)
-
-    user_volumes = volumes.resolve_user_volumes(request)
-    key = request.GET.get("volume")
-    if key:
-        volume = volumes.find_volume(user_volumes, key)
-        if volume is None:
-            return HttpResponseForbidden(_("That volume is not yours."))
-        try:
-            context["listing"] = volumes.list_dir(volume, request.GET.get("dir", ""))
-        except volumes.OutsideVolume:
-            return HttpResponseForbidden(_("That folder is outside the volume."))
-        return render(request, "scitex_storage/index.html", context)
-
-    context["machines"] = _machines(volumes.measure_all(user_volumes))
     return render(request, "scitex_storage/index.html", context)
 
 
