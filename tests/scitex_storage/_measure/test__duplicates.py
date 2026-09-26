@@ -209,4 +209,190 @@ def test_find_duplicates_across_multiple_roots(tmp_path):
     assert any(len(g) == 2 for g in groups)
 
 
+# =============================================================================
+# Staged dedupe: size_groups (stat-only) + overlap_bytes (pure logic)
+# =============================================================================
+
+
+def _two_roots_with_shared_size_file(tmp_path):
+    """Two roots sharing one 80-byte file plus one unique-length file."""
+    root_a = tmp_path / "A"
+    root_b = tmp_path / "B"
+    (root_a / "x.bin").parent.mkdir(parents=True, exist_ok=True)
+    (root_a / "x.bin").write_bytes(b"same" * 20)
+    (root_b / "y.bin").parent.mkdir(parents=True, exist_ok=True)
+    (root_b / "y.bin").write_bytes(b"same" * 20)
+    (root_b / "unique.bin").write_bytes(b"different-length")
+    return root_a, root_b
+
+
+def test_size_groups_reports_shared_size_key_across_roots(tmp_path):
+    # Arrange
+    root_a, root_b = _two_roots_with_shared_size_file(tmp_path)
+    # Act
+    from scitex_storage._measure._duplicates import size_groups
+
+    by_size = size_groups([root_a, root_b])
+    # Assert
+    assert list(by_size) == [80]
+
+
+def test_size_groups_lists_both_files_under_shared_size(tmp_path):
+    # Arrange
+    root_a, root_b = _two_roots_with_shared_size_file(tmp_path)
+    # Act
+    from scitex_storage._measure._duplicates import size_groups
+
+    by_size = size_groups([root_a, root_b])
+    # Assert
+    assert sorted(p.name for p in by_size[80]) == ["x.bin", "y.bin"]
+
+
+def test_size_groups_candidate_bytes_counts_shared_payload(tmp_path):
+    # Arrange
+    root_a, root_b = _two_roots_with_shared_size_file(tmp_path)
+    # Act
+    from scitex_storage._measure._duplicates import (
+        candidate_bytes,
+        size_groups,
+    )
+
+    by_size = size_groups([root_a, root_b])
+    # Assert
+    assert candidate_bytes(by_size) == 80
+
+
+def test_size_groups_returns_empty_map_without_shared_sizes(tmp_path):
+    # Arrange
+    (tmp_path / "a.bin").write_bytes(b"x")
+    (tmp_path / "b.bin").write_bytes(b"xyz")
+    # Act
+    from scitex_storage._measure._duplicates import size_groups
+
+    by_size = size_groups([tmp_path])
+    # Assert
+    assert by_size == {}
+
+
+def test_size_groups_candidate_bytes_is_none_without_shared_sizes(tmp_path):
+    # Arrange
+    (tmp_path / "a.bin").write_bytes(b"x")
+    (tmp_path / "b.bin").write_bytes(b"xyz")
+    # Act
+    from scitex_storage._measure._duplicates import (
+        candidate_bytes,
+        size_groups,
+    )
+
+    by_size = size_groups([tmp_path])
+    # Assert
+    assert candidate_bytes(by_size) is None
+
+
+def test_size_groups_excludes_deep_files_beyond_max_depth(tmp_path):
+    # Arrange
+    (tmp_path / "top.bin").write_bytes(b"12345678")
+    deep = tmp_path / "sub" / "deep"
+    deep.mkdir(parents=True)
+    (deep / "deep.bin").write_bytes(b"12345678")
+    # Act
+    from scitex_storage._measure._duplicates import size_groups
+
+    # Assert
+    assert size_groups([tmp_path], max_depth=1) == {}
+
+
+def test_size_groups_includes_deep_files_without_depth_limit(tmp_path):
+    # Arrange
+    (tmp_path / "top.bin").write_bytes(b"12345678")
+    deep = tmp_path / "sub" / "deep"
+    deep.mkdir(parents=True)
+    (deep / "deep.bin").write_bytes(b"12345678")
+    # Act
+    from scitex_storage._measure._duplicates import size_groups
+
+    # Assert
+    assert 8 in size_groups([tmp_path])
+
+
+def test_size_groups_raises_file_not_found_for_missing_root(tmp_path):
+    # Arrange
+    from scitex_storage._measure._duplicates import size_groups
+
+    # Act
+    # Assert
+    with pytest.raises(FileNotFoundError):
+        size_groups([tmp_path / "missing"])
+
+
+def test_size_groups_raises_not_a_directory_for_file_root(tmp_path):
+    # Arrange
+    from scitex_storage._measure._duplicates import size_groups
+
+    not_a_dir = tmp_path / "f.bin"
+    not_a_dir.write_bytes(b"x")
+    # Act
+    # Assert
+    with pytest.raises(NotADirectoryError):
+        size_groups([not_a_dir])
+
+
+def _overlap_matrix(tmp_path):
+    """Two roots with a known 2x2 overlap layout; returns the matrix."""
+    root_a = tmp_path / "A"
+    root_b = tmp_path / "B"
+    for d in (root_a, root_b):
+        d.mkdir()
+    a1 = root_a / "a1.bin"
+    a1.write_bytes(b"v" * 100)
+    a2 = root_a / "a2.bin"
+    a2.write_bytes(b"v" * 100)
+    b1 = root_b / "b1.bin"
+    b1.write_bytes(b"v" * 100)
+    c = root_b / "c.bin"
+    c.write_bytes(b"other" * 10)
+    # Act
+    from scitex_storage._measure._duplicates import overlap_bytes
+
+    matrix = overlap_bytes([[a1, a2, b1], [c]], [root_a, root_b])
+    # Assert
+    return matrix, root_a, root_b
+
+
+def test_overlap_bytes_counts_duplicates_of_a_under_b(tmp_path):
+    # Arrange
+    matrix, root_a, root_b = _overlap_matrix(tmp_path)
+    # Act
+    a, b = str(root_a.resolve()), str(root_b.resolve())
+    # Assert
+    assert matrix[a][b] == 200  # both A files exist under B
+
+
+def test_overlap_bytes_counts_duplicates_of_b_under_a(tmp_path):
+    # Arrange
+    matrix, root_a, root_b = _overlap_matrix(tmp_path)
+    # Act
+    a, b = str(root_a.resolve()), str(root_b.resolve())
+    # Assert
+    assert matrix[b][a] == 100  # one B file exists under A
+
+
+def test_overlap_bytes_counts_redundant_copy_inside_a(tmp_path):
+    # Arrange
+    matrix, root_a, root_b = _overlap_matrix(tmp_path)
+    # Act
+    a = str(root_a.resolve())
+    # Assert
+    assert matrix[a][a] == 100  # one redundant copy strictly inside A
+
+
+def test_overlap_bytes_reports_zero_for_unique_files_in_b(tmp_path):
+    # Arrange
+    matrix, root_a, root_b = _overlap_matrix(tmp_path)
+    # Act
+    b = str(root_b.resolve())
+    # Assert
+    assert matrix[b][b] == 0
+
+
 # EOF

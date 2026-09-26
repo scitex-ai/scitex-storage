@@ -446,4 +446,60 @@ def duplicates_to_json_dict(groups: list[list[Path]]) -> dict[str, Any]:
     }
 
 
+def format_size_groups_report(by_size: dict[int, list[Any]]) -> str:
+    """Render a ``size_groups()`` result: the stat-only stage-1 report.
+
+    Answers "how much COULD overlap" without reading a single file
+    content -- the operator reads this, then decides whether the hashing
+    stage is worth running.
+    """
+    if not by_size:
+        return "No shared file sizes: nothing could be an exact duplicate."
+    total_files = sum(len(paths) for paths in by_size.values())
+    at_stake = sum((len(paths) - 1) * size for size, paths in by_size.items())
+    lines = [
+        f"{len(by_size)} shared sizes across {format_count(total_files)} files, "
+        f"{format_size(at_stake)} at stake if hashing confirms them:",
+        "",
+    ]
+    for size, paths in list(by_size.items())[:10]:
+        lines.append(
+            f"  {len(paths)} files, {format_size(size)} each "
+            f"({format_size((len(paths) - 1) * size)} at stake):"
+        )
+        for p in paths[:5]:
+            lines.append(f"    {p}")
+        if len(paths) > 5:
+            lines.append(f"    ... and {len(paths) - 5} more")
+        lines.append("")
+    if len(by_size) > 10:
+        lines.append(f"... and {len(by_size) - 10} more shared sizes")
+        lines.append("")
+    lines.append(
+        "Stat-only: same size is necessary, not sufficient, for byte "
+        "identity. Run without --sizes-only to hash the candidates."
+    )
+    return "\n".join(lines).rstrip("\n")
+
+
+def format_overlap_report(matrix: dict[str, dict[str, int]]) -> str:
+    """Render an ``overlap_bytes()`` matrix as the cross-root summary.
+
+    One line per ordered root pair: "X of A also exists under B".
+    """
+    roots = list(matrix)
+    if len(roots) < 2:
+        return ""
+    lines = ["Cross-root overlap (confirmed byte-identical):", ""]
+    for root_a in roots:
+        for root_b in roots:
+            if root_b == root_a:
+                continue
+            lines.append(
+                f"  {format_size(matrix[root_a][root_b])} of {root_a} "
+                f"also exists under {root_b}"
+            )
+    return "\n".join(lines)
+
+
 # EOF

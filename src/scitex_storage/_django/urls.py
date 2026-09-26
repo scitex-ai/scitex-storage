@@ -23,6 +23,17 @@ urlpatterns = [
     path("bubbles/", views.bubbles, name="bubbles"),
     path("sunburst/", views.sunburst, name="sunburst"),
     path("healthz", views.healthz, name="healthz"),
+    # Project-scoped file API (compass §14). Machine-facing JSON/attachment
+    # routes; authz + project scope come from the hub via `request`. The
+    # existing ``index`` (scan) route is unchanged — this slice adds the
+    # project file surface next to it.
+    path("api/list", views.project_list, name="project_list"),
+    path("api/read", views.project_read, name="project_read"),
+    path("api/download", views.project_download, name="project_download"),
+    path("api/write", views.project_write, name="project_write"),
+    path("api/rename", views.project_rename, name="project_rename"),
+    path("api/delete", views.project_delete, name="project_delete"),
+    path("api/mkdir", views.project_mkdir, name="project_mkdir"),
 ]
 
 # EOF

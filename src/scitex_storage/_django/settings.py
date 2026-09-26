@@ -41,6 +41,14 @@ try:
 except ImportError:
     pass
 
+# scitex_app/app_shell.html, which the index template extends.
+try:
+    import scitex_app  # noqa: F401
+
+    INSTALLED_APPS.append("scitex_app")
+except ImportError:
+    pass
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",

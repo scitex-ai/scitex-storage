@@ -103,4 +103,103 @@ def test_cli_find_duplicates_requires_at_least_one_path():
     assert result.exit_code != 0
 
 
+def test_cli_find_duplicates_sizes_only_exits_zero_without_fclones(
+    tmp_path, isolated_path_bin_dir
+):
+    # Arrange: PATH emptied -- sizes-only must not reach `fclones` at all.
+    a = _touch(tmp_path / "a.bin", 20)
+    b = _touch(tmp_path / "b.bin", 20)
+    a.write_bytes(b"x" * 20)
+    b.write_bytes(b"x" * 20)
+    (tmp_path / "unique.bin").write_bytes(b"y" * 21)
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(
+        main, ["find-duplicates", str(tmp_path), "--sizes-only"]
+    )
+    # Assert
+    assert result.exit_code == 0
+
+
+def test_cli_find_duplicates_sizes_only_reports_bytes_at_stake(
+    tmp_path, isolated_path_bin_dir
+):
+    # Arrange: PATH emptied -- sizes-only must not reach `fclones` at all.
+    a = _touch(tmp_path / "a.bin", 20)
+    b = _touch(tmp_path / "b.bin", 20)
+    a.write_bytes(b"x" * 20)
+    b.write_bytes(b"x" * 20)
+    (tmp_path / "unique.bin").write_bytes(b"y" * 21)
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(
+        main, ["find-duplicates", str(tmp_path), "--sizes-only"]
+    )
+    # Assert
+    assert "at stake" in result.output
+
+
+def test_cli_find_duplicates_sizes_only_lists_duplicate_paths(
+    tmp_path, isolated_path_bin_dir
+):
+    # Arrange: PATH emptied -- sizes-only must not reach `fclones` at all.
+    a = _touch(tmp_path / "a.bin", 20)
+    b = _touch(tmp_path / "b.bin", 20)
+    a.write_bytes(b"x" * 20)
+    b.write_bytes(b"x" * 20)
+    (tmp_path / "unique.bin").write_bytes(b"y" * 21)
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(
+        main, ["find-duplicates", str(tmp_path), "--sizes-only"]
+    )
+    # Assert
+    assert str(a) in result.output
+
+
+def test_cli_find_duplicates_sizes_only_json_exits_zero(
+    tmp_path, isolated_path_bin_dir
+):
+    # Arrange
+    _touch(tmp_path / "a.bin", 20).write_bytes(b"x" * 20)
+    _touch(tmp_path / "b.bin", 20).write_bytes(b"x" * 20)
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(
+        main, ["find-duplicates", str(tmp_path), "--sizes-only", "--json"]
+    )
+    # Assert
+    assert result.exit_code == 0
+
+
+def test_cli_find_duplicates_sizes_only_json_reports_shared_size_count(
+    tmp_path, isolated_path_bin_dir
+):
+    # Arrange
+    _touch(tmp_path / "a.bin", 20).write_bytes(b"x" * 20)
+    _touch(tmp_path / "b.bin", 20).write_bytes(b"x" * 20)
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(
+        main, ["find-duplicates", str(tmp_path), "--sizes-only", "--json"]
+    )
+    # Assert
+    assert json.loads(result.output)["shared_sizes"] == 1
+
+
+def test_cli_find_duplicates_sizes_only_json_reports_bytes_at_stake(
+    tmp_path, isolated_path_bin_dir
+):
+    # Arrange
+    _touch(tmp_path / "a.bin", 20).write_bytes(b"x" * 20)
+    _touch(tmp_path / "b.bin", 20).write_bytes(b"x" * 20)
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(
+        main, ["find-duplicates", str(tmp_path), "--sizes-only", "--json"]
+    )
+    # Assert
+    assert json.loads(result.output)["bytes_at_stake"] == 20
+
+
 # EOF

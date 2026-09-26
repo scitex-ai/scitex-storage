@@ -3,37 +3,25 @@
 # File: src/scitex_storage/_django/views.py
 """Views for the scitex-storage GUI plugin.
 
-This is the first scaffold's "real data" proof: ``index`` calls
-scitex-storage's EXISTING, already-tested ``scan()`` (from
-``scitex_storage._measure._scan``) against a real path and renders the result as
-an HTML table — not a placeholder. The full disk-treemap UI is a later
-phase (see the ``scitex-storage-gui-plugin-for-scitex-hub`` scitex-todo
-card).
-
-``?path=`` lets the caller point the scan anywhere. GET / with NO
-``?path=`` renders an empty landing page (the path form, no scan) --
-does NOT default to the user's home directory. That default was tried
-and found unsafe in practice: `scan()` is a synchronous, stat-only
-directory walk, but a real home directory can be enormous (a live
-production instance measured ~1TB, most of it in dotfiles/venv/build
-trees under no `.gitignore` boundary at `$HOME`) -- walking it
-synchronously inside a single Django request handler hangs the whole
-page load well past any reasonable client timeout, with nothing
-logged until (if ever) it completes, because Django's dev-server
-request-line log only fires after the view returns. Never scans on
-load; only scans once the caller explicitly submits a path.
+``index`` is the "Machines & storage" screen: the requester's own volumes
+(see :mod:`.volumes` for who decides which), each with capacity and
+reachability, and a one-level browser inside a volume (``?volume=&dir=``).
+There is no free-form path: every directory is resolved inside a volume the
+requester owns, and anything that resolves outside it is a 403.
 """
 
 from __future__ import annotations
 
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import render
+from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy
+from django.views.decorators.http import require_GET, require_POST
 
 from scitex_ui.branding import shell_context
 
-from scitex_storage._report import format_count, format_size
-from scitex_storage._measure._scan import MissingSystemDependencyError, scan
-
+from . import project_files, volumes
+from .project_files import StorageFileError
 from ._favicon import FAVICON_HREF
 
 #: What each of the shell's three panes IS for this app, per scitex-ui's
@@ -71,62 +59,58 @@ def _app_label(base: str) -> str:
     return f"{base} (hub)" if mode == "hub" else base
 
 
+#: Tabs beyond Machines are placeholders until their features ship.
+TABS = (
+    ("machines", gettext_lazy("Machines & storage"), False),
+    ("usage", gettext_lazy("Usage"), True),
+    ("move", gettext_lazy("Move"), True),
+    ("backup", gettext_lazy("Backup"), True),
+    ("duplicates", gettext_lazy("Duplicates"), True),
+)
+
+
+def _tab_context(active: str) -> list:
+    return [
+        {"key": key, "label": label, "soon": soon, "active": key == active}
+        for key, label, soon in TABS
+    ]
+
+
+def _machines(statuses) -> list:
+    groups: dict = {}
+    for st in statuses:
+        groups.setdefault(st.volume.machine or "-", []).append(st)
+    return [{"name": name, "volumes": vols} for name, vols in groups.items()]
+
+
 def index(request):
-    """Render one directory's ``scan()`` result as an HTML table.
-
-    Query params:
-        path: directory to scan. Omitted -> empty landing page (the
-            path form), no scan performed -- see module docstring for
-            why there is deliberately no default-to-home-directory
-            fallback.
-
-    Errors (missing path, not a directory, ``fd`` not installed) render
-    the same template with an ``error`` message instead of raising a
-    bare 500 — this is a browser-facing page, not an API.
-    """
-    raw_path = request.GET.get("path")
+    """Machines & storage overview, a volume listing, or a coming-soon tab."""
+    tab = request.GET.get("tab", "machines")
+    if tab not in {key for key, _label, _soon in TABS}:
+        tab = "machines"
     context = {
-        # shell_context first, then the explicit overrides below, so the
-        # pane declaration cannot shadow this view's own app_label/favicon.
         **shell_context("Storage", panes=SHELL_PANES),
         "app_label": _app_label("SciTeX Storage"),
         "favicon_href": FAVICON_HREF,
-        "requested_path": raw_path or "",
-        "error": None,
-        "root": None,
-        "children": [],
-        "total_size": None,
-        "total_files": None,
+        "tabs": _tab_context(tab),
+        "tab": tab,
     }
-
-    if raw_path is None:
+    if tab != "machines":
         return render(request, "scitex_storage/index.html", context)
 
-    try:
-        result = scan(raw_path)
-    except MissingSystemDependencyError as e:
-        context["error"] = (
-            "scitex-storage scan requires the `fd` binary, which is not "
-            f"installed on this server: {e}"
-        )
-        return render(request, "scitex_storage/index.html", context)
-    except (FileNotFoundError, NotADirectoryError) as e:
-        context["error"] = str(e)
+    user_volumes = volumes.resolve_user_volumes(request)
+    key = request.GET.get("volume")
+    if key:
+        volume = volumes.find_volume(user_volumes, key)
+        if volume is None:
+            return HttpResponseForbidden(_("That volume is not yours."))
+        try:
+            context["listing"] = volumes.list_dir(volume, request.GET.get("dir", ""))
+        except volumes.OutsideVolume:
+            return HttpResponseForbidden(_("That folder is outside the volume."))
         return render(request, "scitex_storage/index.html", context)
 
-    ordered = result.by_size()
-    context["root"] = str(result.root)
-    context["total_size"] = format_size(result.total_size)
-    context["total_files"] = format_count(result.total_files)
-    context["children"] = [
-        {
-            "name": c.name + ("/" if c.is_dir else ""),
-            "size": format_size(c.size),
-            "file_count": format_count(c.file_count),
-            "error": c.error,
-        }
-        for c in ordered
-    ]
+    context["machines"] = _machines(volumes.measure_all(user_volumes))
     return render(request, "scitex_storage/index.html", context)
 
 
@@ -182,6 +166,191 @@ def sunburst(request) -> HttpResponse:
 def healthz(request) -> HttpResponse:
     """Trivial liveness check — not part of the manifest'd UI routes."""
     return HttpResponse("ok")
+
+
+# --------------------------------------------------------------------------- #
+# Project-scoped file API (compass §14: List + Read + Download)
+# --------------------------------------------------------------------------- #
+# Thin adapters over ``project_files``. The authz and project-scope come from
+# the hub via ``request`` (see project_files' module docstring); the file
+# primitives come from ``scitex_app.sdk.get_files``. No second user/project
+# model lives here or in project_files.
+#
+# Every handler catches ``StorageFileError`` and maps it to its typed HTTP
+# status via ``STATUS_BY_CODE`` — a project-file failure is a 404/403/400/507,
+# NEVER a bare 500. The existing ``scan`` views keep their own error handling
+# (browser-facing page); these are machine-facing API routes.
+# --------------------------------------------------------------------------- #
+def _json_error(exc: StorageFileError) -> HttpResponse:
+    from django.http import JsonResponse
+
+    return JsonResponse(exc.to_payload(), status=exc.status)
+
+
+@require_GET
+def project_list(request) -> HttpResponse:
+    """List one directory level of the current project.
+
+    ``?path=`` is RELATIVE to the project root (never absolute — an absolute
+    ``?path=`` resolves outside the root and is denied as ``permission_denied``
+    before any filesystem access).
+    """
+    from django.http import JsonResponse
+
+    rel = request.GET.get("path", "")
+    try:
+        payload = project_files.list_files(request, rel)
+    except StorageFileError as exc:
+        return _json_error(exc)
+    return JsonResponse(payload)
+
+
+@require_GET
+def project_read(request) -> HttpResponse:
+    """Read one text file from the current project (``?path=``)."""
+    from django.http import JsonResponse
+
+    rel = request.GET.get("path", "")
+    try:
+        payload = project_files.read_file(request, rel)
+    except StorageFileError as exc:
+        return _json_error(exc)
+    return JsonResponse(payload)
+
+
+@require_GET
+def project_download(request) -> HttpResponse:
+    """Stream one file from the current project as an attachment (``?path=``)."""
+    rel = request.GET.get("path", "")
+    try:
+        return project_files.download_file(request, rel)
+    except StorageFileError as exc:
+        return _json_error(exc)
+
+
+@require_POST
+def project_write(request) -> HttpResponse:
+    """Write one text file into the current project (POST ``{path, content}``).
+
+    The write half of compass \u00a714 L493. Scope + authz come from the hub
+    resolver via ``request``; containment (traversal, symlink-out, under-file)
+    is enforced in ``project_files._contained_for_write``; the write is atomic
+    (temp + ``os.replace``) so a mid-write failure never leaves a partial file.
+    Failures map to typed 4xx/507 via :data:`STATUS_BY_CODE` -- never a bare 500.
+    """
+    from django.http import JsonResponse
+
+    body = _parse_json_body(request)
+    if isinstance(body, dict) and "error" in body:
+        return JsonResponse(body, status=body.pop("status", 400))
+    rel = body.get("path", "")
+    content = body.get("content")
+    if not rel or content is None:
+        return JsonResponse(
+            {"error": "invalid_path", "message": "path and content are required"},
+            status=400,
+        )
+    try:
+        payload = project_files.write_file(request, rel, content)
+    except StorageFileError as exc:
+        return _json_error(exc)
+    return JsonResponse(payload)
+
+
+def _parse_json_body(request) -> dict:
+    import json
+
+    try:
+        data = json.loads(request.body.decode("utf-8") or "{}")
+    except (ValueError, UnicodeDecodeError):
+        return {"error": "invalid_path", "message": "invalid JSON body", "status": 400}
+    if not isinstance(data, dict):
+        return {"error": "invalid_path", "message": "JSON body must be an object", "status": 400}
+    return data
+
+
+@require_POST
+def project_rename(request) -> HttpResponse:
+    """Rename / move one file within the current project.
+
+    POST ``{old_path, new_path}``. Covers both the Rename and Move halves of
+    compass \u00a714 L494 (the SDK's ``rename`` is the move primitive). Scope +
+    authz from the hub resolver; containment on BOTH paths; an existing
+    destination is a typed ``file_conflict`` (409). Failures map via
+    :data:`STATUS_BY_CODE` -- never a bare 500.
+    """
+    from django.http import JsonResponse
+
+    body = _parse_json_body(request)
+    if isinstance(body, dict) and "error" in body:
+        return JsonResponse(body, status=body.pop("status", 400))
+    old_rel = body.get("old_path", "")
+    new_rel = body.get("new_path", "")
+    if not old_rel or not new_rel:
+        return JsonResponse(
+            {"error": "invalid_path", "message": "old_path and new_path are required"},
+            status=400,
+        )
+    try:
+        payload = project_files.rename_file(request, old_rel, new_rel)
+    except StorageFileError as exc:
+        return _json_error(exc)
+    return JsonResponse(payload)
+
+
+@require_POST
+def project_delete(request) -> HttpResponse:
+    """Delete one file, symlink, or directory from the current project.
+
+    POST ``{path}``. Directories are removed recursively. A final symlink is
+    unlinked without following its referent, symlinked parent components are
+    refused, and the project root is never a valid target. Scope + authz come
+    from the hub resolver.
+    """
+    from django.http import JsonResponse
+
+    body = _parse_json_body(request)
+    if isinstance(body, dict) and "error" in body:
+        return JsonResponse(body, status=body.pop("status", 400))
+    rel = body.get("path", "")
+    if not rel:
+        return JsonResponse(
+            {"error": "invalid_path", "message": "path is required"},
+            status=400,
+        )
+    try:
+        payload = project_files.delete_file(request, rel)
+    except StorageFileError as exc:
+        return _json_error(exc)
+    return JsonResponse(payload)
+
+
+@require_POST
+def project_mkdir(request) -> HttpResponse:
+    """Create one (optionally nested) directory in the current project.
+
+    POST ``{path}``. The create half of compass line 495 (folder operations).
+    A new directory -> 200; an existing directory -> ``file_conflict`` (409);
+    an existing file at the path -> ``not_a_file`` (400); a containment
+    escape (``..`` / absolute / symlink-out / under-file) -> ``permission_
+    denied`` (403). Scope + authz from the hub resolver.
+    """
+    from django.http import JsonResponse
+
+    body = _parse_json_body(request)
+    if isinstance(body, dict) and "error" in body:
+        return JsonResponse(body, status=body.pop("status", 400))
+    rel = body.get("path", "")
+    if not rel:
+        return JsonResponse(
+            {"error": "invalid_path", "message": "path is required"},
+            status=400,
+        )
+    try:
+        payload = project_files.make_dir(request, rel)
+    except StorageFileError as exc:
+        return _json_error(exc)
+    return JsonResponse(payload)
 
 
 # EOF

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scitex-storage"
-version = "0.4.0"
+version = "0.4.1"
 description = "Research-data storage triage: read-only stat-only scan + referenced-file-aware rotation of versioned build artifacts (e.g. SIF images)"
 readme = "README.md"
 license = "AGPL-3.0-only"
@@ -29,6 +29,7 @@ classifiers = [
 
 dependencies = [
     "click",
+    "pydantic>=2.0,<3",
     "scitex-ssh>=1.2.0",
     # `document-sorter` reads a PDF's text via scitex-io
     # (`scitex_io.load(pdf, mode="text", ocr=...)`), which OWNS PDF reading
@@ -140,6 +141,9 @@ scitex-storage = "scitex_storage"
 
 [project.entry-points."scitex_dev.system_deps"]
 scitex-storage = "scitex_storage._system_deps:provide"
+
+[project.entry-points."scitex_hub.dev"]
+storage = "scitex_storage:validate_storage_contract"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/scitex_storage"]
