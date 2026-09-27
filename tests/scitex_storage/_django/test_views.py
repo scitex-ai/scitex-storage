@@ -81,42 +81,40 @@ def _boot():
     _boot_django_for_storage_gui()
 
 
-def test_index_lists_the_requesters_volume(tmp_path):
+def test_index_defaults_to_the_usage_tab(tmp_path):
+    # Arrange
+    _boot()
+    # Act
+    body = _get(tmp_path, {}).content.decode()
+    # Assert -- no tab param means Usage, never the retired Machines tab.
+    assert "Machines &amp; storage" not in body
+
+
+def test_index_default_has_no_machines_tab(tmp_path):
     # Arrange
     _boot()
     # Act
     body = _get(tmp_path, {}).content.decode()
     # Assert
-    assert "Mine" in body
+    assert "Machines & storage" not in body
 
 
-def test_volume_listing_shows_its_children(tmp_path):
-    # Arrange
-    _boot()
-    _touch(tmp_path / "alpha" / "a.bin", 100)
-    # Act
-    body = _get(tmp_path, {"volume": "mine"}).content.decode()
-    # Assert
-    assert "alpha" in body
-
-
-def test_unknown_volume_is_forbidden(tmp_path):
+def test_unknown_tab_falls_back_to_usage(tmp_path):
     # Arrange
     _boot()
     # Act
-    response = _get(tmp_path, {"volume": "someone-else"})
+    body = _get(tmp_path, {"tab": "machines"}).content.decode()
     # Assert
-    assert response.status_code == 403
+    assert "Machines &amp; storage" not in body
 
 
-def test_directory_outside_the_volume_is_forbidden(tmp_path):
+def test_retired_tab_leaves_no_machines_tab(tmp_path):
     # Arrange
     _boot()
-    (tmp_path / "vol").mkdir()
     # Act
-    response = _get(tmp_path / "vol", {"volume": "mine", "dir": "../"})
+    body = _get(tmp_path, {"tab": "machines"}).content.decode()
     # Assert
-    assert response.status_code == 403
+    assert "Machines & storage" not in body
 
 
 def test_absolute_path_param_is_not_scanned(tmp_path):
@@ -128,13 +126,51 @@ def test_absolute_path_param_is_not_scanned(tmp_path):
     assert "passwd" not in body
 
 
-def test_coming_soon_tab_renders(tmp_path):
+def test_backup_tab_is_still_coming_soon(tmp_path):
+    # Arrange -- Usage/Move/Duplicates are real views now (organize.py);
+    # Backup is the remaining placeholder.
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "backup"}).content.decode()
+    # Assert
+    assert "Coming soon" in body
+
+
+def test_usage_tab_renders_donut(tmp_path):
+    # Arrange
+    _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
+    # Act
+    body = _get(tmp_path, {"tab": "usage"}).content.decode()
+    # Assert
+    assert "Where your bytes live" in body
+
+
+def test_usage_tab_links_fleet_views(tmp_path):
+    # Arrange -- fleet links use route names, never hardcoded paths.
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "usage"}).content.decode()
+    # Assert
+    assert "Fleet visualizations" in body
+
+
+def test_move_tab_renders_planner(tmp_path):
     # Arrange
     _boot()
     # Act
     body = _get(tmp_path, {"tab": "move"}).content.decode()
     # Assert
-    assert "Coming soon" in body
+    assert "Plan a move to cold storage" in body
+
+
+def test_duplicates_tab_is_read_only_report(tmp_path):
+    # Arrange
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "duplicates"}).content.decode()
+    # Assert
+    assert "Read-only report." in body
 
 
 def test_index_declares_every_shell_pane_so_none_reserves_width(tmp_path):

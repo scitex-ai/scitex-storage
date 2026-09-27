@@ -130,6 +130,19 @@ def test_manifest_license_matches_this_repos_actual_license():
     assert data["license"] == "AGPL-3.0-only"
 
 
+def test_manifest_declares_the_login_boundary_for_the_generic_mount():
+    # Arrange
+    # (nothing to arrange)
+    # Act
+    data = _load_manifest()
+    # Assert -- scitex-hub mounts this leaf EXCLUSIVELY through the generic
+    # scitex.apps plugin mount (hub #994), which login-wraps the whole
+    # tree only when the LEAF asks for it via mount_policy.login_required.
+    # The leaf views assume an authenticated request.user, so the leaf
+    # declares the boundary rather than the hub inferring it.
+    assert data.get("mount_policy", {}).get("login_required") is True
+
+
 def _boot_django_for_storage_gui():
     """Shared helper -- NOT a test, does not itself need AAA markers."""
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "scitex_storage._django.settings")

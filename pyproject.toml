@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scitex-storage"
-version = "0.4.1"
+version = "0.5.0"
 description = "Research-data storage triage: read-only stat-only scan + referenced-file-aware rotation of versioned build artifacts (e.g. SIF images)"
 readme = "README.md"
 license = "AGPL-3.0-only"
@@ -132,6 +132,14 @@ Homepage = "https://github.com/scitex-ai/scitex-storage"
 Repository = "https://github.com/scitex-ai/scitex-storage"
 Issues = "https://github.com/scitex-ai/scitex-storage/issues"
 Documentation = "https://scitex-storage.readthedocs.io"
+
+[project.entry-points."scitex.apps"]
+# Generic hub mount (thin-hub rule): ``pip install`` is the whole install.
+# The host mounts ``scitex_storage._django.urls`` at the manifest route
+# (apps/storage/) and lists the tile from ``_django/manifest.json``.
+# Usage/Duplicates/Move tabs are implemented leaf-side (organize.py),
+# so no host wrapper is needed for them.
+storage = "scitex_storage._django.apps:StorageConfig"
 
 [project.entry-points."scitex_dev.docs"]
 scitex-storage = "scitex_storage"

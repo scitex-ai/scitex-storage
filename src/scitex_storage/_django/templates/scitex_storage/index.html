@@ -11,7 +11,7 @@ base page (site header + dock), standalone falls back to scitex-ui's shell.
 <div id="stx-storage-app" class="stx-storage" data-app-name="scitex_storage">
     <header class="stx-storage-head">
         <h1 class="stx-storage-title"><i class="fas fa-database" aria-hidden="true"></i> {% translate "Storage" %}</h1>
-        <p class="stx-storage-lede">{% translate "The machines and disks you can reach, and how full they are." %}</p>
+        <p class="stx-storage-lede">{% translate "How full your storage is, what duplicates it, and what to move." %}</p>
     </header>
 
     <nav class="stx-storage-tabs" role="tablist" aria-label="{% translate 'Storage sections' %}">
@@ -23,95 +23,16 @@ base page (site header + dock), standalone falls back to scitex-ui's shell.
         {% endfor %}
     </nav>
 
-    {% if tab != "machines" %}
-        <section class="stx-storage-card stx-storage-coming">
-            <i class="fas fa-person-digging" aria-hidden="true"></i>
-            <h2>{% translate "Coming soon" %}</h2>
-            <p>
-                {% if tab == "usage" %}{% translate "Per-directory usage over time, so you can see what is growing." %}
-                {% elif tab == "move" %}{% translate "Move data you no longer use from fast storage to cold storage, verified before anything is removed." %}
-                {% elif tab == "backup" %}{% translate "Scheduled, verified backups of your data to a second machine." %}
-                {% else %}{% translate "Find duplicate files across your volumes and free the space." %}{% endif %}
-            </p>
-        </section>
-
-    {% elif listing %}
-        <nav class="stx-storage-crumbs" aria-label="{% translate 'Folder path' %}">
-            <a href="?">{% translate "Machines" %}</a>
-            <span aria-hidden="true">/</span>
-            <a href="?volume={{ listing.volume.key|urlencode }}">{{ listing.volume.label }}</a>
-            {% for c in listing.crumbs %}
-                <span aria-hidden="true">/</span>
-                {% if forloop.last %}<span aria-current="page">{{ c.name }}</span>
-                {% else %}<a href="?volume={{ listing.volume.key|urlencode }}&amp;dir={{ c.rel|urlencode }}">{{ c.name }}</a>{% endif %}
-            {% endfor %}
-        </nav>
-        <section class="stx-storage-card">
-            {% if listing.error == "missing" %}
-                <p class="stx-storage-empty">{% translate "This folder does not exist yet." %}</p>
-            {% elif listing.error == "timeout" %}
-                <p class="stx-storage-empty">{% translate "The volume did not answer in time." %}</p>
-            {% elif listing.error %}
-                <p class="stx-storage-empty">{% translate "This folder cannot be read." %}</p>
-            {% else %}
-                <ul class="stx-storage-list">
-                    {% for e in listing.entries %}
-                        <li class="stx-storage-row">
-                            {% if e.is_dir %}
-                                <a class="stx-storage-name" href="?volume={{ listing.volume.key|urlencode }}&amp;dir={{ e.rel|urlencode }}">
-                                    <i class="fas fa-folder" aria-hidden="true"></i><span>{{ e.name }}</span>
-                                </a>
-                                <span class="stx-storage-size"></span>
-                            {% else %}
-                                <span class="stx-storage-name"><i class="far fa-file" aria-hidden="true"></i><span>{{ e.name }}</span></span>
-                                <span class="stx-storage-size">{{ e.size|filesizeformat }}</span>
-                            {% endif %}
-                        </li>
-                    {% empty %}
-                        <li class="stx-storage-empty">{% translate "This folder is empty." %}</li>
-                    {% endfor %}
-                </ul>
-                {% if listing.truncated %}<p class="stx-storage-note">{% translate "Showing the first 500 entries." %}</p>{% endif %}
-            {% endif %}
-        </section>
-
-    {% else %}
-        {% for m in machines %}
-            <section class="stx-storage-card">
-                <h2 class="stx-storage-machine"><i class="fas fa-server" aria-hidden="true"></i> {{ m.name }}</h2>
-                <ul class="stx-storage-volumes">
-                    {% for v in m.volumes %}
-                        <li class="stx-storage-volume">
-                            <div class="stx-storage-volume-top">
-                                <span class="stx-storage-volume-name">{{ v.volume.label }}</span>
-                                {% if v.volume.tier %}<span class="stx-storage-tier">{{ v.volume.tier }}</span>{% endif %}
-                                <span class="stx-storage-status is-{{ v.status }}">
-                                    {% if v.status == "reachable" %}{% translate "Reachable" %}
-                                    {% elif v.status == "not-mounted" %}{% translate "Not mounted here" %}
-                                    {% else %}{% translate "Unreachable" %}{% endif %}
-                                </span>
-                            </div>
-                            {% if v.volume.connection %}<p class="stx-storage-conn">{{ v.volume.connection }}</p>{% endif %}
-                            {% if v.status == "reachable" %}
-                                <div class="stx-storage-bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ v.used_pct|stringformat:'.1f' }}"
-                                     aria-label="{% translate 'Disk used' %}">
-                                    <span class="stx-storage-bar-fill{% if v.used_pct >= 85 %} is-high{% endif %}" style="width: {{ v.used_pct|stringformat:'.1f' }}%"></span>
-                                </div>
-                                <p class="stx-storage-cap">
-                                    {% blocktranslate with used=v.used|filesizeformat total=v.total|filesizeformat free=v.free|filesizeformat pct=v.used_pct %}{{ used }} of {{ total }} used ({{ pct }}%) · {{ free }} free{% endblocktranslate %}
-                                </p>
-                                <a class="stx-storage-browse" href="?volume={{ v.volume.key|urlencode }}">
-                                    <i class="fas fa-folder-open" aria-hidden="true"></i> {% translate "Browse" %}
-                                </a>
-                            {% endif %}
-                        </li>
-                    {% endfor %}
-                </ul>
-            </section>
-        {% empty %}
-            <section class="stx-storage-card"><p class="stx-storage-empty">{% translate "No storage is assigned to your account yet." %}</p></section>
-        {% endfor %}
-    {% endif %}
+    {# Only the Backup placeholder renders through this template; Usage, Move #}
+    {# and Duplicates are served by organize.html via organize.serve. #}
+    <section class="stx-storage-card stx-storage-coming">
+        <i class="fas fa-person-digging" aria-hidden="true"></i>
+        <h2>{% translate "Coming soon" %}</h2>
+        <p>
+            {% if tab == "backup" %}{% translate "Scheduled, verified backups of your data to a second machine." %}
+            {% else %}{% translate "Find duplicate files across your volumes and free the space." %}{% endif %}
+        </p>
+    </section>
 </div>
 {% endblock %}
 {% block extra_js %}{% endblock %}
