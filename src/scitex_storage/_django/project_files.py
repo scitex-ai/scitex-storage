@@ -77,11 +77,26 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import quote
 
-from django.http import HttpResponse
+# Django + scitex-app are the OPTIONAL ``gui`` extra (see pyproject.toml).
+# Guarded so a GUI import without the extra names the remedy instead of a
+# bare ModuleNotFoundError (PS-233 guarded-import contract; PS-148).
+try:
+    from django.http import HttpResponse
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage project files require Django: "
+        "pip install scitex-storage[gui]"
+    ) from exc
 
 # The SDK public primitive, not the private backend, so a future scitex-app
 # with a stable file API keeps these views working.
-from scitex_app.sdk import get_files
+try:
+    from scitex_app.sdk import get_files
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage project files require scitex-app: "
+        "pip install scitex-storage[gui]"
+    ) from exc
 
 __all__ = [
     "ProjectScope",

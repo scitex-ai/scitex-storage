@@ -42,7 +42,17 @@ from __future__ import annotations
 try:
     from scitex_app._django import ScitexAppConfig as _ScitexAppConfig
 except ImportError:
-    from django.apps import AppConfig as _ScitexAppConfig  # type: ignore[assignment]
+    # Fallback import needs its OWN guard: an import inside an except
+    # handler is not protected by that handler (PS-233).
+    try:
+        from django.apps import (
+            AppConfig as _ScitexAppConfig,  # type: ignore[assignment]
+        )
+    except ImportError as exc:
+        raise ImportError(
+            "scitex-storage GUI adapter requires Django or scitex-app: "
+            "pip install scitex-storage[gui]"
+        ) from exc
 
 ScitexAppConfig = _ScitexAppConfig
 
@@ -53,10 +63,17 @@ def run_standalone(*args, **kwargs):
     Deferred (imported lazily, inside the call) rather than at module
     import time, so importing this adapter module never requires
     scitex-app to be installed — only actually launching the standalone
-    server (``scitex-storage start-gui``) does. Raises ``ImportError`` with
-    scitex-app's own message if it isn't installed.
+    server (``scitex-storage start-gui``) does. Only actually launching the
+    standalone server requires it; without the extra this raises an
+    actionable ``ImportError`` naming the remedy.
     """
-    from scitex_app._standalone import run_standalone as _run_standalone
+    try:
+        from scitex_app._standalone import run_standalone as _run_standalone
+    except ImportError as exc:
+        raise ImportError(
+            "scitex-storage standalone server requires scitex-app: "
+            "pip install scitex-storage[gui]"
+        ) from exc
 
     return _run_standalone(*args, **kwargs)
 
