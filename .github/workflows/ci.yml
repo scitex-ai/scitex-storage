@@ -52,6 +52,8 @@ jobs:
   # coverage too.
   fd-fclones-integration:
     runs-on: [self-hosted, Linux, X64, scitex-ci]
+    env:
+      PYTHONNOUSERSITE: 1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
