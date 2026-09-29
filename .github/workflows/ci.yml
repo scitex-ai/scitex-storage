@@ -51,7 +51,9 @@ jobs:
   # in CI) and reruns the suite so the real integration paths get CI
   # coverage too.
   fd-fclones-integration:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, scitex-ci]
+    env:
+      PYTHONNOUSERSITE: 1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
