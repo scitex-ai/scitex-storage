@@ -221,6 +221,7 @@ def test_storage_config_frontend_type_is_server_rendered():
 
 
 def test_sdk_validator_accepts_manifest_without_a_hand_written_version():
+    # Arrange
     # SDK AppConfig now uses the scaffold validator's one required-key list.
     # Package metadata owns the version; the manifest must not repeat it.
     pytest.importorskip("django")
@@ -230,10 +231,16 @@ def test_sdk_validator_accepts_manifest_without_a_hand_written_version():
     from django.apps import apps
 
     cfg = apps.get_app_config("scitex_storage_django")
-    assert cfg.validate_manifest() == []
+
+    # Act
+    errors = cfg.validate_manifest()
+
+    # Assert
+    assert errors == []
 
 
 def test_sdk_validator_still_rejects_a_missing_required_slug(tmp_path):
+    # Arrange
     # Exercise the real AppConfig boundary using an owned synthetic package.
     # Accepting a versionless manifest must not disable required-key checks.
     pytest.importorskip("django")
@@ -252,7 +259,12 @@ def test_sdk_validator_still_rejects_a_missing_required_slug(tmp_path):
     (app_dir / "manifest.json").write_text(json.dumps(manifest))
 
     cfg = ScitexAppConfig("manifest_probe", package)
-    assert cfg.validate_manifest() == ["manifest.json missing required key: 'slug'"]
+
+    # Act
+    errors = cfg.validate_manifest()
+
+    # Assert
+    assert errors == ["manifest.json missing required key: 'slug'"]
 
 
 # EOF
