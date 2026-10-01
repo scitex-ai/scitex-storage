@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # File: src/scitex_storage/_django/_server.py
-"""Standalone local-dev launcher for the scitex-storage GUI (``scitex-storage start-gui``).
+"""Standalone local-dev launcher for the scitex-storage GUI.
 
 Tries the isolated adapter's ``run_standalone`` first (delegates to
 ``scitex_app._standalone.run_standalone``, which pre-wires scitex-ui's
@@ -26,14 +26,12 @@ from __future__ import annotations
 
 import os
 import socket
-import sys
 import threading
 import webbrowser
 
 import scitex_logging as slogging
 
 log = slogging.getLogger(__name__)
-console = slogging.getConsole(__name__)
 
 # Django is the OPTIONAL ``gui`` extra (see pyproject.toml): this module
 # only runs via ``scitex-storage gui``. Guarded per PS-233/PS-148 so the
@@ -87,6 +85,21 @@ def _port_in_use(host: str, port: int) -> bool:
     return False
 
 
+def _print_banner(host: str, port: int) -> None:
+    """Emit startup guidance at the current level without rerouting warnings."""
+    console = slogging.getConsole(
+        f"{__name__}.console", level=slogging.get_level()
+    )
+    console.info(f"SciTeX Storage GUI: http://{host}:{port}")
+    # "Ctrl+C" is only useful while you still have the terminal. Name the
+    # commands that work AFTER it is gone -- the operator asked how to stop
+    # the GUI and the banner had no answer for the case that actually
+    # happens (started earlier, terminal closed, still listening).
+    console.info("Stop: Ctrl+C here, or `scitex-storage gui stop` from anywhere")
+    console.info("Check: `scitex-storage gui status`")
+
+
+
 def run(
     port: int = 5051,
     host: str = "127.0.0.1",
@@ -114,13 +127,7 @@ def run(
             f"`scitex-storage gui status` to check if a previous instance is "
             f"still up) and retry."
         )
-    console.info(f"SciTeX Storage GUI: http://{host}:{port}")
-    # "Ctrl+C" is only useful while you still have the terminal. Name the
-    # commands that work AFTER it is gone -- the operator asked how to stop
-    # the GUI and the banner had no answer for the case that actually
-    # happens (started earlier, terminal closed, still listening).
-    console.info("Stop: Ctrl+C here, or `scitex-storage gui stop` from anywhere")
-    console.info("Check: `scitex-storage gui status`")
+    _print_banner(host, port)
 
     django.setup()
 

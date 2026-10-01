@@ -64,7 +64,7 @@ dependencies = [
     # PS-220 mandates scitex-logging for all human-facing output (no
     # builtin print in src/); _server.py and _system_deps.py use it, so it
     # is a hard core dependency, mirroring scitex-io.
-    "scitex-logging>=0.1.0",
+    "scitex-logging>=0.2.1",
 ]
 # NOTE: three SYSTEM (non-pip) runtime dependencies, each required by ONE
 # verb: `fd` (fd-find) for `scan`'s directory traversal, `fclones` for
