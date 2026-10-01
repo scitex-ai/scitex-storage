@@ -30,10 +30,10 @@ except ImportError as exc:
     ) from exc
 
 try:
-    from scitex_ui.branding import shell_context
+    from scitex_sdk.ui.branding import shell_context
 except ImportError as exc:
     raise ImportError(
-        "scitex-storage GUI views require scitex-ui: "
+        "scitex-storage GUI views require scitex-sdk UI: "
         "pip install scitex-storage[gui]"
     ) from exc
 

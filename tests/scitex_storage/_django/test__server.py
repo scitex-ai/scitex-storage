@@ -41,7 +41,7 @@ def test_warning_names_the_remedy():
     text = bare_django_warning(ImportError("boom"))
 
     # Assert
-    assert "pip install scitex-app" in text
+    assert "pip install 'scitex-sdk>=0.3.0'" in text
 
 
 def test_warning_states_the_page_is_unstyled():
@@ -70,7 +70,7 @@ def test_warning_survives_a_missing_cause():
     text = bare_django_warning(None)
 
     # Assert
-    assert "pip install scitex-app" in text
+    assert "pip install 'scitex-sdk>=0.3.0'" in text
 
 
 def test_a_free_port_is_reported_available():

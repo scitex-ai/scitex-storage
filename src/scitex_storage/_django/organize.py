@@ -148,10 +148,10 @@ def _run_bounded(fn: Callable[[], Any], timeout_s: float) -> tuple[bool, Any]:
 def _base_context(active: str) -> dict:
     """Shell + tab-nav context shared by the three organize tabs."""
     try:
-        from scitex_ui.branding import shell_context
+        from scitex_sdk.ui.branding import shell_context
     except ImportError as exc:
         raise ImportError(
-            "scitex-storage organize views require scitex-ui: "
+            "scitex-storage organize views require scitex-sdk UI: "
             "pip install scitex-storage[gui]"
         ) from exc
 

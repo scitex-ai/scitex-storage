@@ -9,6 +9,7 @@ The AppConfig-behaviour tests below them are guarded (`pytest.importorskip`)
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 from pathlib import Path
@@ -177,7 +178,8 @@ def test_storage_config_class_sets_default_true():
 def test_storage_config_registers_under_its_own_label():
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app._django')
     _boot_django_for_storage_gui()
     from django.apps import apps
 
@@ -191,7 +193,8 @@ def test_storage_config_registers_under_its_own_label():
 def test_storage_config_app_slug_matches_manifest_slug():
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app._django')
     _boot_django_for_storage_gui()
     from django.apps import apps
 
@@ -205,7 +208,8 @@ def test_storage_config_app_slug_matches_manifest_slug():
 def test_storage_config_frontend_type_is_server_rendered():
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app._django')
     _boot_django_for_storage_gui()
     from django.apps import apps
 
@@ -216,27 +220,39 @@ def test_storage_config_frontend_type_is_server_rendered():
     assert cfg.frontend_type == "server-rendered"
 
 
-def test_scitex_app_0_3_0_validator_still_wants_a_version_field():
-    # Arrange -- documents a real upstream inconsistency found while
-    # building this scaffold (verified live against the installed
-    # scitex-app 0.3.0, not guessed): `appmaker._validate` FORBIDS a
-    # hand-written `version` key, but the separate, older
-    # `ScitexAppConfig.MANIFEST_REQUIRED` set was never updated to
-    # match -- it still lists `version` as required. Neither Django app
-    # loading nor hub's mount calls `validate_manifest()` automatically,
-    # so this doesn't break anything today.
+def test_sdk_validator_accepts_manifest_without_a_hand_written_version():
+    # SDK AppConfig now uses the scaffold validator's one required-key list.
+    # Package metadata owns the version; the manifest must not repeat it.
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module("scitex_sdk.app._django")
     _boot_django_for_storage_gui()
     from django.apps import apps
 
     cfg = apps.get_app_config("scitex_storage_django")
-    # Act
-    errors = cfg.validate_manifest()
-    # Assert -- pins the CURRENT (inconsistent) upstream behavior; if
-    # scitex-app is later fixed to match its own appmaker validator,
-    # this assertion should be simplified to `errors == []`.
-    assert errors == ["Missing required fields: version"]
+    assert cfg.validate_manifest() == []
+
+
+def test_sdk_validator_still_rejects_a_missing_required_slug(tmp_path):
+    # Exercise the real AppConfig boundary using an owned synthetic package.
+    # Accepting a versionless manifest must not disable required-key checks.
+    pytest.importorskip("django")
+    pytest.importorskip("scitex_sdk")
+    from types import ModuleType
+
+    from scitex_sdk.app._django import ScitexAppConfig
+
+    app_dir = tmp_path / "manifest_probe"
+    app_dir.mkdir()
+    package = ModuleType("manifest_probe")
+    package.__file__ = str(app_dir / "__init__.py")
+    package.__path__ = [str(app_dir)]
+    manifest = _load_manifest()
+    del manifest["slug"]
+    (app_dir / "manifest.json").write_text(json.dumps(manifest))
+
+    cfg = ScitexAppConfig("manifest_probe", package)
+    assert cfg.validate_manifest() == ["manifest.json missing required key: 'slug'"]
 
 
 # EOF
