@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import errno
 
 import pytest
 
@@ -1611,3 +1612,187 @@ def test_delete_folder_cross_user_cannot_touch_other_project(project_pair, _with
 
     # Assert -- A's directory survives Bob's delete (Bob is scoped to B).
     assert result is True
+
+
+# Native error contracts use the declared resolver and SDK registration ports.
+# Kernel quota exhaustion is not created here.  Real owned-directory access
+# failures and a real UTF-8 encoding failure exercise write setup and cleanup.
+def test_native_edquot_reaches_json_without_disclosing_os_filename(project_pair):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import StorageFileError, _raise_quota_error
+    from scitex_storage._django.views import _json_error
+
+    root = project_pair["proj_a"]._root
+    native_error = OSError(errno.EDQUOT, "synthetic native quota error", str(root / "private-file"))
+    # Act
+    try:
+        _raise_quota_error(native_error)
+    except StorageFileError as exc:
+        response = _json_error(exc)
+        result = (response.status_code, _j(response)["error"], exc.__cause__ is native_error,
+                  str(root) in _j(response)["message"])
+    else:
+        result = (None, None, False, True)
+    # Assert
+    assert result == (507, "quota_exceeded", True, False)
+
+
+@pytest.mark.parametrize("number", [errno.ENOSPC, errno.EIO, errno.EACCES])
+def test_native_nonquota_errors_are_not_reclassified(number):
+    # Arrange
+    from scitex_storage._django.project_files import _raise_quota_error
+
+    native_error = OSError(number, "native non-quota error")
+    # Act
+    result = _raise_quota_error(native_error)
+    # Assert
+    assert result is None
+
+
+def _prepare_write_access_failure(project_pair, phase):
+    if os.geteuid() == 0:
+        pytest.skip("Root bypasses owned-directory write permission; no identity changes made")
+    protected = project_pair["proj_a"]._root / "protected"
+    protected.mkdir()
+    (protected / "result.txt").write_text("prior valid output", encoding="utf-8")
+    relative = {"mkdir": "protected/new-folder/result.txt", "mkstemp": "protected/result.txt"}[phase]
+    protected.chmod(0o500)
+    return protected, relative
+
+
+@pytest.mark.parametrize("phase", ["mkdir", "mkstemp"])
+def test_real_write_setup_permission_failure_has_typed_api_error_and_no_partial_file(
+    project_pair, _with_resolver, phase
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_write
+
+    protected, relative = _prepare_write_access_failure(project_pair, phase)
+    request = _post_request_for(project_pair["user_a"], {"path": relative, "content": "replacement"})
+    # Act
+    try:
+        response = project_write(request)
+        result = (response.status_code, _j(response)["error"],
+                  (protected / "result.txt").read_text(), sorted(p.name for p in protected.iterdir()))
+    finally:
+        protected.chmod(0o700)
+    # Assert
+    assert result == (500, "write_error", "prior valid output", ["result.txt"])
+
+
+@pytest.mark.parametrize("phase", ["mkdir", "mkstemp"])
+def test_real_write_setup_permission_failure_retains_native_errno(project_pair, _with_resolver, phase):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import StorageFileError, write_file
+
+    protected, relative = _prepare_write_access_failure(project_pair, phase)
+    request = _post_request_for(project_pair["user_a"], {})
+    # Act
+    try:
+        try:
+            write_file(request, relative, "replacement")
+        except StorageFileError as exc:
+            result = (exc.code, exc.__cause__.errno)
+        else:
+            result = (None, None)
+    finally:
+        protected.chmod(0o700)
+    # Assert
+    assert result == ("write_error", errno.EACCES)
+
+
+def test_real_midwrite_encoding_error_cleans_temp_and_preserves_prior_output(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import write_file
+
+    root = project_pair["proj_a"]._root
+    target = root / "result.txt"
+    target.write_text("prior valid output", encoding="utf-8")
+    request = _post_request_for(project_pair["user_a"], {})
+    # Act
+    try:
+        write_file(request, "result.txt", "unencodable-\ud800")
+    except UnicodeEncodeError as exc:
+        kind = type(exc).__name__
+    else:
+        kind = None
+    result = (kind, target.read_text(), list(root.glob(".tmp_*.writing")))
+    # Assert
+    assert result == ("UnicodeEncodeError", "prior valid output", [])
+
+
+@pytest.fixture
+def _native_capacity_sdk():
+    """Register a hand-rolled backend through the existing public SDK port."""
+    from scitex_app import sdk
+
+    previous_backend = sdk._registry.get("cloud")
+    previous_token = os.environ.get("SCITEX_API_TOKEN")
+
+    def install(number):
+        calls = []
+
+        class NativeFailureBackend:
+            def read(self, path, *, binary=False):
+                calls.append("read")
+                raise OSError(number, "synthetic backend native error")
+
+            def rename(self, source, destination):
+                calls.append("rename")
+                raise OSError(number, "synthetic backend native error")
+
+        sdk.register_backend("cloud", lambda root, **kwargs: NativeFailureBackend())
+        os.environ["SCITEX_API_TOKEN"] = "synthetic-registered-backend"
+        return calls
+
+    try:
+        yield install
+    finally:
+        if previous_backend is None:
+            sdk._registry.pop("cloud", None)
+        else:
+            sdk.register_backend("cloud", previous_backend)
+        if previous_token is None:
+            os.environ.pop("SCITEX_API_TOKEN", None)
+        else:
+            os.environ["SCITEX_API_TOKEN"] = previous_token
+
+
+@pytest.mark.parametrize("number,code", [(errno.EDQUOT, "quota_exceeded"), (errno.ENOSPC, "disk_full")])
+def test_registered_sdk_read_native_capacity_error_is_typed(
+    project_pair, _with_resolver, _native_capacity_sdk, number, code
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_read
+
+    calls = _native_capacity_sdk(number)
+    request = _request_for(project_pair["user_a"], "shared.txt")
+    # Act
+    response = project_read(request)
+    result = (response.status_code, _j(response)["error"], calls)
+    # Assert
+    assert result == (507, code, ["read"])
+
+
+@pytest.mark.parametrize("number,code", [(errno.EDQUOT, "quota_exceeded"), (errno.ENOSPC, "disk_full")])
+def test_registered_sdk_rename_native_capacity_error_preserves_source(
+    project_pair, _with_resolver, _native_capacity_sdk, number, code
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    root = project_pair["proj_a"]._root
+    calls = _native_capacity_sdk(number)
+    request = _post_to(project_pair["user_a"], "/api/rename", {"old_path": "shared.txt", "new_path": "moved.txt"})
+    # Act
+    response = project_rename(request)
+    result = (response.status_code, _j(response)["error"], calls,
+              (root / "shared.txt").read_text(), (root / "moved.txt").exists())
+    # Assert
+    assert result == (507, code, ["rename"], "common line\n", False)
