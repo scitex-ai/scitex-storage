@@ -168,7 +168,7 @@ class ProjectScope:
     name: Optional[str] = None
 
 
-def resolve_project_scope(request) -> Optional[ProjectScope]:
+def resolve_project_scope(request, *, require_edit: bool = False) -> Optional[ProjectScope]:
     """Resolve the requester's current project to a :class:`ProjectScope`.
 
     Returns ``None`` when no project is in scope \u2014 the request has no
@@ -176,7 +176,8 @@ def resolve_project_scope(request) -> Optional[ProjectScope]:
     import path), or the hub has no project the user may view. Callers treat
     ``None`` as :class:`NoProject`. The hub's ``get_current_project`` enforces
     ``can_view`` internally, so a returned scope is already one the user may
-    see; this function adds no project/user of its own.
+    see; this function adds no project/user of its own. Mutating callers require
+    an explicit True from that project's can_edit(user) before resolving paths.
     """
     user = getattr(request, "user", None)
     if user is None or not getattr(user, "is_authenticated", False):
@@ -194,6 +195,15 @@ def resolve_project_scope(request) -> Optional[ProjectScope]:
         return None
     if project is None:
         return None
+
+    if require_edit:
+        try:
+            can_edit = getattr(project, "can_edit", None)
+            editable = callable(can_edit) and can_edit(user) is True
+        except Exception:
+            editable = False
+        if not editable:
+            raise PermissionDenied("Editing this project is not permitted.")
 
     project_dir = _project_dir(project)
     if project_dir is None:
@@ -363,8 +373,8 @@ def build_backend(scope: ProjectScope):
 # --------------------------------------------------------------------------- #
 # Operations
 # --------------------------------------------------------------------------- #
-def _scope_or_no_project(request) -> ProjectScope:
-    scope = resolve_project_scope(request)
+def _scope_or_no_project(request, *, require_edit: bool = False) -> ProjectScope:
+    scope = resolve_project_scope(request, require_edit=require_edit)
     if scope is None:
         raise NoProject("no project in scope for this request")
     return scope
@@ -561,7 +571,7 @@ def write_file(request, rel_path: str, content: str) -> dict:
 
     Returns ``{"project", "path", "size"}``.
     """
-    scope = _scope_or_no_project(request)
+    scope = _scope_or_no_project(request, require_edit=True)
     target = _contained_for_write(scope.project_dir, rel_path)
     # The SDK has no atomic-write API; this is the safe wrapper over the same
     # backend. Create the (verified-file-free) missing parents, then write to a
@@ -629,7 +639,7 @@ def rename_file(request, old_rel: str, new_rel: str) -> dict:
 
     Returns ``{"project", "from", "to"}``.
     """
-    scope = _scope_or_no_project(request)
+    scope = _scope_or_no_project(request, require_edit=True)
     _resolve_entry(scope, old_rel)  # raises if missing / containment-escape
     # The destination may not exist (that's a rename); check its containment.
     dest = _contained(scope.project_dir, new_rel)
@@ -672,7 +682,7 @@ def delete_file(request, rel_path: str) -> dict:
 
     Returns ``{"project", "path"}``.
     """
-    scope = _scope_or_no_project(request)
+    scope = _scope_or_no_project(request, require_edit=True)
     parts = _delete_parts(rel_path)
     _require_safe_delete_primitives()
     root = scope.project_dir
@@ -988,7 +998,7 @@ def make_dir(request, rel_path: str) -> dict:
 
     Returns ``{"project", "path"}``.
     """
-    scope = _scope_or_no_project(request)
+    scope = _scope_or_no_project(request, require_edit=True)
     target = _contained_for_write(scope.project_dir, rel_path)
     if target.exists():
         if target.is_dir():
