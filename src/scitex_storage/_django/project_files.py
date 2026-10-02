@@ -58,6 +58,7 @@ contract. Subclasses:
   * ``PermissionDenied``  \u2014 403 ``permission_denied``   (escapes the project root)
   * ``NotAFile``          \u2014 400 ``not_a_file``          (target is a directory)
   * ``DiskFull``          \u2014 507 ``disk_full``           (write space exhausted)
+  * ``QuotaExceeded``     \u2014 507 ``quota_exceeded``      (native quota limit)
   * ``InvalidPath``       \u2014 400 ``invalid_path``        (malformed / non-utf-8)
 
 ``views.py`` maps each ``code`` to its HTTP status via :data:`STATUS_BY_CODE`,
@@ -106,6 +107,7 @@ __all__ = [
     "PermissionDenied",
     "NotAFile",
     "DiskFull",
+    "QuotaExceeded",
     "WriteError",
     "FileConflict",
     "InvalidPath",
@@ -128,6 +130,7 @@ STATUS_BY_CODE = {
     "permission_denied": 403,
     "not_a_file": 400,
     "disk_full": 507,
+    "quota_exceeded": 507,
     "invalid_path": 400,
     "write_error": 500,
     "file_conflict": 409,
@@ -300,6 +303,19 @@ class DiskFull(StorageFileError):
     status = STATUS_BY_CODE["disk_full"]
 
 
+class QuotaExceeded(StorageFileError):
+    """The OS reported a quota limit, without inferring its cap or usage."""
+
+    code = "quota_exceeded"
+    status = STATUS_BY_CODE["quota_exceeded"]
+
+
+def _raise_quota_error(exc: OSError) -> None:
+    if exc.errno == errno.EDQUOT:
+        # Do not expose native absolute filenames or invent a usage estimate.
+        raise QuotaExceeded("Storage quota exceeded for this operation.") from exc
+
+
 class InvalidPath(StorageFileError):
     code = "invalid_path"
     status = STATUS_BY_CODE["invalid_path"]
@@ -452,6 +468,7 @@ def _open(scope: ProjectScope, rel_path: str, *, binary: bool = False):
         # pre-check and the backend disagree; treat as denied, not 500.
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         if exc.errno in (28,):  # ENOSPC
             raise DiskFull(str(exc)) from exc
         raise
@@ -549,10 +566,11 @@ def write_file(request, rel_path: str, content: str) -> dict:
     # The SDK has no atomic-write API; this is the safe wrapper over the same
     # backend. Create the (verified-file-free) missing parents, then write to a
     # temp file in target's dir so os.replace is atomic on the same filesystem.
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=str(target.parent), prefix=".tmp_", suffix=".writing")
-    tmp = Path(tmp_path)
+    tmp = None
     try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=str(target.parent), prefix=".tmp_", suffix=".writing")
+        tmp = Path(tmp_path)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(content)
             fh.flush()
@@ -560,12 +578,15 @@ def write_file(request, rel_path: str, content: str) -> dict:
         os.replace(str(tmp), str(target))
     except OSError as exc:
         # clean up the temp file on any failure, then translate
-        _unlink_quiet(tmp)
+        if tmp is not None:
+            _unlink_quiet(tmp)
+        _raise_quota_error(exc)
         if exc.errno in (28,):  # ENOSPC
             raise DiskFull(f"no space to write {rel_path!r}") from exc
         raise WriteError(f"could not write {rel_path!r}: {exc}") from exc
     except Exception:
-        _unlink_quiet(tmp)
+        if tmp is not None:
+            _unlink_quiet(tmp)
         raise
     return {
         "project": _scope_summary(scope),
@@ -628,6 +649,11 @@ def rename_file(request, old_rel: str, new_rel: str) -> dict:
         raise PermissionDenied(str(exc)) from exc
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
+    except OSError as exc:
+        _raise_quota_error(exc)
+        if exc.errno == errno.ENOSPC:
+            raise DiskFull("No space available for rename or move.") from exc
+        raise
     return {
         "project": _scope_summary(scope),
         "from": old_rel,
@@ -666,6 +692,7 @@ def delete_file(request, rel_path: str) -> dict:
                     f"delete path has an unsafe parent component: {rel_path!r}"
                 ) from exc
             except OSError as exc:
+                _raise_quota_error(exc)
                 if exc.errno == errno.ELOOP:
                     raise PermissionDenied(
                         f"delete path has a symlink parent: {rel_path!r}"
@@ -678,6 +705,7 @@ def delete_file(request, rel_path: str) -> dict:
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not access project root: {exc}") from exc
     finally:
         for descriptor in reversed(descriptors):
@@ -745,6 +773,7 @@ def _open_verified_project_root(
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not inspect project root: {exc}") from exc
     if not stat.S_ISDIR(observed.st_mode):
         raise PermissionDenied("project root is not a physical directory")
@@ -756,6 +785,7 @@ def _open_verified_project_root(
     except (NotADirectoryError, PermissionError) as exc:
         raise PermissionDenied("project root changed before deletion") from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         if exc.errno == errno.ELOOP:
             raise PermissionDenied("project root changed to a symlink") from exc
         raise WriteError(f"could not open project root safely: {exc}") from exc
@@ -794,6 +824,7 @@ def _delete_entry_at(parent_fd: int, name: str, display_path: str) -> None:
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not inspect {display_path!r}: {exc}") from exc
 
     if not stat.S_ISDIR(entry_stat.st_mode):
@@ -808,6 +839,7 @@ def _delete_entry_at(parent_fd: int, name: str, display_path: str) -> None:
         except PermissionError as exc:
             raise PermissionDenied(str(exc)) from exc
         except OSError as exc:
+            _raise_quota_error(exc)
             if exc.errno == errno.ENOSPC:
                 raise DiskFull(str(exc)) from exc
             raise WriteError(f"could not delete {display_path!r}: {exc}") from exc
@@ -834,6 +866,7 @@ def _delete_directory_at(
             f"target changed while it was being deleted: {display_path!r}"
         ) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         if exc.errno == errno.ELOOP:
             raise FileConflict(
                 f"target changed while it was being deleted: {display_path!r}"
@@ -865,6 +898,7 @@ def _delete_directory_at(
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not delete {display_path!r}: {exc}") from exc
     finally:
         os.close(child_fd)
@@ -884,6 +918,11 @@ def _stage_directory_at(
             break
         except FileExistsError:
             continue
+        except OSError as exc:
+            _raise_quota_error(exc)
+            if exc.errno == errno.ENOSPC:
+                raise DiskFull("No space available for delete staging.") from exc
+            raise
     else:
         raise WriteError("could not allocate a private delete staging directory")
 
@@ -910,6 +949,7 @@ def _stage_directory_at(
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not stage {display_path!r}: {exc}") from exc
     finally:
         if stage_fd is not None and "moved_stat" not in locals():
@@ -957,6 +997,7 @@ def make_dir(request, rel_path: str) -> dict:
     try:
         target.mkdir(parents=True, exist_ok=False)
     except OSError as exc:
+        _raise_quota_error(exc)
         if exc.errno in (28,):  # ENOSPC
             raise DiskFull(f"no space to create directory {rel_path!r}") from exc
         raise WriteError(f"could not create directory {rel_path!r}: {exc}") from exc
