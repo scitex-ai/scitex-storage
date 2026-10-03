@@ -116,6 +116,15 @@ jobs:
           ref: ${{ steps.ver.outputs.version }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify checked-out source matches the defining workflow
+        env:
+          EXPECTED_SOURCE: ${{ github.sha }}
+        run: |
+          actual_source="$(git rev-parse HEAD)"
+          if [ "$actual_source" != "$EXPECTED_SOURCE" ]; then
+            echo "::error::Requested release tag differs from the reviewed defining workflow source"
+            exit 1
+          fi
       # SIF-based self-hosted test run — mirrors pytest-matrix exactly. No
       # setup-python (the bare Spartan node has no Python tool cache; that step
       # failed "version not found for this OS"); no apt fd-install (fd is baked
@@ -153,6 +162,15 @@ jobs:
           ref: ${{ steps.ver.outputs.version }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify checked-out source matches the defining workflow
+        env:
+          EXPECTED_SOURCE: ${{ github.sha }}
+        run: |
+          actual_source="$(git rev-parse HEAD)"
+          if [ "$actual_source" != "$EXPECTED_SOURCE" ]; then
+            echo "::error::Requested release tag differs from the reviewed defining workflow source"
+            exit 1
+          fi
       # Build INSIDE the SIF (no setup-python on the bare Spartan node).
       # build-in-sif.sh installs the `build` frontend into a writable --target
       # inside the SIF, then `python -m build` → dist/. fail-loud on empty dist.
@@ -190,6 +208,15 @@ jobs:
           ref: ${{ needs.build.outputs.version }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify checked-out source matches the defining workflow
+        env:
+          EXPECTED_SOURCE: ${{ github.sha }}
+        run: |
+          actual_source="$(git rev-parse HEAD)"
+          if [ "$actual_source" != "$EXPECTED_SOURCE" ]; then
+            echo "::error::Requested release tag differs from the reviewed defining workflow source"
+            exit 1
+          fi
       - uses: actions/download-artifact@v4
         with:
           name: dist
@@ -223,6 +250,15 @@ jobs:
         with:
           ref: ${{ needs.build.outputs.version }}
           persist-credentials: false
+      - name: Verify checked-out source matches the defining workflow
+        env:
+          EXPECTED_SOURCE: ${{ github.sha }}
+        run: |
+          actual_source="$(git rev-parse HEAD)"
+          if [ "$actual_source" != "$EXPECTED_SOURCE" ]; then
+            echo "::error::Requested release tag differs from the reviewed defining workflow source"
+            exit 1
+          fi
       - uses: actions/download-artifact@v4
         with:
           name: dist
