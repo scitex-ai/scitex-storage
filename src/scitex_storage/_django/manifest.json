@@ -17,6 +17,7 @@
   ],
   "allowed_extensions": [],
   "wip": true,
+  "visibility": "internal",
   "standalone": true,
   "standalone_command": "scitex-storage gui serve",
   "standalone_port": 31290,

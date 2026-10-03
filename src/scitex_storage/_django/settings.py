@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # File: src/scitex_storage/_django/settings.py
-"""Minimal standalone Django settings for `scitex-storage start-gui`.
+"""Leaf-owned standalone Django settings for ``scitex-storage gui``.
 
-Used only by the standalone launcher (``_server.py``'s bare-runserver
-fallback); hub deployments ignore this module entirely and mount
+Used by the full App/UI standalone launcher to retain namespaced leaf URLs;
+hub deployments ignore this module entirely and mount
 ``scitex_storage._django.urls`` under their own prefix. Mirrors
 ``scitex_writer._django.settings`` / ``figrecipe._django.settings``.
 """
@@ -23,7 +23,7 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost", "0.0.0.0", "testserver"]
 
 # "hub" | "standalone" — the browser tab alone must distinguish the two
 # (see writer's precedent, scitex-hub PR #357). These settings only boot
-# the STANDALONE server (`scitex-storage start-gui`), so standalone is the
+# the STANDALONE server (`scitex-storage gui`), so standalone is the
 # default here; hub's own settings override this to "hub".
 SCITEX_APP_MODE = os.environ.get("SCITEX_APP_MODE", "standalone")
 

@@ -32,7 +32,8 @@ def _probe(tmp_path: Path, body: str):
         "import scitex_logging as logging\n"
         "logging.configure(level='info', enable_file=False, "
         "capture_prints=False)\n"
-        "from scitex_storage._django import _server as server\n" + body
+        "from scitex_storage._django import _server as server\n"
+        "diagnostics = logging.getLogger(server.__name__)\n" + body
     )
     return subprocess.run(
         [sys.executable, "-c", script],
@@ -88,8 +89,7 @@ def test_banner_does_not_reroute_or_duplicate_diagnostics(tmp_path):
     code = (
         "server._print_banner('127.0.0.1', 5051)\n"
         "server._print_banner('127.0.0.1', 5051)\n"
-        "cause = ImportError('missing shell')\n"
-        "server.log.warning(server.bare_django_warning(cause))\n"
+        "diagnostics.warning('GUI dependency unavailable')\n"
     )
     # Act
     result = _probe(tmp_path, code)
@@ -98,10 +98,8 @@ def test_banner_does_not_reroute_or_duplicate_diagnostics(tmp_path):
         (
             result.returncode == 0,
             result.stdout.count("SciTeX Storage GUI:") == 2,
-            "BARE DJANGO" not in result.stdout,
-            result.stderr.count("BARE DJANGO") == 1,
-            "missing shell" in result.stderr,
-            "pip install scitex-app" in result.stderr,
+            "GUI dependency unavailable" not in result.stdout,
+            result.stderr.count("GUI dependency unavailable") == 1,
         )
     ), {
         "returncode": result.returncode,
@@ -115,8 +113,8 @@ def test_diagnostics_follow_configured_threshold(tmp_path):
     code = (
         "server._print_banner('127.0.0.1', 5051)\n"
         "logging.set_level('error')\n"
-        "server.log.warning('suppressed warning')\n"
-        "server.log.error('visible error')\n"
+        "diagnostics.warning('suppressed warning')\n"
+        "diagnostics.error('visible error')\n"
     )
     # Act
     result = _probe(tmp_path, code)
