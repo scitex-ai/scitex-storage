@@ -68,7 +68,7 @@ def standalone_pages(tmp_path):
                     with urlopen(root + "/healthz", timeout=0.2) as response:
                         response.read()
                     break
-                except URLError:
+                except (URLError, TimeoutError):
                     if time.monotonic() >= deadline:
                         raise TimeoutError("standalone did not become ready")
                     time.sleep(0.05)
