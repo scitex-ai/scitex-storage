@@ -1,76 +1,120 @@
-"""Unit tests for scitex_storage._django._server.
-
-Covers the bare-Django fallback WARNING, which is the part that shipped
-broken: `run()` caught `ImportError` around the `run_standalone(...)`
-CALL and `pass`ed, so a missing scitex-app produced a silently unstyled
-page. A page that renders is far harder to notice as degraded than one
-that fails, so the warning text is the entire user-facing signal.
-
-`test__app_adapter.py` records that the "scitex-app absent" branch could
-not be exercised honestly without `monkeypatch` (banned here). Extracting
-the wording into a PURE function removes that obstacle for the part that
-actually matters -- what the operator is told -- with no mocks and no
-server.
-"""
+"""Real standalone App/UI boot and loopback requests, without a database."""
 
 from __future__ import annotations
+
+import hashlib
+import importlib.util
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import time
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 import pytest
 
 pytest.importorskip("django")
 
-import socket
-
-from scitex_storage._django._server import _port_in_use, bare_django_warning
+from scitex_storage._django._server import _port_in_use
 
 
-def test_warning_names_the_underlying_cause():
+@pytest.fixture
+def standalone_pages(tmp_path):
+    """Fresh real launcher and declared volume provider over fixture files."""
+    if any(importlib.util.find_spec(name) is None for name in ("scitex_app", "scitex_ui")):
+        pytest.skip("standalone rendering requires the complete gui extra")
+    volume = tmp_path / "volume"
+    volume.mkdir()
+    (volume / "payload.bin").write_bytes(b"standalone fixture")
+    source = Path(__file__).resolve().parents[3] / "src"
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+    script = tmp_path / "standalone.py"
+    script.write_text(
+        "import sys\n"
+        "def fixture_volumes(request):\n"
+        "    return [{'key': 'fixture', 'label': 'Fixture volume', "
+        "'path': sys.argv[2], 'machine': 'fixture'}]\n"
+        "from django.conf import settings\n"
+        "settings.SCITEX_STORAGE_VOLUMES_PROVIDER = '__main__.fixture_volumes'\n"
+        "from scitex_storage._django._server import run\n"
+        "run(port=int(sys.argv[1]), host='127.0.0.1', open_browser=False)\n"
+    )
+    env = {key: os.environ[key] for key in ("PATH", "HOME", "LANG", "LC_ALL") if key in os.environ}
+    env.update({"PYTHONPATH": str(source), "PYTHONDONTWRITEBYTECODE": "1",
+                "DJANGO_SETTINGS_MODULE": "scitex_storage._django.settings",
+                "PYTHON_DOTENV_DISABLED": "1", "SCITEX_APP_MODE": "standalone",
+                "SCITEX_DIR": str(tmp_path / "state")})
+    with (tmp_path / "server.log").open("w+") as log:
+        process = subprocess.Popen([sys.executable, str(script), str(port), str(volume)],
+                                   cwd=tmp_path, env=env, stdout=log, stderr=log)
+        try:
+            root = f"http://127.0.0.1:{port}"
+            deadline = time.monotonic() + 5
+            while True:
+                if process.poll() is not None:
+                    log.seek(0)
+                    raise RuntimeError("standalone exited before serving: " + log.read())
+                try:
+                    with urlopen(root + "/healthz", timeout=0.2) as response:
+                        response.read()
+                    break
+                except URLError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("standalone did not become ready")
+                    time.sleep(0.05)
+            pages = {}
+            for name, route in {"usage": "/?tab=usage&volume=fixture",
+                                "css": "/static/scitex_ui/css/shell/app-shell.css"}.items():
+                try:
+                    with urlopen(root + route, timeout=2) as response:
+                        pages[name] = response.status, response.read().decode()
+                except HTTPError as error:
+                    pages[name] = error.code, error.read().decode()
+                    error.close()
+            ui_source = Path(importlib.util.find_spec("scitex_ui").origin).parent
+            pages["expected_css"] = (ui_source / "static/scitex_ui/css/shell/app-shell.css").read_bytes()
+            yield pages
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2)
+
+
+def test_standalone_usage_page_returns_success(standalone_pages):
     # Arrange
-    cause = ImportError("No module named 'scitex_app'")
-
+    pages = standalone_pages
     # Act
-    text = bare_django_warning(cause)
-
+    status = pages["usage"][0]
     # Assert
-    assert "No module named 'scitex_app'" in text
+    assert status == 200
 
 
-def test_warning_names_the_remedy():
+def test_standalone_usage_renders_leaf_inside_workspace_shell(standalone_pages):
     # Arrange
+    pages = standalone_pages
     # Act
-    text = bare_django_warning(ImportError("boom"))
-
+    body = pages["usage"][1]
     # Assert
-    assert "pip install scitex-app" in text
+    assert all(marker in body for marker in (
+        'id="workspace-three-col"', 'id="stx-storage-app"',
+        "Fixture volume", 'href="/sunburst/"', 'href="/bubbles/"', 'href="/fleet/"'))
 
 
-def test_warning_states_the_page_is_unstyled():
+def test_standalone_serves_shared_workspace_stylesheet(standalone_pages):
     # Arrange
+    pages = standalone_pages
     # Act
-    text = bare_django_warning(ImportError("boom"))
-
+    status, stylesheet = pages["css"]
     # Assert
-    assert "UNSTYLED" in text
-
-
-def test_warning_states_which_server_is_actually_serving():
-    # Arrange
-    # Act
-    text = bare_django_warning(ImportError("boom"))
-
-    # Assert
-    assert "BARE DJANGO" in text
-
-
-def test_warning_survives_a_missing_cause():
-    # A None cause must still produce a usable warning rather than
-    # raising while reporting a failure.
-    # Arrange
-    # Act
-    text = bare_django_warning(None)
-
-    # Assert
-    assert "pip install scitex-app" in text
+    assert (status, hashlib.sha256(stylesheet.encode()).hexdigest()) == (
+        200, hashlib.sha256(pages["expected_css"]).hexdigest())
 
 
 def test_a_free_port_is_reported_available():
