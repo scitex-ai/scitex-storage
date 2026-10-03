@@ -65,6 +65,9 @@ uv pip install --python "$VENV/bin/python" --target="$TMPDIR/site" -e ".[all,dev
 
 export PYTHONPATH="$TMPDIR/site:$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 
+# --target installs console scripts under site/bin; e2e tests use that entry point.
+export PATH="$VENV/bin:$TMPDIR/site/bin:$PATH"
+
 # Parallelise with pytest-xdist if available (no-op fallback to plain -q if
 # pytest-xdist isn't in scitex-storage's [dev] extras). Worker count: use ALL
 # cores (each matrix leg runs on its own dedicated self-hosted node, no
