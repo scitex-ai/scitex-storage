@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # File: src/scitex_storage/_django/_server.py
-"""Standalone local-dev launcher for the scitex-storage GUI.
+"""Standalone local-dev launcher for the scitex-storage GUI (``scitex-storage start-gui``).
 
 Tries the isolated adapter's ``run_standalone`` first (delegates to
 ``scitex_app._standalone.run_standalone``, which pre-wires scitex-ui's
@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
 import threading
 import webbrowser
 
@@ -87,9 +88,7 @@ def _port_in_use(host: str, port: int) -> bool:
 
 def _print_banner(host: str, port: int) -> None:
     """Emit startup guidance at the current level without rerouting warnings."""
-    console = slogging.getConsole(
-        f"{__name__}.console", level=slogging.get_level()
-    )
+    console = slogging.getConsole(f"{__name__}.console", level=slogging.get_level())
     console.info(f"SciTeX Storage GUI: http://{host}:{port}")
     # "Ctrl+C" is only useful while you still have the terminal. Name the
     # commands that work AFTER it is gone -- the operator asked how to stop
@@ -97,7 +96,6 @@ def _print_banner(host: str, port: int) -> None:
     # happens (started earlier, terminal closed, still listening).
     console.info("Stop: Ctrl+C here, or `scitex-storage gui stop` from anywhere")
     console.info("Check: `scitex-storage gui status`")
-
 
 
 def run(

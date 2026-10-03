@@ -13,7 +13,8 @@ import scitex_storage
 def _probe(tmp_path: Path, body: str):
     env = {
         "PATH": os.environ.get("PATH", ""),
-        "HOME": str(tmp_path),
+        "HOME": os.environ.get("HOME", ""),
+        "SCITEX_DIR": str(tmp_path / "scitex-state"),
         "TMPDIR": str(tmp_path),
         "PYTHONPATH": str(Path(scitex_storage.__file__).resolve().parent.parent),
         "PYTHONDONTWRITEBYTECODE": "1",
