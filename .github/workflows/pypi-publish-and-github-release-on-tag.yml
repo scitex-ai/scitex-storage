@@ -42,7 +42,7 @@ name: release
 # PREREQUISITE (one-time, PyPI-side, NOT part of this workflow): a Trusted
 # Publisher must be registered on PyPI for
 # (project=scitex-storage, owner=scitex-ai, repo=scitex-storage,
-#  workflow=release.yml, environment=pypi) BEFORE the first tag is pushed —
+#  workflow=pypi-publish-and-github-release-on-tag.yml, environment=pypi) BEFORE the first tag is pushed —
 # this is an operator action on pypi.org/manage/, not something this
 # workflow (or any CI job) can self-configure. See CHANGELOG.md /
 # scitex-todo card scitex-storage-pypi-release for status.
@@ -66,15 +66,42 @@ on:
 env:
   SCITEX_CI_APPTAINER: ${{ vars.SCITEX_CI_APPTAINER }}
   SCITEX_CI_SIF: ${{ vars.SCITEX_CI_SIF }}
+  SCITEX_CI_SIF_SHA256: ${{ vars.SCITEX_CI_SIF_SHA256 }}
+  SCITEX_CI_APPTAINER_SHA256: ${{ vars.SCITEX_CI_APPTAINER_SHA256 }}
 
 jobs:
+  runner-admission:
+    uses: scitex-ai/.github/.github/workflows/runner-admission.yml@d7d96c34d68cdfbb5503a933591f7748b5aa30ee
+    with:
+      runs_on: ${{ vars.CI_RUNS_ON || '["self-hosted","Linux","X64","scitex-ci"]' }}
+    permissions: {}
+
+  require-release-admission:
+    needs: runner-admission
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require native release authorization
+        env:
+          NATIVE_AUTHORIZED: ${{ needs.runner-admission.outputs.native_authorized }}
+        run: test "$NATIVE_AUTHORIZED" = "true"
+
   test:
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","Linux","X64","scitex-ci"]') }}
+    needs: [runner-admission, require-release-admission]
+    if: ${{ needs.runner-admission.outputs.native_authorized == 'true' }}
+    runs-on: ${{ fromJSON(needs.runner-admission.outputs.runs_on) }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
+      - name: Require confirmed admission before native execution
+        env:
+          NATIVE_AUTHORIZED: ${{ needs.runner-admission.outputs.native_authorized }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          test "$NATIVE_AUTHORIZED" = "true"
+          test "$RUNNER_ENVIRONMENT" = "self-hosted"
       - name: Resolve version
         id: ver
         run: |
@@ -88,6 +115,7 @@ jobs:
         with:
           ref: ${{ steps.ver.outputs.version }}
           fetch-depth: 0
+          persist-credentials: false
       # SIF-based self-hosted test run — mirrors pytest-matrix exactly. No
       # setup-python (the bare Spartan node has no Python tool cache; that step
       # failed "version not found for this OS"); no apt fd-install (fd is baked
@@ -98,11 +126,19 @@ jobs:
         run: bash .github/ci/exec-in-sif.sh run-in-sif.sh ${{ matrix.python-version }}
 
   build:
-    needs: test
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","Linux","X64","scitex-ci"]') }}
+    needs: [runner-admission, require-release-admission, test]
+    if: ${{ needs.runner-admission.outputs.native_authorized == 'true' }}
+    runs-on: ${{ fromJSON(needs.runner-admission.outputs.runs_on) }}
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
+      - name: Require confirmed admission before native execution
+        env:
+          NATIVE_AUTHORIZED: ${{ needs.runner-admission.outputs.native_authorized }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          test "$NATIVE_AUTHORIZED" = "true"
+          test "$RUNNER_ENVIRONMENT" = "self-hosted"
       - name: Resolve version
         id: ver
         run: |
@@ -116,6 +152,7 @@ jobs:
         with:
           ref: ${{ steps.ver.outputs.version }}
           fetch-depth: 0
+          persist-credentials: false
       # Build INSIDE the SIF (no setup-python on the bare Spartan node).
       # build-in-sif.sh installs the `build` frontend into a writable --target
       # inside the SIF, then `python -m build` → dist/. fail-loud on empty dist.
@@ -128,8 +165,9 @@ jobs:
           path: dist/
 
   publish:
-    needs: build
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","Linux","X64","scitex-ci"]') }}
+    needs: [runner-admission, require-release-admission, build]
+    if: ${{ needs.runner-admission.outputs.native_authorized == 'true' }}
+    runs-on: ${{ fromJSON(needs.runner-admission.outputs.runs_on) }}
     environment:
       name: pypi
       url: https://pypi.org/p/scitex-storage
@@ -138,9 +176,20 @@ jobs:
     permissions:
       id-token: write
     steps:
+      - name: Require confirmed admission before native execution
+        env:
+          NATIVE_AUTHORIZED: ${{ needs.runner-admission.outputs.native_authorized }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          test "$NATIVE_AUTHORIZED" = "true"
+          test "$RUNNER_ENVIRONMENT" = "self-hosted"
       # Need the repo checked out so .github/ci/exec-in-sif.sh +
       # publish-in-sif.sh are on disk (the build job uploaded only dist/).
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.version }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: dist
@@ -157,14 +206,23 @@ jobs:
         run: bash .github/ci/exec-in-sif.sh publish-in-sif.sh 3.12
 
   release:
-    needs: [build, publish]
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","Linux","X64","scitex-ci"]') }}
+    needs: [runner-admission, require-release-admission, build, publish]
+    if: ${{ needs.runner-admission.outputs.native_authorized == 'true' }}
+    runs-on: ${{ fromJSON(needs.runner-admission.outputs.runs_on) }}
     permissions:
       contents: write
     steps:
+      - name: Require confirmed admission before native execution
+        env:
+          NATIVE_AUTHORIZED: ${{ needs.runner-admission.outputs.native_authorized }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          test "$NATIVE_AUTHORIZED" = "true"
+          test "$RUNNER_ENVIRONMENT" = "self-hosted"
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.build.outputs.version }}
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: dist
