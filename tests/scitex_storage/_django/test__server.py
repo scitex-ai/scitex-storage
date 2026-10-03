@@ -43,7 +43,8 @@ def standalone_pages(tmp_path):
         "from scitex_storage._django._server import run\n"
         "run(port=int(sys.argv[1]), host='127.0.0.1', open_browser=False)\n"
     )
-    env = {key: os.environ[key] for key in ("PATH", "HOME", "LANG", "LC_ALL") if key in os.environ}
+    env = {key: os.environ[key] for key in
+           ("PATH", "HOME", "LANG", "LC_ALL", "LD_LIBRARY_PATH") if key in os.environ}
     env.update({"PYTHONPATH": str(source), "PYTHONDONTWRITEBYTECODE": "1",
                 "DJANGO_SETTINGS_MODULE": "scitex_storage._django.settings",
                 "PYTHON_DOTENV_DISABLED": "1", "SCITEX_APP_MODE": "standalone",
@@ -57,7 +58,9 @@ def standalone_pages(tmp_path):
             while True:
                 if process.poll() is not None:
                     log.seek(0)
-                    raise RuntimeError("standalone exited before serving: " + log.read())
+                    raise RuntimeError(
+                        f"standalone exited before serving ({process.returncode}): "
+                        + log.read())
                 try:
                     with urlopen(root + "/healthz", timeout=0.2) as response:
                         response.read()
