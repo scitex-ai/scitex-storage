@@ -18,6 +18,7 @@ def _probe(tmp_path: Path, body: str):
         "TMPDIR": str(tmp_path),
         "PYTHONPATH": str(Path(scitex_storage.__file__).resolve().parent.parent),
         "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONFAULTHANDLER": "1",
     }
     script = (
         "import sys\n"
