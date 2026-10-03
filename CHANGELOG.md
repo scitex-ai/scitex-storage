@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-03
+
+### Fixed
+
+- Make the installed console commands available to SIF release tests by
+  adding the install target's `bin` directory to `PATH`.
+
 ## [0.5.2] - 2026-10-03
 
 ### Fixed
