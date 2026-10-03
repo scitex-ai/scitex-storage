@@ -291,18 +291,33 @@ def test_cross_user_denied_cannot_read_other_users_file(
 def test_cross_user_same_relative_path_returns_own_content(
     project_pair, _with_resolver
 ):
-    """Where the SAME relative path exists in both projects, Bob gets B's OWN
-    content -- never A's."""
+    """The same relative path returns each project's bytes across user switches."""
     _boot_django_for_storage_gui()
     # Arrange
     from scitex_storage._django.views import project_read
 
+    (project_pair["proj_a"]._root / "shared.txt").write_text(
+        "only project A\n", encoding="utf-8"
+    )
+    (project_pair["proj_b"]._root / "shared.txt").write_text(
+        "only project B\n", encoding="utf-8"
+    )
+
     # Act
-    payload = _j(project_read(_request_for(project_pair["user_b"], "shared.txt")))
-    result = (payload["project"]["slug"], "TOPSECRET" in payload["content"])
+    result = []
+    for user_key in ("user_a", "user_b", "user_a"):
+        response = project_read(_request_for(project_pair[user_key], "shared.txt"))
+        payload = _j(response)
+        result.append(
+            (response.status_code, payload["project"]["slug"], payload["content"])
+        )
 
     # Assert
-    assert result == ("B", False)
+    assert result == [
+        (200, "A", "only project A\n"),
+        (200, "B", "only project B\n"),
+        (200, "A", "only project A\n"),
+    ]
 
 
 def test_read_nonexistent_file_is_404(project_pair, _with_resolver):
