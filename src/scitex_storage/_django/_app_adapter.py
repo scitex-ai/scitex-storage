@@ -1,46 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # File: src/scitex_storage/_django/_app_adapter.py
-"""Isolated adapter around scitex-app's PRIVATE embedding API.
+"""Optional GUI adapter for the public SDK App embedding API.
 
-WHY THIS FILE EXISTS (and why nothing else in scitex-storage should
-import ``scitex_app._django`` / ``scitex_app._standalone`` directly):
-
-As of 2026-07-12, scitex-app does not yet expose a PUBLIC API for the
-Django ``AppConfig`` base class and the standalone-server launcher that
-every scitex-hub plugin needs — only the underscore-prefixed (private)
-``scitex_app._django`` / ``scitex_app._standalone`` modules provide
-them. This is a known, already-tracked ecosystem boundary violation
-(scitex-dev card ``scitex-app-embedding-api-needed-20260710``,
-currently deferred, no active work) — scitex-writer, figrecipe, and
-scitex-todo all hit the same gap and inherited the same debt by
-importing the private modules directly from wherever they were needed.
-
-scitex-dev's explicit guidance (2026-07-12, given directly to
-scitex-storage): don't wait for the public API, but don't scatter the
-private imports either — isolate them behind ONE adapter module now, so
-that when scitex-app ships a real public API, migrating is a single
-one-line change in *this* file, not a codebase-wide grep-and-replace.
-
-Rule: nowhere else in scitex-storage should write
-``from scitex_app._django import ...`` or
-``from scitex_app._standalone import ...`` — always import from here
-instead (``from scitex_storage._django._app_adapter import
-ScitexAppConfig, run_standalone``).
-
-Both scitex-app and scitex-ui are OPTIONAL dependencies of
-scitex-storage (the ``gui`` extra in ``pyproject.toml`` — the core CLI
-package never requires Django or these UI packages). If scitex-app
-isn't installed, ``ScitexAppConfig`` falls back to a bare Django
-``AppConfig`` (mirroring the exact fallback pattern scitex-writer's own
-``apps.py`` uses) and ``run_standalone`` raises a clear
-``ImportError`` only when actually called, never at import time.
+Keep the AppConfig and standalone launcher behind one public seam. The core
+CLI does not require Django or SDK GUI dependencies. Importing the adapter
+can use Django's AppConfig when SDK is absent; launching the GUI requires the
+full SDK App/UI shell and raises an actionable error when it is unavailable.
 """
 
 from __future__ import annotations
 
 try:
-    from scitex_app._django import ScitexAppConfig as _ScitexAppConfig
+    from scitex_sdk.app.embed import ScitexAppConfig as _ScitexAppConfig
+
+    if _ScitexAppConfig is None:
+        raise ImportError("SDK AppConfig requires Django integration")
 except ImportError:
     # Fallback import needs its OWN guard: an import inside an except
     # handler is not protected by that handler (PS-233).
@@ -50,7 +25,7 @@ except ImportError:
         )
     except ImportError as exc:
         raise ImportError(
-            "scitex-storage GUI adapter requires Django or scitex-app: "
+            "scitex-storage GUI adapter requires Django or scitex-sdk app: "
             "pip install scitex-storage[gui]"
         ) from exc
 
@@ -58,20 +33,12 @@ ScitexAppConfig = _ScitexAppConfig
 
 
 def run_standalone(*args, **kwargs):
-    """Thin re-export of ``scitex_app._standalone.run_standalone``.
-
-    Deferred (imported lazily, inside the call) rather than at module
-    import time, so importing this adapter module never requires
-    scitex-app to be installed — only actually launching the standalone
-    server (``scitex-storage start-gui``) does. Only actually launching the
-    standalone server requires it; without the extra this raises an
-    actionable ``ImportError`` naming the remedy.
-    """
+    """Launch through the public SDK API, imported only when called."""
     try:
-        from scitex_app._standalone import run_standalone as _run_standalone
+        from scitex_sdk.app.embed import run_standalone as _run_standalone
     except ImportError as exc:
         raise ImportError(
-            "scitex-storage standalone server requires scitex-app: "
+            "scitex-storage standalone server requires scitex-sdk app: "
             "pip install scitex-storage[gui]"
         ) from exc
 

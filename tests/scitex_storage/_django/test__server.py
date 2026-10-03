@@ -23,7 +23,7 @@ from scitex_storage._django._server import _port_in_use
 @pytest.fixture
 def standalone_pages(tmp_path):
     """Fresh real launcher and declared volume provider over fixture files."""
-    if any(importlib.util.find_spec(name) is None for name in ("scitex_app", "scitex_ui")):
+    if any(importlib.util.find_spec(name) is None for name in ("scitex_sdk",)):
         pytest.skip("standalone rendering requires the complete gui extra")
     volume = tmp_path / "volume"
     volume.mkdir()
@@ -71,15 +71,15 @@ def standalone_pages(tmp_path):
                     time.sleep(0.05)
             pages = {}
             for name, route in {"usage": "/?tab=usage&volume=fixture",
-                                "css": "/static/scitex_ui/css/shell/app-shell.css"}.items():
+                                "css": "/static/scitex_sdk/ui/css/shell/app-shell.css"}.items():
                 try:
                     with urlopen(root + route, timeout=2) as response:
                         pages[name] = response.status, response.read().decode()
                 except HTTPError as error:
                     pages[name] = error.code, error.read().decode()
                     error.close()
-            ui_source = Path(importlib.util.find_spec("scitex_ui").origin).parent
-            pages["expected_css"] = (ui_source / "static/scitex_ui/css/shell/app-shell.css").read_bytes()
+            ui_source = Path(importlib.util.find_spec("scitex_sdk.ui").origin).parent
+            pages["expected_css"] = (ui_source / "static/scitex_sdk/ui/css/shell/app-shell.css").read_bytes()
             yield pages
         finally:
             process.terminate()

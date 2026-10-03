@@ -96,8 +96,7 @@ dev = [
     # Mirror the `gui` runtime extra so `pip install -e .[dev]` runs the
     # full suite. Tests import these unguarded; PS-210 audit invariant.
     "django>=5.0",
-    "scitex-app>=0.3.0",
-    "scitex-ui>=0.8.0",  # shell_context(panes=...) — the pane declaration contract
+    "scitex-sdk[gui]>=0.3.1",
 ]
 docs = [
     "sphinx>=7.0",
@@ -106,22 +105,12 @@ docs = [
     "sphinx-copybutton>=0.5",
     "sphinx-autodoc-typehints>=1.25",
 ]
-# `scitex-storage[gui]` -- the GUI plugin under src/scitex_storage/_django/
-# (installable standalone via `scitex-storage start-gui`, or as a scitex-hub
-# plugin mounted at /storage/, following the same scitex-app/scitex-ui
-# convention as scitex-writer/scitex-scholar/scitex-todo/figrecipe). Kept
-# OUT of the base `dependencies` above -- same spirit as the `fd`/`fclones`
-# SYSTEM deps noted below: `pip install scitex-storage` (the CLI) must never
-# require Django or these UI packages, only `pip install
-# scitex-storage[gui]` does. The one place these are imported is behind an
-# isolated adapter module (src/scitex_storage/_django/_app_adapter.py) --
-# see that module's docstring for why (scitex-app doesn't have a public
-# embedding API yet; tracked as scitex-dev card
-# scitex-app-embedding-api-needed-20260710).
+# The CLI stays headless. The optional GUI extra supplies Django and the SDK
+# App/UI shell for `scitex-storage gui` and the same leaf mounted in Hub.
+# The adapter uses the public scitex_sdk.app.embed API available in SDK 0.3.1.
 gui = [
     "django>=5.0",
-    "scitex-app>=0.3.0",
-    "scitex-ui>=0.8.0",  # shell_context(panes=...) — the pane declaration contract
+    "scitex-sdk[gui]>=0.3.1",
     "scitex-dev>=0.30.0",  # gui_runtime, used by the gui {open,serve,status,stop} group at runtime
 ]
 all = [

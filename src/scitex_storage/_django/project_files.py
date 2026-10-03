@@ -89,13 +89,13 @@ except ImportError as exc:
         "pip install scitex-storage[gui]"
     ) from exc
 
-# The SDK public primitive, not the private backend, so a future scitex-app
+# The SDK public primitive, not the private backend, so SDK updates
 # with a stable file API keeps these views working.
 try:
-    from scitex_app.sdk import get_files
+    from scitex_sdk.app.sdk import get_files
 except ImportError as exc:
     raise ImportError(
-        "scitex-storage project files require scitex-app: "
+        "scitex-storage project files require scitex-sdk app: "
         "pip install scitex-storage[gui]"
     ) from exc
 
