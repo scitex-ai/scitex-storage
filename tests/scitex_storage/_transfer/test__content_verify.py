@@ -341,6 +341,45 @@ def test_a_partial_walk_does_not_masquerade_as_a_manifest():
     assert verdict.verdict == COULD_NOT_LOOK
 
 
+@pytest.mark.parametrize("unreadable_side", ["source", "destination", "both"])
+def test_unreadable_directory_blocks_content_verification(tmp_path, unreadable_side):
+    """Exercise a real walk failure, rather than constructing an error manifest."""
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    for root in (source, destination):
+        _write(str(root), "visible.txt", b"visible")
+        _write(str(root), "blocked/hidden.txt", b"hidden")
+    roots = [source, destination] if unreadable_side == "both" else [
+        source if unreadable_side == "source" else destination
+    ]
+    blocked = [root / "blocked" for root in roots]
+    previous_modes = [stat.S_IMODE(path.stat().st_mode) for path in blocked]
+    try:
+        for path in blocked:
+            path.chmod(0)
+            try:
+                with os.scandir(path):
+                    pass
+            except PermissionError:
+                pass
+            else:
+                pytest.skip("this runtime can bypass fixture directory permissions")
+        manifests = [digest_tree(str(root)) for root in (source, destination)]
+        verdict = verify_content(*manifests)
+        assert verdict.verdict == COULD_NOT_LOOK
+        assert verdict.may_remove_source is False
+        incomplete = manifests[0 if unreadable_side == "source" else 1]
+        assert incomplete.digests == {}
+        assert "<walk>" in incomplete.unreadable
+    finally:
+        for path, mode in zip(blocked, previous_modes):
+            path.chmod(mode)
+    restored = verify_content(
+        *(digest_tree(str(root)) for root in (source, destination))
+    )
+    assert restored.verdict == VERIFIED
+    assert restored.may_remove_source is True
+
+
 def test_bytes_are_reported_as_none_not_zero(pair):
     """This check does not measure bytes; it must not report a number."""
     # Arrange

@@ -160,8 +160,14 @@ def digest_tree(root: str) -> ContentManifest:
         except OSError as exc:
             unreadable[rel] = f"{type(exc).__name__}: {exc}"
 
+    def walk_failed(exc: OSError) -> None:
+        # os.walk suppresses scandir failures unless its callback raises.
+        raise exc
+
     try:
-        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for dirpath, dirnames, filenames in os.walk(
+            root, followlinks=False, onerror=walk_failed
+        ):
             for name in filenames:
                 record(os.path.join(dirpath, name))
             keep: list[str] = []
