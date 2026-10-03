@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import stat
 import subprocess
 
 import pytest
@@ -40,6 +41,72 @@ def _write(root, rel, data):
     os.makedirs(os.path.dirname(full), exist_ok=True)
     with open(full, "wb") as fh:
         fh.write(data)
+
+
+@pytest.fixture
+def unreadable_remote_tree(tmp_path):
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    _write(source, "visible.txt", b"visible")
+    _write(destination, "visible.txt", b"visible")
+    _write(destination, "blocked/hidden.txt", b"hidden")
+    blocked = destination / "blocked"
+    mode = stat.S_IMODE(blocked.stat().st_mode)
+    try:
+        blocked.chmod(0)
+        try:
+            with os.scandir(blocked):
+                pass
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("this runtime can bypass fixture directory permissions")
+        yield source, destination, blocked, mode
+    finally:
+        blocked.chmod(mode)
+
+
+def test_failed_remote_walk_refuses_verification(unreadable_remote_tree):
+    # Arrange
+    source, destination, _, _ = unreadable_remote_tree
+    # Act
+    result = _run(destination)
+    remote = parse_remote_manifest(result.stdout, probe_succeeded=result.returncode == 0)
+    verdict = verify_content(digest_tree(str(source)), remote)
+    # Assert
+    assert verdict.verdict == COULD_NOT_LOOK
+
+
+def test_failed_remote_walk_never_authorizes_removal(unreadable_remote_tree):
+    # Arrange
+    source, destination, _, _ = unreadable_remote_tree
+    # Act
+    result = _run(destination)
+    remote = parse_remote_manifest(result.stdout, probe_succeeded=result.returncode == 0)
+    verdict = verify_content(digest_tree(str(source)), remote)
+    # Assert
+    assert verdict.may_remove_source is False
+
+
+def test_failed_remote_walk_records_unreadable_population(unreadable_remote_tree):
+    # Arrange
+    _, destination, _, _ = unreadable_remote_tree
+    # Act
+    result = _run(destination)
+    remote = parse_remote_manifest(result.stdout, probe_succeeded=result.returncode == 0)
+    # Assert
+    assert "<walk>" in remote.unreadable
+
+
+def test_restored_remote_walk_exposes_surplus_file(unreadable_remote_tree):
+    # Arrange
+    source, destination, blocked, mode = unreadable_remote_tree
+    # Act
+    blocked.chmod(mode)
+    result = _run(destination)
+    remote = parse_remote_manifest(result.stdout, probe_succeeded=result.returncode == 0)
+    verdict = verify_content(digest_tree(str(source)), remote)
+    # Assert
+    assert verdict.verdict == MISMATCH
 
 
 @pytest.fixture
