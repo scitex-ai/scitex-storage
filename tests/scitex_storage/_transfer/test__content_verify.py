@@ -341,6 +341,93 @@ def test_a_partial_walk_does_not_masquerade_as_a_manifest():
     assert verdict.verdict == COULD_NOT_LOOK
 
 
+@pytest.fixture(params=["source", "destination", "both"])
+def unreadable_content_pair(tmp_path, request):
+    """Real unreadable directories, with modes restored even when a test fails."""
+    unreadable_side = request.param
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    for root in (source, destination):
+        _write(str(root), "visible.txt", b"visible")
+        _write(str(root), "blocked/hidden.txt", b"hidden")
+    roots = [source, destination] if unreadable_side == "both" else [
+        source if unreadable_side == "source" else destination
+    ]
+    blocked = [root / "blocked" for root in roots]
+    previous_modes = [stat.S_IMODE(path.stat().st_mode) for path in blocked]
+    try:
+        for path in blocked:
+            path.chmod(0)
+            try:
+                with os.scandir(path):
+                    pass
+            except PermissionError:
+                pass
+            else:
+                pytest.skip("this runtime can bypass fixture directory permissions")
+        yield source, destination, roots[0], blocked, previous_modes
+    finally:
+        for path, mode in zip(blocked, previous_modes):
+            path.chmod(mode)
+
+
+def test_unreadable_directory_blocks_content_verification(unreadable_content_pair):
+    # Arrange
+    source, destination, _, _, _ = unreadable_content_pair
+    # Act
+    verdict = verify_content(digest_tree(str(source)), digest_tree(str(destination)))
+    # Assert
+    assert verdict.verdict == COULD_NOT_LOOK
+
+
+def test_unreadable_directory_never_authorizes_removal(unreadable_content_pair):
+    # Arrange
+    source, destination, _, _, _ = unreadable_content_pair
+    # Act
+    verdict = verify_content(digest_tree(str(source)), digest_tree(str(destination)))
+    # Assert
+    assert verdict.may_remove_source is False
+
+
+def test_unreadable_directory_discards_partial_digests(unreadable_content_pair):
+    # Arrange
+    _, _, unreadable_root, _, _ = unreadable_content_pair
+    # Act
+    manifest = digest_tree(str(unreadable_root))
+    # Assert
+    assert manifest.digests == {}
+
+
+def test_unreadable_directory_records_walk_error(unreadable_content_pair):
+    # Arrange
+    _, _, unreadable_root, _, _ = unreadable_content_pair
+    # Act
+    manifest = digest_tree(str(unreadable_root))
+    # Assert
+    assert "<walk>" in manifest.unreadable
+
+
+def test_restored_directory_verifies_full_content(unreadable_content_pair):
+    # Arrange
+    source, destination, _, blocked, modes = unreadable_content_pair
+    # Act
+    for path, mode in zip(blocked, modes):
+        path.chmod(mode)
+    verdict = verify_content(digest_tree(str(source)), digest_tree(str(destination)))
+    # Assert
+    assert verdict.verdict == VERIFIED
+
+
+def test_restored_directory_authorizes_source_removal(unreadable_content_pair):
+    # Arrange
+    source, destination, _, blocked, modes = unreadable_content_pair
+    # Act
+    for path, mode in zip(blocked, modes):
+        path.chmod(mode)
+    verdict = verify_content(digest_tree(str(source)), digest_tree(str(destination)))
+    # Assert
+    assert verdict.may_remove_source is True
+
+
 def test_bytes_are_reported_as_none_not_zero(pair):
     """This check does not measure bytes; it must not report a number."""
     # Arrange
