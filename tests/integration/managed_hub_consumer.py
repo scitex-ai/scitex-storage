@@ -120,9 +120,9 @@ def validate_store_environment(contract):
     require(stores.get("SCITEX_STORE_DSN") == contract["dsn"] and
             stores.get("SCITEX_HUB_CARDS_STORE") == contract["dsn"],
             "package-store bindings must match the disposable DSN")
-    require(bool(contract["notification_store_variable"]) and
-            stores.get(contract["notification_store_variable"]) == contract["dsn"],
-            "Infra must declare the actual notification-store binding")
+    require(contract["notification_store_variable"] == "SCITEX_CARDS_NOTIFY_DSN"
+            and stores.get("SCITEX_CARDS_NOTIFY_DSN") == contract["dsn"],
+            "Cards LISTEN/NOTIFY must use its actual disposable DSN override")
     require(set(stores) == {"SCITEX_STORE_DSN", "SCITEX_HUB_CARDS_STORE",
                             contract["notification_store_variable"]},
             "only explicitly declared store channels may be overridden")

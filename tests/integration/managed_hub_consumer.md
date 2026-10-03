@@ -22,7 +22,7 @@ The single CLI argument is an Infra-admitted JSON contract with these fields:
 | `source_sha256` | `hub` and `storage` maps of checkout-relative files to SHA256. Include all `REQUIRED_SOURCE` paths, including this callback and current owner-dirty Hub files. |
 | `python`, `distribution_versions` | Actual consumer interpreter and exact Django, python-dotenv, scitex-app and psycopg versions. Producer metadata does not admit the child. |
 | `runtime_files` | `dotenv_main`, `sdk_init`, `sdk_filesystem`, `sdk_plugins`: objects with actual installed `path` and `sha256` inside this venv. Additional runtime pins may be supplied. |
-| `notification_store_variable`, `store_environment` | Infra's actual existing notification binding and exactly that key plus `SCITEX_STORE_DSN`/`SCITEX_HUB_CARDS_STORE`, all set to the qualified DSN. No guessed variable or provider token. |
+| `notification_store_variable`, `store_environment` | `SCITEX_CARDS_NOTIFY_DSN` and exactly that key plus `SCITEX_STORE_DSN`/`SCITEX_HUB_CARDS_STORE`, all set to the qualified DSN. Cards uses the notification key only for LISTEN/NOTIFY; durable writes use the store binding. |
 
 Source/runtime/DSN checks run before environment mutation or application imports.
 The private runtime inspected during preparation has scitex-app0.22.1, which
