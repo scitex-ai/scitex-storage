@@ -8,6 +8,7 @@ data, not a placeholder" proof this scaffold exists to demonstrate.
 
 from __future__ import annotations
 
+import importlib
 import os
 
 import pytest
@@ -76,8 +77,10 @@ def _get(tmp_path, params):
 
 def _boot():
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app._django')
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.ui')
     _boot_django_for_storage_gui()
 
 
@@ -186,11 +189,13 @@ def test_index_declares_every_shell_pane_so_none_reserves_width(tmp_path):
     """
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app._django')
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.ui')
     _boot_django_for_storage_gui()
 
-    from scitex_ui.branding import PANE_NAMES
+    from scitex_sdk.ui.branding import PANE_NAMES
 
     # Act
     context = _index_template_context(tmp_path)
@@ -211,8 +216,10 @@ def test_index_declares_every_shell_pane_unused(tmp_path):
     """
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app._django')
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.ui')
     _boot_django_for_storage_gui()
 
     # Act
@@ -234,8 +241,10 @@ def test_index_declares_files_pane_unused_not_client_populated(tmp_path):
     """
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app._django')
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.ui')
     _boot_django_for_storage_gui()
 
     # Act
@@ -248,8 +257,10 @@ def test_index_declares_files_pane_unused_not_client_populated(tmp_path):
 def test_healthz_returns_ok():
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app._django')
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.ui')
     _boot_django_for_storage_gui()
     from django.test import RequestFactory
 

@@ -41,10 +41,10 @@ import pytest
 
 # ===== AUTO-GENERATED: cross-package imports =====
 CROSS_PACKAGE_IMPORTS = [
-    'scitex_app',
-    'scitex_app._django',
-    'scitex_app._standalone',
-    'scitex_app.sdk',
+    'scitex_sdk.app',
+    'scitex_sdk.app._django',
+    'scitex_sdk.app._standalone',
+    'scitex_sdk.app.sdk',
     'scitex_cards',
     'scitex_dev._cli._completion',
     'scitex_dev.ecosystem',
@@ -54,8 +54,8 @@ CROSS_PACKAGE_IMPORTS = [
     'scitex_io',
     'scitex_logging',
     'scitex_ssh',
-    'scitex_ui',
-    'scitex_ui.branding',
+    'scitex_sdk.ui',
+    'scitex_sdk.ui.branding',
 ]
 # ===== END AUTO-GENERATED =====
 
@@ -128,8 +128,9 @@ def test_app_adapter_resolves_the_real_scitex_app_config_when_installed():
     # below is the hard import, so a renamed submodule fails rather than
     # skipping green.
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app")
-    from scitex_app._django import ScitexAppConfig as RealScitexAppConfig
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app')
+    from scitex_sdk.app._django import ScitexAppConfig as RealScitexAppConfig
 
     from scitex_storage._django._app_adapter import ScitexAppConfig
 
@@ -155,8 +156,9 @@ def test_storage_config_app_defaults_true_when_django_is_installed():
     # Both skips are ROOT-scoped; the submodule is then hard-imported so a
     # rename fails rather than skipping green.
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app")
-    importlib.import_module("scitex_app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app')
+    importlib.import_module('scitex_sdk.app._django')
     _boot_django_for_storage_gui()
     from django.apps import apps
 
@@ -172,8 +174,9 @@ def test_storage_config_app_slug_matches_manifest_when_django_is_installed():
     # Both skips are ROOT-scoped; the submodule is then hard-imported so a
     # rename fails rather than skipping green.
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app")
-    importlib.import_module("scitex_app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app')
+    importlib.import_module('scitex_sdk.app._django')
     _boot_django_for_storage_gui()
     from django.apps import apps
 

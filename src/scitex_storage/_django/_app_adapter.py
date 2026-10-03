@@ -40,7 +40,7 @@ isn't installed, ``ScitexAppConfig`` falls back to a bare Django
 from __future__ import annotations
 
 try:
-    from scitex_app._django import ScitexAppConfig as _ScitexAppConfig
+    from scitex_sdk.app._django import ScitexAppConfig as _ScitexAppConfig
 except ImportError:
     # Fallback import needs its OWN guard: an import inside an except
     # handler is not protected by that handler (PS-233).
@@ -50,7 +50,7 @@ except ImportError:
         )
     except ImportError as exc:
         raise ImportError(
-            "scitex-storage GUI adapter requires Django or scitex-app: "
+            "scitex-storage GUI adapter requires Django or scitex-sdk app: "
             "pip install scitex-storage[gui]"
         ) from exc
 
@@ -68,10 +68,10 @@ def run_standalone(*args, **kwargs):
     actionable ``ImportError`` naming the remedy.
     """
     try:
-        from scitex_app._standalone import run_standalone as _run_standalone
+        from scitex_sdk.app._standalone import run_standalone as _run_standalone
     except ImportError as exc:
         raise ImportError(
-            "scitex-storage standalone server requires scitex-app: "
+            "scitex-storage standalone server requires scitex-sdk app: "
             "pip install scitex-storage[gui]"
         ) from exc
 

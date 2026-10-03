@@ -18,6 +18,8 @@ neither of which is worth the complexity for a 2-line
 
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
 pytest.importorskip("django")
@@ -25,8 +27,9 @@ pytest.importorskip("django")
 
 def test_adapter_reexports_the_real_scitex_app_config_when_installed():
     # Arrange
-    pytest.importorskip("scitex_app._django")
-    from scitex_app._django import ScitexAppConfig as RealScitexAppConfig
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app._django')
+    from scitex_sdk.app._django import ScitexAppConfig as RealScitexAppConfig
 
     from scitex_storage._django._app_adapter import ScitexAppConfig
 

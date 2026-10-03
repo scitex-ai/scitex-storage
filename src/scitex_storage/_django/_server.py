@@ -59,11 +59,11 @@ def bare_django_warning(cause: BaseException | None) -> str:
     """
     return (
         "\n"
-        "  WARNING: serving BARE DJANGO -- the scitex-app shell is unavailable.\n"
+        "  WARNING: serving BARE DJANGO -- the scitex-sdk app shell is unavailable.\n"
         f"    cause:  {cause}\n"
         "    effect: the page renders UNSTYLED -- no workspace shell, no theme,\n"
         "            no favicon. It looks broken because it IS degraded.\n"
-        "    remedy: pip install scitex-app\n"
+        "    remedy: pip install 'scitex-sdk>=0.3.0'\n"
     )
 
 

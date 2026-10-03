@@ -96,8 +96,7 @@ dev = [
     # Mirror the `gui` runtime extra so `pip install -e .[dev]` runs the
     # full suite. Tests import these unguarded; PS-210 audit invariant.
     "django>=5.0",
-    "scitex-app>=0.3.0",
-    "scitex-ui>=0.8.0",  # shell_context(panes=...) — the pane declaration contract
+    "scitex-sdk>=0.3.0",
 ]
 docs = [
     "sphinx>=7.0",
@@ -120,8 +119,7 @@ docs = [
 # scitex-app-embedding-api-needed-20260710).
 gui = [
     "django>=5.0",
-    "scitex-app>=0.3.0",
-    "scitex-ui>=0.8.0",  # shell_context(panes=...) — the pane declaration contract
+    "scitex-sdk>=0.3.0",
     "scitex-dev>=0.30.0",  # gui_runtime, used by the gui {open,serve,status,stop} group at runtime
 ]
 all = [
