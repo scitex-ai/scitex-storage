@@ -21,6 +21,12 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
+APP_RUNTIME_SOURCE = {
+    "sdk_init": "src/scitex_app/sdk/__init__.py",
+    "sdk_filesystem": "src/scitex_app/sdk/_filesystem.py",
+    "sdk_plugins": "src/scitex_app/plugins.py",
+}
+
 REQUIRED_SOURCE = {
     "hub": {
         "config/urls.py", "config/settings/settings_dev.py",
@@ -42,6 +48,7 @@ REQUIRED_SOURCE = {
                 "src/scitex_storage/_django/urls.py",
                     "src/scitex_storage/_django/manifest.json",
                 "tests/integration/managed_hub_consumer.py"},
+    "app": set(APP_RUNTIME_SOURCE.values()),
 }
 
 
@@ -82,9 +89,12 @@ def validate_contract(contract):
     require(pgdata.is_relative_to(lease) and (pgdata / "PG_VERSION").is_file(),
             "qualified PG data directory must belong to this lease")
     require(uri.path == "/postgres", "qualified Dev cluster database must be postgres")
-    for label in ("hub", "storage"):
+    require(("app_source" in contract) == ("app" in contract.get("source_sha256", {})),
+            "App source directory and source hashes must be admitted together")
+    labels = ("hub", "storage", "app") if "app_source" in contract else ("hub", "storage")
+    for label in labels:
         source = Path(contract[f"{label}_source"]).resolve(strict=True)
-        require(source.is_dir() and not source.is_relative_to(lease) and
+        require(source.is_dir() and source != Path("/") and not source.is_relative_to(lease) and
             not lease.is_relative_to(source),
                 "source and disposable data must be mutually disjoint")
         pins = contract["source_sha256"][label]
@@ -106,10 +116,17 @@ def validate_contract(contract):
     require({"dotenv_main", "sdk_init", "sdk_filesystem",
         "sdk_plugins"} <= runtime.keys(),
             "admit the actual installed SDK including its normal plugin API")
-    for pin in runtime.values():
+    for name, pin in runtime.items():
         path = Path(pin["path"]).resolve(strict=True)
-        require(path.is_relative_to(Path(sys.prefix).resolve()),
-            "runtime pin is outside this venv")
+        if "app_source" in contract and name in APP_RUNTIME_SOURCE:
+            relative = APP_RUNTIME_SOURCE[name]
+            admitted = (Path(contract["app_source"]) / relative).resolve(strict=True)
+            require(path == admitted and pin["sha256"] == contract[
+                "source_sha256"]["app"][relative],
+                    "runtime pin differs from the exact admitted App source")
+        else:
+            require(path.is_relative_to(Path(sys.prefix).resolve()),
+                    "runtime pin is outside this interpreter or admitted App source")
         require(hashlib.sha256(path.read_bytes()).hexdigest() == pin["sha256"],
                 f"runtime source hash differs: {path.name}")
     return lease, socket_dir, pgdata, schema

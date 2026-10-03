@@ -7,7 +7,8 @@ chooses a production store, installs dependencies, or tears down ORM users.
 
 Infra must run this file as a **fresh direct child** inside both its genuine
 `ephemeral_cluster_dsn` and `ephemeral_schema` contexts. Use the existing
-`/uvwork/venv-agent/bin/python`; the producer owns the finite timeout, output
+qualified existing interpreter for that target; the private agent environment
+uses `/uvwork/venv-agent/bin/python`. The producer owns the finite timeout, output
 capture, child termination, and measured schema/cluster cleanup. The Python
 audit hook is permanent and must never run inside the producer process. The
 child must exit before the producer drops the schema or invokes `pg_ctl`.
@@ -19,16 +20,28 @@ The single CLI argument is an Infra-admitted JSON contract with these fields:
 | `lease_root`, `pgdata`, `producer_pid` | Existing consumer-owned 0700 lease, its real PG data directory, direct parent's PID. |
 | `dsn` | Qualified password-free `postgresql://postgres@/postgres` URI with only `host=<lease Unix socket directory>` and URL-encoded `options=-csearch_path=<generated prefix_uuid12>`; no TCP/public fallback. |
 | `hub_source`, `storage_source` | Existing admitted source directories, mutually disjoint from the lease. |
-| `source_sha256` | `hub` and `storage` maps of checkout-relative files to SHA256. Include all `REQUIRED_SOURCE` paths, including this callback and current owner-dirty Hub files. |
+| `app_source` | Optional actual App checkout for a development runtime with source bindings outside the interpreter prefix; mutually disjoint from the lease. Does not alter import paths. |
+| `source_sha256` | `hub` and `storage` maps of checkout-relative files to SHA256. Include all `REQUIRED_SOURCE` paths, including this callback and current owner-dirty Hub files. When `app_source` is present, also provide `app` with all three fixed `APP_RUNTIME_SOURCE` files. |
 | `python`, `distribution_versions` | Actual consumer interpreter and exact Django, python-dotenv, scitex-app and psycopg versions. Producer metadata does not admit the child. |
-| `runtime_files` | `dotenv_main`, `sdk_init`, `sdk_filesystem`, `sdk_plugins`: objects with actual installed `path` and `sha256` inside this venv. Additional runtime pins may be supplied. |
+| `runtime_files` | `dotenv_main`, `sdk_init`, `sdk_filesystem`, `sdk_plugins`: objects with actual importable `path` and `sha256` inside the interpreter prefix. Only the three named App pins may instead match their exact admitted `app_source` paths and hashes. Additional runtime pins retain the prefix requirement. |
 | `notification_store_variable`, `store_environment` | `SCITEX_CARDS_NOTIFY_DSN` and exactly that key plus `SCITEX_STORE_DSN`/`SCITEX_HUB_CARDS_STORE`, all set to the qualified DSN. Cards uses the notification key only for LISTEN/NOTIFY; durable writes use the store binding. |
 
 Source/runtime/DSN checks run before environment mutation or application imports.
-The private runtime inspected during preparation has scitex-app0.22.1, which
-lacks `scitex_app.plugins`; it cannot satisfy the genuine Hub mount contract.
+The initial private runtime inspected during preparation had scitex-app0.22.1,
+which lacked `scitex_app.plugins`. Later private preparation bound App0.26.1,
+UI0.23.1 and SDK0.3.1, but did not qualify a complete Hub dependency graph.
+The existing development Docker target imports App from `/scitex-app/src`, so
+metadata wheel paths cannot stand in for those genuine source origins. This
+callback uses the current legacy `scitex_app.sdk` and plugin seam; canonical
+`scitex_sdk` availability is a separate migration prerequisite.
 Do not replace that mount with a raw URL include. Runtime admission remains an
 execution prerequisite; this source does not request a package installation.
+
+For a container target, the producer and child must share the declared PID,
+lease, Unix socket and PGDATA view. A host `docker exec` launch alone does not
+establish that the consumer is the lease producer's direct child. Preserve the
+real server's admitted `data_directory`; do not rewrite its identity to fit
+the contract or import the callback into the cleanup-owning producer.
 
 Initialization preserves HOME, clears ambient application/provider settings,
 disables python-dotenv loading, isolates data/log/Matplotlib configuration paths,
