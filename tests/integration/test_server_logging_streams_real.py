@@ -45,9 +45,11 @@ def test_banner_respects_level_changed_after_import(tmp_path):
     # Act
     result = _probe(tmp_path, code)
     # Assert
-    assert all((result.returncode == 0, result.stdout == "", result.stderr == "")), (
-        result.stderr
-    )
+    assert all((result.returncode == 0, result.stdout == "", result.stderr == "")), {
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
 
 
 def test_banner_recovers_when_level_is_lowered(tmp_path):
@@ -70,7 +72,11 @@ def test_banner_recovers_when_level_is_lowered(tmp_path):
             "scitex-storage gui stop" in result.stdout,
             "scitex-storage gui status" in result.stdout,
         )
-    ), result.stderr
+    ), {
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
 
 
 def test_banner_does_not_reroute_or_duplicate_diagnostics(tmp_path):
@@ -93,7 +99,11 @@ def test_banner_does_not_reroute_or_duplicate_diagnostics(tmp_path):
             "missing shell" in result.stderr,
             "pip install scitex-app" in result.stderr,
         )
-    ), result.stderr
+    ), {
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
 
 
 def test_diagnostics_follow_configured_threshold(tmp_path):
@@ -114,4 +124,8 @@ def test_diagnostics_follow_configured_threshold(tmp_path):
             "visible error" not in result.stdout,
             result.stderr.count("visible error") == 1,
         )
-    ), result.stderr
+    ), {
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
