@@ -19,7 +19,10 @@ def _probe(tmp_path: Path, body: str):
         "PYTHONPATH": str(Path(scitex_storage.__file__).resolve().parent.parent),
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONFAULTHANDLER": "1",
+        "PYTHONNOUSERSITE": "1",
     }
+    if "LD_LIBRARY_PATH" in os.environ:
+        env["LD_LIBRARY_PATH"] = os.environ["LD_LIBRARY_PATH"]
     script = (
         "import sys\n"
         "def forbid_socket(event, args):\n"
