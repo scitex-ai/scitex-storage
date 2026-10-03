@@ -341,10 +341,10 @@ def test_a_partial_walk_does_not_masquerade_as_a_manifest():
     assert verdict.verdict == COULD_NOT_LOOK
 
 
-@pytest.mark.parametrize("unreadable_side", ["source", "destination", "both"])
-def test_unreadable_directory_blocks_content_verification(tmp_path, unreadable_side):
-    """Exercise a real walk failure, rather than constructing an error manifest."""
-    # Arrange
+@pytest.fixture(params=["source", "destination", "both"])
+def unreadable_content_pair(tmp_path, request):
+    """Real unreadable directories, with modes restored even when a test fails."""
+    unreadable_side = request.param
     source, destination = tmp_path / "source", tmp_path / "destination"
     for root in (source, destination):
         _write(str(root), "visible.txt", b"visible")
@@ -354,7 +354,6 @@ def test_unreadable_directory_blocks_content_verification(tmp_path, unreadable_s
     ]
     blocked = [root / "blocked" for root in roots]
     previous_modes = [stat.S_IMODE(path.stat().st_mode) for path in blocked]
-    # Act
     try:
         for path in blocked:
             path.chmod(0)
@@ -365,31 +364,68 @@ def test_unreadable_directory_blocks_content_verification(tmp_path, unreadable_s
                 pass
             else:
                 pytest.skip("this runtime can bypass fixture directory permissions")
-        manifests = [digest_tree(str(root)) for root in (source, destination)]
-        verdict = verify_content(*manifests)
-        incomplete = manifests[0 if unreadable_side == "source" else 1]
+        yield source, destination, roots[0], blocked, previous_modes
     finally:
         for path, mode in zip(blocked, previous_modes):
             path.chmod(mode)
-    restored = verify_content(
-        *(digest_tree(str(root)) for root in (source, destination))
-    )
+
+
+def test_unreadable_directory_blocks_content_verification(unreadable_content_pair):
+    # Arrange
+    source, destination, _, _, _ = unreadable_content_pair
+    # Act
+    verdict = verify_content(digest_tree(str(source)), digest_tree(str(destination)))
     # Assert
-    assert {
-        "blocked_verdict": verdict.verdict,
-        "blocked_may_remove_source": verdict.may_remove_source,
-        "partial_digests": incomplete.digests,
-        "walk_error_recorded": "<walk>" in incomplete.unreadable,
-        "restored_verdict": restored.verdict,
-        "restored_may_remove_source": restored.may_remove_source,
-    } == {
-        "blocked_verdict": COULD_NOT_LOOK,
-        "blocked_may_remove_source": False,
-        "partial_digests": {},
-        "walk_error_recorded": True,
-        "restored_verdict": VERIFIED,
-        "restored_may_remove_source": True,
-    }
+    assert verdict.verdict == COULD_NOT_LOOK
+
+
+def test_unreadable_directory_never_authorizes_removal(unreadable_content_pair):
+    # Arrange
+    source, destination, _, _, _ = unreadable_content_pair
+    # Act
+    verdict = verify_content(digest_tree(str(source)), digest_tree(str(destination)))
+    # Assert
+    assert verdict.may_remove_source is False
+
+
+def test_unreadable_directory_discards_partial_digests(unreadable_content_pair):
+    # Arrange
+    _, _, unreadable_root, _, _ = unreadable_content_pair
+    # Act
+    manifest = digest_tree(str(unreadable_root))
+    # Assert
+    assert manifest.digests == {}
+
+
+def test_unreadable_directory_records_walk_error(unreadable_content_pair):
+    # Arrange
+    _, _, unreadable_root, _, _ = unreadable_content_pair
+    # Act
+    manifest = digest_tree(str(unreadable_root))
+    # Assert
+    assert "<walk>" in manifest.unreadable
+
+
+def test_restored_directory_verifies_full_content(unreadable_content_pair):
+    # Arrange
+    source, destination, _, blocked, modes = unreadable_content_pair
+    # Act
+    for path, mode in zip(blocked, modes):
+        path.chmod(mode)
+    verdict = verify_content(digest_tree(str(source)), digest_tree(str(destination)))
+    # Assert
+    assert verdict.verdict == VERIFIED
+
+
+def test_restored_directory_authorizes_source_removal(unreadable_content_pair):
+    # Arrange
+    source, destination, _, blocked, modes = unreadable_content_pair
+    # Act
+    for path, mode in zip(blocked, modes):
+        path.chmod(mode)
+    verdict = verify_content(digest_tree(str(source)), digest_tree(str(destination)))
+    # Assert
+    assert verdict.may_remove_source is True
 
 
 def test_bytes_are_reported_as_none_not_zero(pair):
