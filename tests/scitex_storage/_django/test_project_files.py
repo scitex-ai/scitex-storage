@@ -4,7 +4,7 @@
 
 compass \u00a714 Storage: the storage surface is scoped to the requester's ACTIVE
 PROJECT via the hub's ``get_current_project`` (which enforces ``can_view``),
-rooted at ``project.get_local_path()``, and built on the ``scitex_app`` SDK
+rooted at ``project.get_local_path()``, and built on the ``scitex_sdk.app`` SDK
 file primitives. These tests exercise that contract WITHOUT a database or the
 hub repo: a fake ``get_current_project`` is injected through the module-level
 seam ``project_files._GET_CURRENT_PROJECT`` and returns a fake project whose
@@ -1747,7 +1747,7 @@ def test_real_midwrite_encoding_error_cleans_temp_and_preserves_prior_output(pro
 @pytest.fixture
 def _native_capacity_sdk():
     """Register a hand-rolled backend through the existing public SDK port."""
-    from scitex_app import sdk
+    from scitex_sdk.app import sdk
 
     previous_backend = sdk._registry.get("cloud")
     previous_token = os.environ.get("SCITEX_API_TOKEN")
@@ -1883,8 +1883,8 @@ def _permission_case(project_pair, mode):
 @pytest.fixture
 def _permission_ports():
     """Use the declared resolver and public backend registration ports."""
-    from scitex_app import sdk
-    from scitex_app.sdk._filesystem import FileSystemBackend
+    from scitex_sdk.app import sdk
+    from scitex_sdk.app.sdk._filesystem import FileSystemBackend
     from scitex_storage._django import project_files
 
     previous_resolver = project_files._GET_CURRENT_PROJECT

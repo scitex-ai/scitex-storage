@@ -33,19 +33,19 @@ INSTALLED_APPS = [
     "scitex_storage._django.apps.StorageConfig",
 ]
 
-# Optional: scitex-ui supplies the workspace shell (template + CSS/JS assets)
+# Optional: SDK UI supplies the workspace shell (template + CSS/JS assets)
 try:
-    import scitex_ui  # noqa: F401
+    import scitex_sdk.ui  # noqa: F401
 
-    INSTALLED_APPS.append("scitex_ui")
+    INSTALLED_APPS.append("scitex_sdk.ui")
 except ImportError:
     pass
 
-# scitex_app/app_shell.html, which the index template extends.
+# SDK App supplies scitex_sdk/app/app_shell.html for the leaf templates.
 try:
-    import scitex_app  # noqa: F401
+    import scitex_sdk.app  # noqa: F401
 
-    INSTALLED_APPS.append("scitex_app")
+    INSTALLED_APPS.append("scitex_sdk.app")
 except ImportError:
     pass
 
@@ -69,7 +69,7 @@ TEMPLATES = [
                 # importable against the real scitex-ui 0.6.3 package (installed
                 # in a throwaway venv while building this scaffold — see the PR
                 # description) rather than guessed.
-                "scitex_ui.context_processors.element_inspector",
+                "scitex_sdk.ui.context_processors.element_inspector",
             ],
         },
     },
