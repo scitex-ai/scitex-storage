@@ -32,9 +32,18 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from django.http import HttpResponseForbidden
-from django.shortcuts import render
-from django.utils.translation import gettext_lazy as _
+# Django is the OPTIONAL ``gui`` extra (see pyproject.toml). Guarded per
+# PS-233/PS-148 so a GUI import without the extra names the remedy instead
+# of a bare ModuleNotFoundError.
+try:
+    from django.http import HttpResponseForbidden
+    from django.shortcuts import render
+    from django.utils.translation import gettext_lazy as _
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage organize views require Django: "
+        "pip install scitex-storage[gui]"
+    ) from exc
 
 #: Tabs this module serves. ``backup`` stays upstream (still [Soon] there).
 HANDLED_TABS = ("usage", "duplicates", "move")
@@ -138,7 +147,13 @@ def _run_bounded(fn: Callable[[], Any], timeout_s: float) -> tuple[bool, Any]:
 
 def _base_context(active: str) -> dict:
     """Shell + tab-nav context shared by the three organize tabs."""
-    from scitex_ui.branding import shell_context
+    try:
+        from scitex_ui.branding import shell_context
+    except ImportError as exc:
+        raise ImportError(
+            "scitex-storage organize views require scitex-ui: "
+            "pip install scitex-storage[gui]"
+        ) from exc
 
     from . import views as _views
     from ._favicon import FAVICON_HREF

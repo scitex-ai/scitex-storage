@@ -58,6 +58,7 @@ contract. Subclasses:
   * ``PermissionDenied``  \u2014 403 ``permission_denied``   (escapes the project root)
   * ``NotAFile``          \u2014 400 ``not_a_file``          (target is a directory)
   * ``DiskFull``          \u2014 507 ``disk_full``           (write space exhausted)
+  * ``QuotaExceeded``     \u2014 507 ``quota_exceeded``      (native quota limit)
   * ``InvalidPath``       \u2014 400 ``invalid_path``        (malformed / non-utf-8)
 
 ``views.py`` maps each ``code`` to its HTTP status via :data:`STATUS_BY_CODE`,
@@ -77,11 +78,26 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import quote
 
-from django.http import HttpResponse
+# Django + scitex-app are the OPTIONAL ``gui`` extra (see pyproject.toml).
+# Guarded so a GUI import without the extra names the remedy instead of a
+# bare ModuleNotFoundError (PS-233 guarded-import contract; PS-148).
+try:
+    from django.http import HttpResponse
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage project files require Django: "
+        "pip install scitex-storage[gui]"
+    ) from exc
 
 # The SDK public primitive, not the private backend, so a future scitex-app
 # with a stable file API keeps these views working.
-from scitex_app.sdk import get_files
+try:
+    from scitex_app.sdk import get_files
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage project files require scitex-app: "
+        "pip install scitex-storage[gui]"
+    ) from exc
 
 __all__ = [
     "ProjectScope",
@@ -91,6 +107,7 @@ __all__ = [
     "PermissionDenied",
     "NotAFile",
     "DiskFull",
+    "QuotaExceeded",
     "WriteError",
     "FileConflict",
     "InvalidPath",
@@ -113,6 +130,7 @@ STATUS_BY_CODE = {
     "permission_denied": 403,
     "not_a_file": 400,
     "disk_full": 507,
+    "quota_exceeded": 507,
     "invalid_path": 400,
     "write_error": 500,
     "file_conflict": 409,
@@ -150,7 +168,7 @@ class ProjectScope:
     name: Optional[str] = None
 
 
-def resolve_project_scope(request) -> Optional[ProjectScope]:
+def resolve_project_scope(request, *, require_edit: bool = False) -> Optional[ProjectScope]:
     """Resolve the requester's current project to a :class:`ProjectScope`.
 
     Returns ``None`` when no project is in scope \u2014 the request has no
@@ -158,7 +176,8 @@ def resolve_project_scope(request) -> Optional[ProjectScope]:
     import path), or the hub has no project the user may view. Callers treat
     ``None`` as :class:`NoProject`. The hub's ``get_current_project`` enforces
     ``can_view`` internally, so a returned scope is already one the user may
-    see; this function adds no project/user of its own.
+    see; this function adds no project/user of its own. Mutating callers require
+    an explicit True from that project's can_edit(user) before resolving paths.
     """
     user = getattr(request, "user", None)
     if user is None or not getattr(user, "is_authenticated", False):
@@ -176,6 +195,15 @@ def resolve_project_scope(request) -> Optional[ProjectScope]:
         return None
     if project is None:
         return None
+
+    if require_edit:
+        try:
+            can_edit = getattr(project, "can_edit", None)
+            editable = callable(can_edit) and can_edit(user) is True
+        except Exception:
+            editable = False
+        if not editable:
+            raise PermissionDenied("Editing this project is not permitted.")
 
     project_dir = _project_dir(project)
     if project_dir is None:
@@ -285,6 +313,19 @@ class DiskFull(StorageFileError):
     status = STATUS_BY_CODE["disk_full"]
 
 
+class QuotaExceeded(StorageFileError):
+    """The OS reported a quota limit, without inferring its cap or usage."""
+
+    code = "quota_exceeded"
+    status = STATUS_BY_CODE["quota_exceeded"]
+
+
+def _raise_quota_error(exc: OSError) -> None:
+    if exc.errno == errno.EDQUOT:
+        # Do not expose native absolute filenames or invent a usage estimate.
+        raise QuotaExceeded("Storage quota exceeded for this operation.") from exc
+
+
 class InvalidPath(StorageFileError):
     code = "invalid_path"
     status = STATUS_BY_CODE["invalid_path"]
@@ -332,8 +373,8 @@ def build_backend(scope: ProjectScope):
 # --------------------------------------------------------------------------- #
 # Operations
 # --------------------------------------------------------------------------- #
-def _scope_or_no_project(request) -> ProjectScope:
-    scope = resolve_project_scope(request)
+def _scope_or_no_project(request, *, require_edit: bool = False) -> ProjectScope:
+    scope = resolve_project_scope(request, require_edit=require_edit)
     if scope is None:
         raise NoProject("no project in scope for this request")
     return scope
@@ -437,6 +478,7 @@ def _open(scope: ProjectScope, rel_path: str, *, binary: bool = False):
         # pre-check and the backend disagree; treat as denied, not 500.
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         if exc.errno in (28,):  # ENOSPC
             raise DiskFull(str(exc)) from exc
         raise
@@ -529,15 +571,16 @@ def write_file(request, rel_path: str, content: str) -> dict:
 
     Returns ``{"project", "path", "size"}``.
     """
-    scope = _scope_or_no_project(request)
+    scope = _scope_or_no_project(request, require_edit=True)
     target = _contained_for_write(scope.project_dir, rel_path)
     # The SDK has no atomic-write API; this is the safe wrapper over the same
     # backend. Create the (verified-file-free) missing parents, then write to a
     # temp file in target's dir so os.replace is atomic on the same filesystem.
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=str(target.parent), prefix=".tmp_", suffix=".writing")
-    tmp = Path(tmp_path)
+    tmp = None
     try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=str(target.parent), prefix=".tmp_", suffix=".writing")
+        tmp = Path(tmp_path)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(content)
             fh.flush()
@@ -545,12 +588,15 @@ def write_file(request, rel_path: str, content: str) -> dict:
         os.replace(str(tmp), str(target))
     except OSError as exc:
         # clean up the temp file on any failure, then translate
-        _unlink_quiet(tmp)
+        if tmp is not None:
+            _unlink_quiet(tmp)
+        _raise_quota_error(exc)
         if exc.errno in (28,):  # ENOSPC
             raise DiskFull(f"no space to write {rel_path!r}") from exc
         raise WriteError(f"could not write {rel_path!r}: {exc}") from exc
     except Exception:
-        _unlink_quiet(tmp)
+        if tmp is not None:
+            _unlink_quiet(tmp)
         raise
     return {
         "project": _scope_summary(scope),
@@ -593,7 +639,7 @@ def rename_file(request, old_rel: str, new_rel: str) -> dict:
 
     Returns ``{"project", "from", "to"}``.
     """
-    scope = _scope_or_no_project(request)
+    scope = _scope_or_no_project(request, require_edit=True)
     _resolve_entry(scope, old_rel)  # raises if missing / containment-escape
     # The destination may not exist (that's a rename); check its containment.
     dest = _contained(scope.project_dir, new_rel)
@@ -613,6 +659,11 @@ def rename_file(request, old_rel: str, new_rel: str) -> dict:
         raise PermissionDenied(str(exc)) from exc
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
+    except OSError as exc:
+        _raise_quota_error(exc)
+        if exc.errno == errno.ENOSPC:
+            raise DiskFull("No space available for rename or move.") from exc
+        raise
     return {
         "project": _scope_summary(scope),
         "from": old_rel,
@@ -631,7 +682,7 @@ def delete_file(request, rel_path: str) -> dict:
 
     Returns ``{"project", "path"}``.
     """
-    scope = _scope_or_no_project(request)
+    scope = _scope_or_no_project(request, require_edit=True)
     parts = _delete_parts(rel_path)
     _require_safe_delete_primitives()
     root = scope.project_dir
@@ -651,6 +702,7 @@ def delete_file(request, rel_path: str) -> dict:
                     f"delete path has an unsafe parent component: {rel_path!r}"
                 ) from exc
             except OSError as exc:
+                _raise_quota_error(exc)
                 if exc.errno == errno.ELOOP:
                     raise PermissionDenied(
                         f"delete path has a symlink parent: {rel_path!r}"
@@ -663,6 +715,7 @@ def delete_file(request, rel_path: str) -> dict:
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not access project root: {exc}") from exc
     finally:
         for descriptor in reversed(descriptors):
@@ -730,6 +783,7 @@ def _open_verified_project_root(
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not inspect project root: {exc}") from exc
     if not stat.S_ISDIR(observed.st_mode):
         raise PermissionDenied("project root is not a physical directory")
@@ -741,6 +795,7 @@ def _open_verified_project_root(
     except (NotADirectoryError, PermissionError) as exc:
         raise PermissionDenied("project root changed before deletion") from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         if exc.errno == errno.ELOOP:
             raise PermissionDenied("project root changed to a symlink") from exc
         raise WriteError(f"could not open project root safely: {exc}") from exc
@@ -779,6 +834,7 @@ def _delete_entry_at(parent_fd: int, name: str, display_path: str) -> None:
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not inspect {display_path!r}: {exc}") from exc
 
     if not stat.S_ISDIR(entry_stat.st_mode):
@@ -793,6 +849,7 @@ def _delete_entry_at(parent_fd: int, name: str, display_path: str) -> None:
         except PermissionError as exc:
             raise PermissionDenied(str(exc)) from exc
         except OSError as exc:
+            _raise_quota_error(exc)
             if exc.errno == errno.ENOSPC:
                 raise DiskFull(str(exc)) from exc
             raise WriteError(f"could not delete {display_path!r}: {exc}") from exc
@@ -819,6 +876,7 @@ def _delete_directory_at(
             f"target changed while it was being deleted: {display_path!r}"
         ) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         if exc.errno == errno.ELOOP:
             raise FileConflict(
                 f"target changed while it was being deleted: {display_path!r}"
@@ -850,6 +908,7 @@ def _delete_directory_at(
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not delete {display_path!r}: {exc}") from exc
     finally:
         os.close(child_fd)
@@ -869,6 +928,11 @@ def _stage_directory_at(
             break
         except FileExistsError:
             continue
+        except OSError as exc:
+            _raise_quota_error(exc)
+            if exc.errno == errno.ENOSPC:
+                raise DiskFull("No space available for delete staging.") from exc
+            raise
     else:
         raise WriteError("could not allocate a private delete staging directory")
 
@@ -895,6 +959,7 @@ def _stage_directory_at(
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not stage {display_path!r}: {exc}") from exc
     finally:
         if stage_fd is not None and "moved_stat" not in locals():
@@ -933,7 +998,7 @@ def make_dir(request, rel_path: str) -> dict:
 
     Returns ``{"project", "path"}``.
     """
-    scope = _scope_or_no_project(request)
+    scope = _scope_or_no_project(request, require_edit=True)
     target = _contained_for_write(scope.project_dir, rel_path)
     if target.exists():
         if target.is_dir():
@@ -942,6 +1007,7 @@ def make_dir(request, rel_path: str) -> dict:
     try:
         target.mkdir(parents=True, exist_ok=False)
     except OSError as exc:
+        _raise_quota_error(exc)
         if exc.errno in (28,):  # ENOSPC
             raise DiskFull(f"no space to create directory {rel_path!r}") from exc
         raise WriteError(f"could not create directory {rel_path!r}: {exc}") from exc

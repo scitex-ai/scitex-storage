@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import errno
 
 import pytest
 
@@ -64,6 +65,10 @@ class _Project:
 
     def get_local_path(self):
         return self._root
+
+    def can_edit(self, user):
+        """This legacy resolver fixture explicitly represents an editable project."""
+        return getattr(user, "is_authenticated", False) is True
 
 
 def _make_project(tmp_path, tag):
@@ -286,18 +291,33 @@ def test_cross_user_denied_cannot_read_other_users_file(
 def test_cross_user_same_relative_path_returns_own_content(
     project_pair, _with_resolver
 ):
-    """Where the SAME relative path exists in both projects, Bob gets B's OWN
-    content -- never A's."""
+    """The same relative path returns each project's bytes across user switches."""
     _boot_django_for_storage_gui()
     # Arrange
     from scitex_storage._django.views import project_read
 
+    (project_pair["proj_a"]._root / "shared.txt").write_text(
+        "only project A\n", encoding="utf-8"
+    )
+    (project_pair["proj_b"]._root / "shared.txt").write_text(
+        "only project B\n", encoding="utf-8"
+    )
+
     # Act
-    payload = _j(project_read(_request_for(project_pair["user_b"], "shared.txt")))
-    result = (payload["project"]["slug"], "TOPSECRET" in payload["content"])
+    result = []
+    for user_key in ("user_a", "user_b", "user_a"):
+        response = project_read(_request_for(project_pair[user_key], "shared.txt"))
+        payload = _j(response)
+        result.append(
+            (response.status_code, payload["project"]["slug"], payload["content"])
+        )
 
     # Assert
-    assert result == ("B", False)
+    assert result == [
+        (200, "A", "only project A\n"),
+        (200, "B", "only project B\n"),
+        (200, "A", "only project A\n"),
+    ]
 
 
 def test_read_nonexistent_file_is_404(project_pair, _with_resolver):
@@ -1611,3 +1631,437 @@ def test_delete_folder_cross_user_cannot_touch_other_project(project_pair, _with
 
     # Assert -- A's directory survives Bob's delete (Bob is scoped to B).
     assert result is True
+
+
+# Native error contracts use the declared resolver and SDK registration ports.
+# Kernel quota exhaustion is not created here.  Real owned-directory access
+# failures and a real UTF-8 encoding failure exercise write setup and cleanup.
+def test_native_edquot_reaches_json_without_disclosing_os_filename(project_pair):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import StorageFileError, _raise_quota_error
+    from scitex_storage._django.views import _json_error
+
+    root = project_pair["proj_a"]._root
+    native_error = OSError(errno.EDQUOT, "synthetic native quota error", str(root / "private-file"))
+    # Act
+    try:
+        _raise_quota_error(native_error)
+    except StorageFileError as exc:
+        response = _json_error(exc)
+        result = (response.status_code, _j(response)["error"], exc.__cause__ is native_error,
+                  str(root) in _j(response)["message"])
+    else:
+        result = (None, None, False, True)
+    # Assert
+    assert result == (507, "quota_exceeded", True, False)
+
+
+@pytest.mark.parametrize("number", [errno.ENOSPC, errno.EIO, errno.EACCES])
+def test_native_nonquota_errors_are_not_reclassified(number):
+    # Arrange
+    from scitex_storage._django.project_files import _raise_quota_error
+
+    native_error = OSError(number, "native non-quota error")
+    # Act
+    result = _raise_quota_error(native_error)
+    # Assert
+    assert result is None
+
+
+def _prepare_write_access_failure(project_pair, phase):
+    if os.geteuid() == 0:
+        pytest.skip("Root bypasses owned-directory write permission; no identity changes made")
+    protected = project_pair["proj_a"]._root / "protected"
+    protected.mkdir()
+    (protected / "result.txt").write_text("prior valid output", encoding="utf-8")
+    relative = {"mkdir": "protected/new-folder/result.txt", "mkstemp": "protected/result.txt"}[phase]
+    protected.chmod(0o500)
+    return protected, relative
+
+
+@pytest.mark.parametrize("phase", ["mkdir", "mkstemp"])
+def test_real_write_setup_permission_failure_has_typed_api_error_and_no_partial_file(
+    project_pair, _with_resolver, phase
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_write
+
+    protected, relative = _prepare_write_access_failure(project_pair, phase)
+    request = _post_request_for(project_pair["user_a"], {"path": relative, "content": "replacement"})
+    # Act
+    try:
+        response = project_write(request)
+        result = (response.status_code, _j(response)["error"],
+                  (protected / "result.txt").read_text(), sorted(p.name for p in protected.iterdir()))
+    finally:
+        protected.chmod(0o700)
+    # Assert
+    assert result == (500, "write_error", "prior valid output", ["result.txt"])
+
+
+@pytest.mark.parametrize("phase", ["mkdir", "mkstemp"])
+def test_real_write_setup_permission_failure_retains_native_errno(project_pair, _with_resolver, phase):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import StorageFileError, write_file
+
+    protected, relative = _prepare_write_access_failure(project_pair, phase)
+    request = _post_request_for(project_pair["user_a"], {})
+    # Act
+    try:
+        try:
+            write_file(request, relative, "replacement")
+        except StorageFileError as exc:
+            result = (exc.code, exc.__cause__.errno)
+        else:
+            result = (None, None)
+    finally:
+        protected.chmod(0o700)
+    # Assert
+    assert result == ("write_error", errno.EACCES)
+
+
+def test_real_midwrite_encoding_error_cleans_temp_and_preserves_prior_output(project_pair, _with_resolver):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.project_files import write_file
+
+    root = project_pair["proj_a"]._root
+    target = root / "result.txt"
+    target.write_text("prior valid output", encoding="utf-8")
+    request = _post_request_for(project_pair["user_a"], {})
+    # Act
+    try:
+        write_file(request, "result.txt", "unencodable-\ud800")
+    except UnicodeEncodeError as exc:
+        kind = type(exc).__name__
+    else:
+        kind = None
+    result = (kind, target.read_text(), list(root.glob(".tmp_*.writing")))
+    # Assert
+    assert result == ("UnicodeEncodeError", "prior valid output", [])
+
+
+@pytest.fixture
+def _native_capacity_sdk():
+    """Register a hand-rolled backend through the existing public SDK port."""
+    from scitex_app import sdk
+
+    previous_backend = sdk._registry.get("cloud")
+    previous_token = os.environ.get("SCITEX_API_TOKEN")
+
+    def install(number):
+        calls = []
+
+        class NativeFailureBackend:
+            def read(self, path, *, binary=False):
+                calls.append("read")
+                raise OSError(number, "synthetic backend native error")
+
+            def rename(self, source, destination):
+                calls.append("rename")
+                raise OSError(number, "synthetic backend native error")
+
+        sdk.register_backend("cloud", lambda root, **kwargs: NativeFailureBackend())
+        os.environ["SCITEX_API_TOKEN"] = "synthetic-registered-backend"
+        return calls
+
+    try:
+        yield install
+    finally:
+        if previous_backend is None:
+            sdk._registry.pop("cloud", None)
+        else:
+            sdk.register_backend("cloud", previous_backend)
+        if previous_token is None:
+            os.environ.pop("SCITEX_API_TOKEN", None)
+        else:
+            os.environ["SCITEX_API_TOKEN"] = previous_token
+
+
+@pytest.mark.parametrize("number,code", [(errno.EDQUOT, "quota_exceeded"), (errno.ENOSPC, "disk_full")])
+def test_registered_sdk_read_native_capacity_error_is_typed(
+    project_pair, _with_resolver, _native_capacity_sdk, number, code
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_read
+
+    calls = _native_capacity_sdk(number)
+    request = _request_for(project_pair["user_a"], "shared.txt")
+    # Act
+    response = project_read(request)
+    result = (response.status_code, _j(response)["error"], calls)
+    # Assert
+    assert result == (507, code, ["read"])
+
+
+@pytest.mark.parametrize("number,code", [(errno.EDQUOT, "quota_exceeded"), (errno.ENOSPC, "disk_full")])
+def test_registered_sdk_rename_native_capacity_error_preserves_source(
+    project_pair, _with_resolver, _native_capacity_sdk, number, code
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django.views import project_rename
+
+    root = project_pair["proj_a"]._root
+    calls = _native_capacity_sdk(number)
+    request = _post_to(project_pair["user_a"], "/api/rename", {"old_path": "shared.txt", "new_path": "moved.txt"})
+    # Act
+    response = project_rename(request)
+    result = (response.status_code, _j(response)["error"], calls,
+              (root / "shared.txt").read_text(), (root / "moved.txt").exists())
+    # Assert
+    assert result == (507, code, ["rename"], "common line\n", False)
+
+
+class _PermissionProject(_Project):
+    """Fake Hub project with the inspected owner/write/admin edit policy.
+
+    Reference: Hub project_methods.py can_edit, source SHA256 ff5e9ac7d5edc6ba
+    343c05191df779d08603d51f6a46221c4eaa6e997dce9992. No real ORM is used.
+    """
+
+    def __init__(self, root, owner, permission):
+        super().__init__("shared-project", "shared", "Shared project", root)
+        self.owner = owner
+        self.permission = permission
+        self.path_calls = 0
+        self.edit_calls = 0
+
+    def get_local_path(self):
+        self.path_calls += 1
+        return self._root
+
+    def can_edit(self, user):
+        self.edit_calls += 1
+        if not user or not user.is_authenticated:
+            return False
+        if user == self.owner:
+            return True
+        return self.permission in ["write", "admin"]
+
+
+class _PermissionLookupFailure(_PermissionProject):
+    def __getattribute__(self, name):
+        if name == "can_edit":
+            raise RuntimeError("Permission attribute unavailable")
+        return super().__getattribute__(name)
+
+
+def _unknown_permission(*args):
+    raise RuntimeError("Permission service unavailable")
+
+
+def _permission_case(project_pair, mode):
+    from types import SimpleNamespace
+
+    root = project_pair["proj_a"]._root
+    owner = project_pair["user_a"]
+    user = owner if mode == "owner" else project_pair["user_b"]
+    project_type = _PermissionLookupFailure if mode == "lookup_raises" else _PermissionProject
+    project = project_type(root, owner, mode)
+    traced = project
+    if mode == "missing":
+        project = SimpleNamespace(id=project.id, slug=project.slug, name=project.name,
+                                  get_local_path=project.get_local_path)
+    elif mode == "not_callable":
+        project.can_edit = True
+    elif mode == "none":
+        project.can_edit = lambda user: None
+    elif mode == "integer":
+        project.can_edit = lambda user: 1
+    elif mode == "string":
+        project.can_edit = lambda user: "write"
+    elif mode == "raises":
+        project.can_edit = _unknown_permission
+    return SimpleNamespace(root=root, project=project, traced=traced, user=user)
+
+
+@pytest.fixture
+def _permission_ports():
+    """Use the declared resolver and public backend registration ports."""
+    from scitex_app import sdk
+    from scitex_app.sdk._filesystem import FileSystemBackend
+    from scitex_storage._django import project_files
+
+    previous_resolver = project_files._GET_CURRENT_PROJECT
+    previous_backend = sdk._registry.get("cloud")
+    previous_token = os.environ.get("SCITEX_API_TOKEN")
+    calls = {"resolver": [], "backend": []}
+
+    def factory(root, **kwargs):
+        calls["backend"].append(str(root))
+        return FileSystemBackend(root)
+
+    def install(case):
+        def resolve(request, user=None):
+            calls["resolver"].append(user)
+            return case.project
+        project_files._GET_CURRENT_PROJECT = resolve
+        sdk.register_backend("cloud", factory)
+        os.environ["SCITEX_API_TOKEN"] = "synthetic-registered-filesystem"
+        return calls
+
+    try:
+        yield install
+    finally:
+        project_files._GET_CURRENT_PROJECT = previous_resolver
+        if previous_backend is None:
+            sdk._registry.pop("cloud", None)
+        else:
+            sdk.register_backend("cloud", previous_backend)
+        if previous_token is None:
+            os.environ.pop("SCITEX_API_TOKEN", None)
+        else:
+            os.environ["SCITEX_API_TOKEN"] = previous_token
+
+
+def _permission_mutation(case, operation):
+    from scitex_storage._django import views
+
+    function, body = {
+        "write": (views.project_write, {"path": "shared.txt", "content": "edited"}),
+        "rename": (views.project_rename, {"old_path": "shared.txt", "new_path": "moved.txt"}),
+        "delete": (views.project_delete, {"path": "shared.txt"}),
+        "mkdir": (views.project_mkdir, {"path": "new-folder"}),
+    }[operation]
+    return function(_post_to(case.user, "/api/" + operation, body))
+
+
+def _permission_snapshot(root):
+    return tuple((str(path.relative_to(root)), path.is_dir(),
+                  path.read_bytes() if path.is_file() else None)
+                 for path in sorted(root.rglob("*")))
+
+
+@pytest.mark.parametrize("operation", ["write", "rename", "delete", "mkdir"])
+@pytest.mark.parametrize("role", ["owner", "write", "admin"])
+def test_editable_hub_project_allows_native_mutations(project_pair, _permission_ports, operation, role):
+    _boot_django_for_storage_gui()
+    # Arrange
+    case = _permission_case(project_pair, role)
+    _permission_ports(case)
+    # Act
+    response = _permission_mutation(case, operation)
+    observed = {"write": (case.root / "shared.txt").read_text() if (case.root / "shared.txt").exists() else None,
+                "rename": (case.root / "moved.txt").exists(),
+                "delete": not (case.root / "shared.txt").exists(),
+                "mkdir": (case.root / "new-folder").is_dir()}[operation]
+    result = (response.status_code, observed, case.traced.edit_calls)
+    # Assert
+    assert result == (200, {"write": "edited", "rename": True, "delete": True, "mkdir": True}[operation], 1)
+
+
+@pytest.mark.parametrize("operation", ["write", "rename", "delete", "mkdir"])
+@pytest.mark.parametrize("role", ["read", "public", "unknown-role"])
+def test_viewable_hub_project_without_edit_permission_cannot_mutate(
+    project_pair, _permission_ports, operation, role
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    case = _permission_case(project_pair, role)
+    calls = _permission_ports(case)
+    before = _permission_snapshot(case.root)
+    # Act
+    response = _permission_mutation(case, operation)
+    result = (response.status_code, _j(response)["error"], case.traced.path_calls,
+              calls["backend"], len(calls["resolver"]), _permission_snapshot(case.root) == before)
+    # Assert
+    assert result == (403, "permission_denied", 0, [], 1, True)
+
+
+@pytest.mark.parametrize("operation", ["write", "rename", "delete", "mkdir"])
+@pytest.mark.parametrize("mode", ["missing", "not_callable", "none", "integer", "string", "raises", "lookup_raises"])
+def test_unknown_edit_permission_fails_closed_before_paths_or_backend(
+    project_pair, _permission_ports, operation, mode
+):
+    _boot_django_for_storage_gui()
+    # Arrange
+    case = _permission_case(project_pair, mode)
+    calls = _permission_ports(case)
+    before = _permission_snapshot(case.root)
+    # Act
+    response = _permission_mutation(case, operation)
+    result = (response.status_code, _j(response)["error"], case.traced.path_calls,
+              calls["backend"], _permission_snapshot(case.root) == before)
+    # Assert
+    assert result == (403, "permission_denied", 0, [], True)
+
+
+@pytest.mark.parametrize("operation", ["write", "rename", "delete", "mkdir"])
+def test_anonymous_mutations_keep_no_project_response_without_side_effects(project_pair, _permission_ports, operation):
+    _boot_django_for_storage_gui()
+    # Arrange
+    case = _permission_case(project_pair, "read")
+    case.user.is_authenticated = False
+    calls = _permission_ports(case)
+    before = _permission_snapshot(case.root)
+    # Act
+    response = _permission_mutation(case, operation)
+    result = (response.status_code, _j(response)["error"], calls["resolver"], calls["backend"],
+              case.traced.path_calls, _permission_snapshot(case.root) == before)
+    # Assert
+    assert result == (404, "no_project", [], [], 0, True)
+
+
+@pytest.mark.parametrize("operation", ["write", "rename", "delete", "mkdir"])
+def test_absent_project_keeps_standalone_no_project_semantics(project_pair, _permission_ports, operation):
+    _boot_django_for_storage_gui()
+    # Arrange
+    case = _permission_case(project_pair, "read")
+    case.project = None
+    calls = _permission_ports(case)
+    before = _permission_snapshot(case.root)
+    # Act
+    response = _permission_mutation(case, operation)
+    result = (response.status_code, _j(response)["error"], calls["backend"],
+              case.traced.path_calls, _permission_snapshot(case.root) == before)
+    # Assert
+    assert result == (404, "no_project", [], 0, True)
+
+
+@pytest.mark.parametrize("operation", ["read", "download", "list"])
+@pytest.mark.parametrize("role", ["read", "public", "raises"])
+def test_read_operations_never_require_edit_permission(project_pair, _permission_ports, operation, role):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django import views
+
+    case = _permission_case(project_pair, role)
+    _permission_ports(case)
+    before = _permission_snapshot(case.root)
+    functions = {"read": views.project_read, "download": views.project_download, "list": views.project_list}
+    paths = {"read": "shared.txt", "download": "shared.txt", "list": ""}
+    request = _request_for(case.user, paths[operation])
+    # Act
+    response = functions[operation](request)
+    result = (response.status_code, case.traced.edit_calls, _permission_snapshot(case.root) == before)
+    # Assert
+    assert result == (200, 0, True)
+
+
+@pytest.mark.parametrize("operation", ["write", "rename", "delete", "mkdir"])
+def test_denied_selected_project_is_not_replaced_with_owned_fallback(project_pair, _permission_ports, operation):
+    _boot_django_for_storage_gui()
+    # Arrange
+    from scitex_storage._django import project_files
+
+    case = _permission_case(project_pair, "read")
+    calls = _permission_ports(case)
+    owned = project_pair["proj_b"]
+    before = (_permission_snapshot(case.root), _permission_snapshot(owned._root))
+
+    def resolver(request, user=None):
+        calls["resolver"].append(user)
+        return case.project if len(calls["resolver"]) == 1 else owned
+
+    project_files._GET_CURRENT_PROJECT = resolver
+    # Act
+    response = _permission_mutation(case, operation)
+    result = (response.status_code, len(calls["resolver"]), case.traced.path_calls, calls["backend"],
+              (_permission_snapshot(case.root), _permission_snapshot(owned._root)) == before)
+    # Assert
+    assert result == (403, 1, 0, [], True)
