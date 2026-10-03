@@ -45,7 +45,10 @@ def standalone_pages(tmp_path):
     )
     env = {key: os.environ[key] for key in
            ("PATH", "HOME", "LANG", "LC_ALL", "LD_LIBRARY_PATH") if key in os.environ}
-    env.update({"PYTHONPATH": str(source), "PYTHONDONTWRITEBYTECODE": "1",
+    pythonpath = os.pathsep.join(
+        path for path in (str(source), os.environ.get("PYTHONPATH", "")) if path
+    )
+    env.update({"PYTHONPATH": pythonpath, "PYTHONDONTWRITEBYTECODE": "1",
                 "DJANGO_SETTINGS_MODULE": "scitex_storage._django.settings",
                 "PYTHON_DOTENV_DISABLED": "1", "SCITEX_APP_MODE": "standalone",
                 "SCITEX_DIR": str(tmp_path / "state")})
