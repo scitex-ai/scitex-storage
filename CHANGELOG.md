@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-10-03
+
+### Fixed
+
+- Preserve staged Python dependencies in real standalone and logging test
+  subprocesses so the SIF release suite can exercise their existing assertions.
+
 ## [0.5.3] - 2026-10-03
 
 ### Fixed

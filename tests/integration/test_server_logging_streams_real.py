@@ -16,7 +16,12 @@ def _probe(tmp_path: Path, body: str):
         "HOME": os.environ.get("HOME", ""),
         "SCITEX_DIR": str(tmp_path / "scitex-state"),
         "TMPDIR": str(tmp_path),
-        "PYTHONPATH": str(Path(scitex_storage.__file__).resolve().parent.parent),
+        "PYTHONPATH": os.pathsep.join(
+            path for path in (
+                str(Path(scitex_storage.__file__).resolve().parent.parent),
+                os.environ.get("PYTHONPATH", ""),
+            ) if path
+        ),
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONFAULTHANDLER": "1",
         "PYTHONNOUSERSITE": "1",
