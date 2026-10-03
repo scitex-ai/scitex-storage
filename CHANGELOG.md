@@ -7,6 +7,17 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-03
+
+### Fixed
+
+- Require the project's edit permission before file uploads, directory creation,
+  deletion and moves. Read and download access retain the existing view policy.
+- Return HTTP 507 with the `quota_exceeded` error code when a native filesystem
+  operation raises `EDQUOT`, while preserving disk-full and other I/O errors.
+- Honor configured logging levels while keeping server diagnostics on stderr
+  and the startup banner on stdout.
+
 ## [0.4.0] - 2026-08-11
 
 Two new capabilities and one correction, all circling the same question: **what
