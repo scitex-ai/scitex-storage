@@ -9,9 +9,11 @@ no network or real SSH config is needed to exercise these code paths.
 
 import json
 import os
+import stat
 from dataclasses import dataclass
 
 import pytest
+from scitex_io import load
 
 import shutil
 
@@ -259,6 +261,38 @@ def sandbox_home(tmp_path):
             os.environ.pop("HOME", None)
         else:
             os.environ["HOME"] = prev
+
+
+@pytest.fixture
+def unreadable_archive_plan(tmp_path, sandbox_home):
+    """Real denied source walk with mode restoration, no NAS transport."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "visible.bin").write_bytes(b"visible")
+    blocked = source / "blocked"
+    blocked.mkdir()
+    (blocked / "hidden.bin").write_bytes(b"hidden")
+    original_mode = stat.S_IMODE(blocked.stat().st_mode)
+    plan = ArchivePlan(
+        source=source,
+        destination="nas2",
+        remote_path="~/scitex-storage-archive/unreadable",
+        size_bytes=13,
+        file_count=2,
+        manifest_path=sandbox_home / "manifest.json",
+    )
+    blocked.chmod(0)
+    try:
+        try:
+            with os.scandir(blocked):
+                pass
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("current user bypasses directory permissions")
+        yield plan, blocked, original_mode
+    finally:
+        blocked.chmod(original_mode)
 
 
 # --- _quote_remote_path -------------------------------------------------------
@@ -1113,6 +1147,55 @@ def test_apply_archive_with_an_injected_runner_does_not_require_rsync(
 # These exist because a guard that has never been OBSERVED to fire is
 # indistinguishable from one that cannot. The happy-path tests above prove
 # the verb still works; only these prove it still protects anything.
+def test_unknown_source_tally_refuses_archive(unreadable_archive_plan):
+    # Arrange
+    plan, _blocked, _mode = unreadable_archive_plan
+    runner = _LyingTallyRunner("0\n0\n")
+
+    # Act
+    raised = pytest.raises(ArchiveNotVerifiedError)
+
+    # Assert
+    with raised:
+        apply_archive(plan, runner=runner)
+
+
+def test_unknown_source_tally_records_refusal_manifest(unreadable_archive_plan):
+    # Arrange
+    plan, _blocked, _mode = unreadable_archive_plan
+    runner = _LyingTallyRunner("0\n0\n")
+
+    # Act
+    try:
+        apply_archive(plan, runner=runner)
+    except ArchiveNotVerifiedError:
+        pass
+    verdict = load(plan.manifest_path)["verified"]
+
+    # Assert
+    assert verdict == "could-not-look"
+
+
+def test_unknown_source_tally_preserves_exact_source_payloads(unreadable_archive_plan):
+    # Arrange
+    plan, blocked, original_mode = unreadable_archive_plan
+    runner = _LyingTallyRunner("0\n0\n")
+
+    # Act
+    try:
+        apply_archive(plan, runner=runner)
+    except ArchiveNotVerifiedError:
+        pass
+    blocked.chmod(original_mode)
+    payloads = {
+        "visible": (plan.source / "visible.bin").read_bytes(),
+        "hidden": (blocked / "hidden.bin").read_bytes(),
+    }
+
+    # Assert
+    assert payloads == {"visible": b"visible", "hidden": b"hidden"}
+
+
 def _plan_with_two_files(tmp_path, sandbox_home):
     source = tmp_path / "source"
     _touch(source / "a.bin")

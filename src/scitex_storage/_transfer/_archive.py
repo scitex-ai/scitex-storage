@@ -363,8 +363,8 @@ def apply_archive(
         )
     )
     verdict = verify_transfer(
-        expected_count=expected.entry_count or 0,
-        expected_bytes=expected.size_bytes or 0,
+        expected_count=expected.entry_count,
+        expected_bytes=expected.size_bytes,
         observed=observed,
     )
     method = "tally"
