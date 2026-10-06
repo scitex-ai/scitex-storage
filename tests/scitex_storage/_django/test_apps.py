@@ -268,3 +268,14 @@ def test_sdk_validator_still_rejects_a_missing_required_slug(tmp_path):
 
 
 # EOF
+
+
+def test_manifest_declares_internal_visibility():
+    # Arrange
+    # (nothing to arrange)
+    # Act
+    data = _load_manifest()
+    # Assert -- operator policy is internal with no later public approval: the
+    # hub migration defaults a missing visibility to public, so the leaf must
+    # declare internal explicitly rather than letting the hub infer it.
+    assert data["visibility"] == "internal"
