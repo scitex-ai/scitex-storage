@@ -100,16 +100,33 @@ def test_compat_uses_the_real_clihelp_when_scitex_dev_is_installed():
 def test_cli_wires_shell_completion_from_the_vendored_module():
     # Arrange — vendored, so no scitex-dev import is needed at all. The
     # completion leaves must be attached unconditionally on every install.
-    from scitex_storage._cli import main
     from scitex_storage._cli import _completion as completion_mod
+
+    # Act — the module identity is the wiring proof: the CLI imports
+    # these leaves from the vendored module, not an optional backend.
+    # Assert (one assertion per test — STX-TQ007)
+    assert completion_mod.__name__ == "scitex_storage._cli._completion"
+
+
+def test_cli_exposes_print_shell_completion_leaf():
+    # Arrange
+    from scitex_storage._cli import main
 
     # Act
     has_print = "print-shell-completion" in main.commands
+
+    # Assert (one assertion per test — STX-TQ007)
+    assert has_print is True
+
+
+def test_cli_exposes_install_shell_completion_leaf():
+    # Arrange
+    from scitex_storage._cli import main
+
+    # Act
     has_install = "install-shell-completion" in main.commands
 
-    # Assert
-    assert completion_mod.__name__ == "scitex_storage._cli._completion"
-    assert has_print is True
+    # Assert (one assertion per test — STX-TQ007)
     assert has_install is True
 
 
