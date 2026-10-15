@@ -54,7 +54,6 @@ CROSS_PACKAGE_IMPORTS = [
     'scitex_sdk.app.sdk',
     'scitex_sdk.ui',
     'scitex_sdk.ui.branding',
-    'scitex_sdk.ui.project_scope',
     'scitex_ssh',
 ]
 # ===== END AUTO-GENERATED =====
