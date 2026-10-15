@@ -16,7 +16,7 @@ convention this repo already uses for archive manifests
 Always registered on ``main`` (importing this module needs only
 ``click``, never Django) so ``scitex-storage --help`` always lists
 ``gui`` — but ``serve``/``open`` require the ``gui`` optional-dependency
-group (Django + scitex-app + scitex-ui; see ``pyproject.toml``). Without
+group (Django + scitex-sdk + scitex-ui; see ``pyproject.toml``). Without
 it, both raise a clear, actionable ``click.ClickException`` rather than
 a raw ``ImportError`` traceback.
 
