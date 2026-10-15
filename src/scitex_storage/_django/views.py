@@ -167,7 +167,7 @@ def healthz(request) -> HttpResponse:
 # --------------------------------------------------------------------------- #
 # Thin adapters over ``project_files``. The authz and project-scope come from
 # the hub via ``request`` (see project_files' module docstring); the file
-# primitives come from ``scitex_sdk.app.sdk.get_files``. No second user/project
+# primitives come from ``scitex_app.sdk.get_files``. No second user/project
 # model lives here or in project_files.
 #
 # Every handler catches ``StorageFileError`` and maps it to its typed HTTP

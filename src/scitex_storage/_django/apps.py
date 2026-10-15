@@ -4,8 +4,9 @@
 """Django AppConfig for the scitex-storage GUI plugin.
 
 Imports ``ScitexAppConfig`` from the isolated ``_app_adapter`` module
-(never from anywhere else — see that module's docstring), so the SDK
-embedding API is consumed at exactly one seam.
+(never directly from ``scitex_app._django`` — see that module's
+docstring), so migrating to scitex-app's future public embedding API is
+a one-line change in one file, not a codebase-wide edit.
 
 ``label`` is deliberately the unmistakable, fully-namespaced
 ``scitex_storage_django`` rather than a short generic name like

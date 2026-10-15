@@ -12,7 +12,7 @@ import pytest
 pytest.importorskip("django")
 
 
-def test_adapter_reexports_the_real_scitex_sdk_config_when_installed():
+def test_adapter_reexports_the_real_scitex_app_config_when_installed():
     # Arrange
     pytest.importorskip("scitex_sdk")
     importlib.import_module("scitex_sdk.app.embed")

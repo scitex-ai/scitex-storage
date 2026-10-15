@@ -383,27 +383,15 @@ def consume(contract):
                 "actual Storage source differs from admission")
         require(project_files._GET_CURRENT_PROJECT is None,
             "fake resolver is forbidden")
-        from scitex_sdk.ui.project_scope import host_project_provider
-        require(host_project_provider() is not None,
-            "SDK host project provider required")
-        from django.conf import settings as _settings
-        from django.utils.module_loading import import_string as _import_string
-        storage_dotted = str(
-            getattr(_settings, project_files.STORAGE_SETTING, "") or ""
-        )
-        require(storage_dotted,
-            "SCITEX_PROJECT_STORAGE must be registered")
-        capability = _import_string(storage_dotted)
-        require(getattr(capability, "__name__", "") == "HubProjectStorage" and
-                "project_scope" in (getattr(capability, "__module__", "") or ""),
-                "actual Hub storage capability required")
-        capability_module = importlib.import_module(capability.__module__)
-        capability_file = getattr(capability_module, "__file__", None)
-        require(capability_file, "capability module has no file")
-        require(Path(str(capability_file)).resolve() == Path(contract[
+        require(project_files._current_project_fn().__module__ ==
+                "apps.infra.project_app.services.project_utils",
+                    "actual Hub resolver required")
+        resolver = importlib.import_module(project_files._current_project_fn(
+            ).__module__)
+        require(Path(resolver.__file__).resolve() == Path(contract[
             "hub_source"]).resolve() /
-                "apps/infra/project_app/services/project_scope.py",
-                    "actual capability source differs")
+                "apps/infra/project_app/services/project_utils.py",
+                    "actual resolver source differs")
         call_command("migrate", interactive=False, verbosity=0)
         fence.check()
         User = get_user_model()
@@ -502,12 +490,12 @@ def consume(contract):
             require((payload["project"]["id"], payload["project"]["slug"], payload[
                 "path"],
                      payload["content"], payload["size"]) ==
-                    (f"{users[owner].username}/shared", "shared", "shared.txt", expected, len(
+                    (str(projects[owner].pk), "shared", "shared.txt", expected, len(
                         expected.encode())),
                     "actual selected project/content differs")
             scope = project_files.resolve_project_scope(response.wsgi_request)
             backend = project_files.build_backend(scope)
-            require(type(backend).__module__ == "scitex_sdk.app.sdk._filesystem" and
+            require(type(backend).__module__ == "scitex_app.sdk._filesystem" and
                     type(backend).__name__ == "FileSystemBackend" and backend.root ==
                         roots[owner].resolve(),
                     "unpatched backend/selected owner root differs")
@@ -516,7 +504,7 @@ def consume(contract):
                     Path(contract["runtime_files"]["sdk_filesystem"]["path"]).resolve(),
                     "actual SDK backend source differs from admission")
             listing = request(actor, "get", "/apps/storage/api/list").json()
-            require(listing["project"]["id"] == f"{users[owner].username}/shared" and len(listing[
+            require(listing["project"]["id"] == str(projects[owner].pk) and len(listing[
                 "entries"]) == 2 and
                     {(e["name"], e["path"], e["type"]) for e in listing["entries"]} ==
                     {(name, name, "file") for name in
@@ -597,8 +585,7 @@ def consume(contract):
                     p.pk) for p in projects],
                 "checks": checks, "refused_settings_probes": fence.refused_bootstrap,
                 "module_origins": {"project_files": project_files.__file__,
-                    "storage_setting": project_files.STORAGE_SETTING,
-                    "capability": capability.__module__},
+                    "resolver": project_files._current_project_fn().__module__},
                 "binding": {"schema": parse_qs(urlparse(contract["dsn"]).query)[
                     "options"][0].split("=", 1)[1],
                             "python": sys.executable, "producer_pid": os.getppid()},
