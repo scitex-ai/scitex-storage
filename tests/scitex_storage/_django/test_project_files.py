@@ -475,7 +475,7 @@ def test_no_resolved_project_is_404(tmp_path):
 
 
 def test_standalone_no_hub_is_no_project_404():
-    """Under the standalone launcher there is no ``apps.infra`` on the path, so
+    """Under the standalone launcher no host provider is registered, so
     the resolver degrades to no_project (404), not a ModuleNotFoundError 500.
     The seam defaults to None (nothing injected) and no hub module imports.
     """
