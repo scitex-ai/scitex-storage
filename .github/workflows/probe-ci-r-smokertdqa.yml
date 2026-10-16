@@ -1,0 +1,20 @@
+name: probe-ci-r-smokertdqa
+
+# DIAGNOSTIC PROBE: import-smoke+rtd-sphinx-build+quality-audit default triple.
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  import-smoke:
+    uses: scitex-ai/.github/.github/workflows/import-smoke.yml@main
+    secrets: inherit
+
+  rtd-sphinx-build:
+    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@main
+    secrets: inherit
+
+  quality-audit:
+    uses: scitex-ai/.github/.github/workflows/quality-audit.yml@main
+    secrets: inherit
+

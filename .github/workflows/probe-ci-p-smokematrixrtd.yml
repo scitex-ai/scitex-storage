@@ -1,0 +1,20 @@
+name: probe-ci-p-smokematrixrtd
+
+# DIAGNOSTIC PROBE: pytest-matrix+import-smoke+rtd-sphinx-build default triple.
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  pytest-matrix:
+    uses: scitex-ai/.github/.github/workflows/pytest-matrix.yml@main
+    secrets: inherit
+
+  import-smoke:
+    uses: scitex-ai/.github/.github/workflows/import-smoke.yml@main
+    secrets: inherit
+
+  rtd-sphinx-build:
+    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@main
+    secrets: inherit
+
