@@ -1,0 +1,16 @@
+name: probe-ci-u-xsamerunner
+
+# DIAGNOSTIC PROBE: caller-job-id collision test.
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  x-runner:
+    uses: scitex-ai/.github/.github/workflows/pytest-matrix.yml@main
+    secrets: inherit
+
+  x-runner:
+    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@main
+    secrets: inherit
+

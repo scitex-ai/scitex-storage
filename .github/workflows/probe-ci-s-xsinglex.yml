@@ -1,0 +1,16 @@
+name: probe-ci-s-xsinglex
+
+# DIAGNOSTIC PROBE: caller-job-id collision test.
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  x-runner:
+    uses: scitex-ai/.github/.github/workflows/pytest-matrix.yml@main
+    secrets: inherit
+
+  y-runner:
+    uses: scitex-ai/.github/.github/workflows/import-smoke.yml@main
+    secrets: inherit
+
