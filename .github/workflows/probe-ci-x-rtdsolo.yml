@@ -1,0 +1,12 @@
+name: probe-ci-x-rtdsolo
+
+# DIAGNOSTIC PROBE.
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  rtd-sphinx-build:
+    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@main
+    secrets: inherit
+

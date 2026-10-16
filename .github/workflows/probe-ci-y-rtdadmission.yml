@@ -1,0 +1,16 @@
+name: probe-ci-y-rtdadmission
+
+# DIAGNOSTIC PROBE.
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  rtd-sphinx-build:
+    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@main
+    secrets: inherit
+
+  runner-admission:
+    uses: scitex-ai/.github/.github/workflows/import-smoke.yml@main
+    secrets: inherit
+
