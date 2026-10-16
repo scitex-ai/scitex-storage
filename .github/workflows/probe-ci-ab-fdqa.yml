@@ -1,0 +1,16 @@
+name: probe-ci-ab-fdqa
+
+# DIAGNOSTIC PROBE: does the `quality-audit` caller id break the qa callee?
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  fd-fclones-integration:
+    uses: scitex-ai/.github/.github/workflows/fd-fclones-integration.yml@442f4e5dcd938c0297e36a5f07461d809f9416ff
+    secrets: inherit
+
+  quality-audit:
+    uses: scitex-ai/.github/.github/workflows/quality-audit.yml@main
+    secrets: inherit
+
