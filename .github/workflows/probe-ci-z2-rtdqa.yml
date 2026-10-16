@@ -1,0 +1,16 @@
+name: probe-ci-z2-rtdqa
+
+# DIAGNOSTIC PROBE: does the `rtd` caller id break the rtd callee?
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  rtd:
+    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@main
+    secrets: inherit
+
+  qa:
+    uses: scitex-ai/.github/.github/workflows/quality-audit.yml@main
+    secrets: inherit
+

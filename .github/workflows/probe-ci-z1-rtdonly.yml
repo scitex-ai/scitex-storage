@@ -1,0 +1,12 @@
+name: probe-ci-z1-rtdonly
+
+# DIAGNOSTIC PROBE: does the `rtd` caller id break the rtd callee?
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  rtd:
+    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@main
+    secrets: inherit
+

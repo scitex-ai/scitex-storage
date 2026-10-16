@@ -1,0 +1,16 @@
+name: probe-ci-z3-rtdmatrix
+
+# DIAGNOSTIC PROBE: does the `rtd` caller id break the rtd callee?
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  rtd:
+    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@main
+    secrets: inherit
+
+  matrix:
+    uses: scitex-ai/.github/.github/workflows/pytest-matrix.yml@main
+    secrets: inherit
+
