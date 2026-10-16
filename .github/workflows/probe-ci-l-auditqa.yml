@@ -1,0 +1,16 @@
+name: probe-ci-l-auditqa
+
+# DIAGNOSTIC PROBE: import-smoke + quality-audit default pair (re-run control;
+# j already proved this combination green -- expect success again).
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  import-smoke:
+    uses: scitex-ai/.github/.github/workflows/import-smoke.yml@main
+    secrets: inherit
+
+  quality-audit:
+    uses: scitex-ai/.github/.github/workflows/quality-audit.yml@main
+    secrets: inherit
