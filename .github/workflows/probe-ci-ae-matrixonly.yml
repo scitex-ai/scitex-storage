@@ -1,0 +1,12 @@
+name: probe-ci-ae-matrixonly
+
+# DIAGNOSTIC PROBE: caller id == callee file stem.
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  pytest-matrix:
+    uses: scitex-ai/.github/.github/workflows/pytest-matrix.yml@main
+    secrets: inherit
+
