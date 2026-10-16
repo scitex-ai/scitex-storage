@@ -1,0 +1,16 @@
+name: probe-ci-ad-rtdqa2
+
+# DIAGNOSTIC PROBE.
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  rtd-sphinx-build:
+    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@main
+    secrets: inherit
+
+  quality-audit:
+    uses: scitex-ai/.github/.github/workflows/quality-audit.yml@main
+    secrets: inherit
+

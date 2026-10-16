@@ -1,0 +1,16 @@
+name: probe-ci-ac-rtdfd
+
+# DIAGNOSTIC PROBE.
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  rtd-sphinx-build:
+    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@main
+    secrets: inherit
+
+  fd-fclones-integration:
+    uses: scitex-ai/.github/.github/workflows/fd-fclones-integration.yml@442f4e5dcd938c0297e36a5f07461d809f9416ff
+    secrets: inherit
+
