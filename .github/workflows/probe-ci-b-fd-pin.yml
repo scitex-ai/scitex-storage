@@ -4,6 +4,8 @@ name: probe-ci-b-fd-pin
 # Isolates whether the fd-fclones-integration@442f4e5 pin resolves.
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [develop]
 
 jobs:
   probe-fd:

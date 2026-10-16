@@ -4,6 +4,8 @@ name: probe-ci-a-matrix
 # Isolates whether scitex-storage -> scitex-ai/.github@main resolution works.
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [develop]
 
 jobs:
   probe-matrix:
