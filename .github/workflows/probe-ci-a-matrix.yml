@@ -1,0 +1,11 @@
+name: probe-ci-a-matrix
+
+# DIAGNOSTIC PROBE (scratch, deletable): single generic @main reusable call.
+# Isolates whether scitex-storage -> scitex-ai/.github@main resolution works.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe-matrix:
+    uses: scitex-ai/.github/.github/workflows/pytest-matrix.yml@main
+    secrets: inherit
