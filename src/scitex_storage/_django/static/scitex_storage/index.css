@@ -20,24 +20,6 @@
   box-sizing: border-box;
 }
 
-.stx-storage-head { margin-bottom: 12px; }
-
-.stx-storage-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 650;
-}
-
-.stx-storage-title i { color: var(--stx-storage-accent); }
-
-.stx-storage-lede {
-  margin: 4px 0 0;
-  color: var(--stx-storage-muted);
-}
-
 .stx-storage-tabs {
   display: flex;
   gap: 4px;

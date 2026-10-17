@@ -1,0 +1,35 @@
+{% load i18n static %}{% comment %}
+ Storage leaf header — SDK SSoT header row (Writer/Scholar shape).
+
+ The ROW is the shared `.stx-app-header` (scitex-sdk, css/app/app-header.css
+ — linked below): identity (title + live leaf version) on the left, the
+ canonical project-selector slot, then the actions slot. The leaf owns the
+ VALUES, the SDK owns the chrome.
+
+ Contract:
+   * identity — manifest `label` (`Storage`) + the LEAF package version,
+     never the host's version. Read from `storage_version`, which the views
+     fill from `scitex_storage.__version__` (importlib.metadata, stdlib-only).
+   * picker — `.stx-app-header__slot--project-selector`, EMPTY on purpose.
+     Storage surfaces are user-scope (organize views resolve user volumes
+     only, no project scope), so no picker is correct per the SDK contract.
+     The slot stays so a future project-scoped surface has exactly one
+     place to mount it.
+   * actions — `.stx-app-header__actions`, EMPTY on purpose. Storage has no
+     page-level actions outside the tab content.
+
+ Included by index.html (Backup placeholder) and organize.html (Usage /
+ Duplicates / Move tabs), INSTEAD OF the bespoke `h1.stx-storage-title`
+ markup those templates used to carry: one header, one title, one version.
+{% endcomment %}
+<link rel="stylesheet" href="{% static 'scitex_sdk/ui/css/app/app-header.css' %}">
+<header class="stx-app-header storage-app-header">
+    <div class="stx-app-header__identity">
+        <span class="stx-app-header__title">{% translate "Storage" %}</span>
+        <span class="stx-app-header__version"
+              title="scitex-storage package serving this page">v{{ storage_version }}</span>
+    </div>
+    <div class="stx-app-header__slot--project-selector">
+    </div>
+    <div class="stx-app-header__actions"></div>
+</header>

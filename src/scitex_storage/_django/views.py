@@ -74,6 +74,21 @@ def _app_label(base: str) -> str:
     return f"{base} (hub)" if mode == "hub" else base
 
 
+def _leaf_identity() -> dict:
+    """Title + version for the leaf header, read from the leaf's own dist.
+
+    Mirrors Scholar's ``_leaf_identity`` in SHAPE (operator header mandate:
+    ``<title> + v<version>``) while reading the version from the package's
+    own ``__version__`` (importlib.metadata, stdlib-only): the same
+    installed-version source the SDK's ``app_version`` resolves, with no
+    new imports and no registry dependency. Never a hand-written string
+    and never the host's version.
+    """
+    from scitex_storage import __version__
+
+    return {"storage_version": __version__}
+
+
 #: Tabs of the storage app. Usage/Duplicates/Move are real views (see
 #: :mod:`.organize`); only Backup is still a placeholder.
 TABS = (
@@ -98,6 +113,7 @@ def index(request):
         tab = "usage"
     context = {
         **shell_context("Storage", panes=SHELL_PANES),
+        **_leaf_identity(),
         "app_label": _app_label("SciTeX Storage"),
         "favicon_href": FAVICON_HREF,
         "tabs": _tab_context(tab),

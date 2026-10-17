@@ -160,6 +160,7 @@ def _base_context(active: str) -> dict:
 
     return {
         **shell_context("Storage", panes=_views.SHELL_PANES),
+        **_views._leaf_identity(),
         "app_label": _views._app_label("SciTeX Storage"),
         "favicon_href": FAVICON_HREF,
         "tabs": [
