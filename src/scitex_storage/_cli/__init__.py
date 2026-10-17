@@ -168,12 +168,11 @@ main.add_command(list_python_apis)
 main.add_command(mcp)
 
 # §1a: install-shell-completion + print-shell-completion (canonical leaves).
-try:
-    from scitex_dev._cli._completion import attach_shell_completion
+# Vendored drop-in module (``._completion``): stdlib + click only, so shell
+# completion keeps working whether or not scitex-dev is installed.
+from ._completion import attach_shell_completion
 
-    attach_shell_completion(main, prog_name="scitex-storage")
-except ImportError:
-    pass
+attach_shell_completion(main, prog_name="scitex-storage")
 
 
 if __name__ == "__main__":  # pragma: no cover

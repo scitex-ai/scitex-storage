@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-10-08
+
+Vendored shell completion as drop-in module (contract v1, PR #119):
+stdlib+click only, in-process script generation, atomic+idempotent
+drop-in write, never touches rc files.
+
 ## [0.5.4] - 2026-10-03
 
 ### Fixed

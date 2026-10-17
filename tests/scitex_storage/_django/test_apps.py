@@ -47,8 +47,8 @@ def test_manifest_is_valid_json_object():
     assert isinstance(data, dict)
 
 
-def test_manifest_declares_the_required_scitex_app_0_3_0_keys():
-    # Arrange -- scitex_app.appmaker._validate.MANIFEST_REQUIRED_KEYS (0.3.0)
+def test_manifest_declares_the_required_sdk_app_keys():
+    # Arrange -- scitex_sdk.app.appmaker._validate.MANIFEST_REQUIRED_KEYS
     required = {"name", "slug", "label", "pip_package", "icon", "license"}
     # Act
     data = _load_manifest()
@@ -61,7 +61,7 @@ def test_manifest_name_ends_with_app_suffix():
     # (nothing to arrange)
     # Act
     data = _load_manifest()
-    # Assert -- scitex_app's validator requires this naming convention
+    # Assert -- the SDK validator requires this naming convention
     assert data["name"].endswith("_app") or data["name"].endswith("-app")
 
 
@@ -70,11 +70,11 @@ def test_manifest_does_not_declare_a_hand_written_version():
     # (nothing to arrange)
     # Act
     data = _load_manifest()
-    # Assert -- scitex_app 0.3.0's validator REJECTS a hand-written
+    # Assert -- the SDK validator REJECTS a hand-written
     # `version` key (it drifts from the installed package; the real
     # version is derived at runtime via importlib.metadata from
-    # `pip_package`). Verified live against the installed scitex-app
-    # 0.3.0 package's appmaker._validate.validate_manifest().
+    # `pip_package`). Verified live against the installed scitex-sdk
+    # 0.3.2 package's app.validator.validate_manifest (lowercase v).
     assert "version" not in data
 
 
@@ -94,7 +94,7 @@ def test_manifest_is_embedded_package():
     data = _load_manifest()
     # Assert -- _django/ is a private in-package Django app, not a
     # standalone scitex-hub app repo; embedded_package skips the
-    # standalone-only file/template/CSS checks in scitex_app's validator.
+    # standalone-only file/template/CSS checks in the SDK validator.
     assert data["embedded_package"] is True
 
 
@@ -268,3 +268,14 @@ def test_sdk_validator_still_rejects_a_missing_required_slug(tmp_path):
 
 
 # EOF
+
+
+def test_manifest_declares_internal_visibility():
+    # Arrange
+    # (nothing to arrange)
+    # Act
+    data = _load_manifest()
+    # Assert -- operator policy is internal with no later public approval: the
+    # hub migration defaults a missing visibility to public, so the leaf must
+    # declare internal explicitly rather than letting the hub infer it.
+    assert data["visibility"] == "internal"
