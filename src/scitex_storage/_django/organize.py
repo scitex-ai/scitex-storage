@@ -193,6 +193,23 @@ def _selected_volume(request, user_volumes, statuses):
     return user_volumes[0] if user_volumes else None
 
 
+def _fleet_views_available() -> bool:
+    """True when a gathered fleet snapshot exists to link to.
+
+    Imported lazily so the organize tabs never hard-require the observation
+    layer at module import; any failure reads as \"no snapshot\" rather than
+    a 500, because \"not gathered yet\" is a real first-run state.
+    """
+    try:
+        from scitex_storage._observe import fleet_views_available
+    except ImportError:
+        return False
+    try:
+        return bool(fleet_views_available())
+    except Exception:
+        return False
+
+
 def usage(request):
     """Donut breakdown of where the requester's bytes live."""
     from . import volumes
@@ -263,6 +280,7 @@ def usage(request):
         "folder_segments": donut_segments(folder_items),
         "folder_total": sum(v for _label, v in folder_items),
         "folder_note": folder_note,
+        "fleet_available": _fleet_views_available(),
     }
     return render(request, "scitex_storage/organize.html", context)
 
