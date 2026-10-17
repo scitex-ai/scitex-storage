@@ -150,12 +150,14 @@ def test_usage_tab_renders_donut(tmp_path):
 
 
 def test_usage_tab_links_fleet_views(tmp_path):
-    # Arrange -- fleet links use route names, never hardcoded paths.
+    # Arrange -- operator 2026-10-17: the Fleet visualizations promo card
+    # is removed from Usage (backend pipeline stays). Fleet links use
+    # route names, never hardcoded paths.
     _boot()
     # Act
     body = _get(tmp_path, {"tab": "usage"}).content.decode()
     # Assert
-    assert "Fleet visualizations" in body
+    assert "Fleet visualizations" not in body
 
 
 def test_move_tab_renders_planner(tmp_path):
