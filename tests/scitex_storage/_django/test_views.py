@@ -149,13 +149,14 @@ def test_usage_tab_renders_donut(tmp_path):
     assert "Where your bytes live" in body
 
 
-def test_usage_tab_links_fleet_views(tmp_path):
-    # Arrange -- operator 2026-10-17: the Fleet visualizations promo card
-    # is removed from Usage (backend pipeline stays). Fleet links use
-    # route names, never hardcoded paths.
+def test_usage_tab_links_fleet_views(scitex_dir):
+    # Arrange -- operator 2026-10-17: no empty promo. With no snapshot
+    # gathered the Usage tab shows no Fleet-visualizations section
+    # (backend pipeline stays). Fleet links use route names, never
+    # hardcoded paths.
     _boot()
     # Act
-    body = _get(tmp_path, {"tab": "usage"}).content.decode()
+    body = _get(scitex_dir, {"tab": "usage"}).content.decode()
     # Assert
     assert "Fleet visualizations" not in body
 
@@ -272,6 +273,153 @@ def test_healthz_returns_ok():
     body = healthz(RequestFactory().get("/storage/healthz")).content
     # Assert
     assert body == b"ok"
+
+
+# --------------------------------------------------------------------------
+# Fleet views on real snapshots: table / bubbles / sunburst serve the
+# gathered pages verbatim, and name the gather command when absent.
+# --------------------------------------------------------------------------
+
+
+def _sandbox(tmp_path):
+    """Point SCITEX_DIR at tmp_path; returns a restore callable.
+
+    A real env-var save/set (not a mock): the code under test still calls
+    the real default_*_path resolvers. Every test below sets its own value
+    in Arrange, so no test reads ambient user state.
+    """
+    old = os.environ.get("SCITEX_DIR")
+    os.environ["SCITEX_DIR"] = str(tmp_path)
+
+    def restore():
+        if old is None:
+            os.environ.pop("SCITEX_DIR", None)
+        else:
+            os.environ["SCITEX_DIR"] = old
+
+    return restore
+
+
+@pytest.fixture
+def scitex_dir(tmp_path):
+    """Sandbox SCITEX_DIR at tmp_path for the test; restores on teardown.
+
+    The sanctioned env-var pattern (real save/set, never a mock): the
+    code under test still calls the real default_*_path resolvers.
+    """
+    restore = _sandbox(tmp_path)
+    try:
+        yield tmp_path
+    finally:
+        restore()
+
+
+def _write_snapshot_file(path_str):
+    """Write a sentinel snapshot page at the explicit path (no env involved)."""
+    import os as _os
+
+    _os.makedirs(_os.path.dirname(path_str), exist_ok=True)
+    with open(path_str, "w", encoding="utf-8") as fh:
+        fh.write("<html><body>FLEET-SENTINEL</body></html>")
+
+
+def test_fleet_view_without_snapshot_names_the_gather_command(scitex_dir):
+    # Arrange -- nothing gathered yet in this sandbox.
+    _boot()
+    from django.test import RequestFactory
+
+    from scitex_storage._django.views import fleet
+
+    # Act
+    body = fleet(RequestFactory().get("/storage/fleet/")).content.decode()
+    # Assert
+    assert "fleet-status --gather" in body
+
+
+def test_fleet_view_serves_a_gathered_snapshot(scitex_dir):
+    # Arrange
+    _boot()
+    from scitex_storage._observe import default_snapshot_path
+
+    _write_snapshot_file(default_snapshot_path())
+    from django.test import RequestFactory
+
+    from scitex_storage._django.views import fleet
+
+    # Act
+    body = fleet(RequestFactory().get("/storage/fleet/")).content.decode()
+    # Assert
+    assert "FLEET-SENTINEL" in body
+
+
+def test_bubbles_view_without_snapshot_names_the_gather_command(scitex_dir):
+    # Arrange
+    _boot()
+    from django.test import RequestFactory
+
+    from scitex_storage._django.views import bubbles
+
+    # Act
+    body = bubbles(RequestFactory().get("/storage/bubbles/")).content.decode()
+    # Assert
+    assert "fleet-status --gather" in body
+
+
+def test_bubbles_view_serves_a_gathered_snapshot(scitex_dir):
+    # Arrange
+    _boot()
+    from scitex_storage._observe import default_bubbles_path
+
+    _write_snapshot_file(default_bubbles_path())
+    from django.test import RequestFactory
+
+    from scitex_storage._django.views import bubbles
+
+    # Act
+    body = bubbles(RequestFactory().get("/storage/bubbles/")).content.decode()
+    # Assert
+    assert "FLEET-SENTINEL" in body
+
+
+def test_sunburst_view_without_snapshot_names_the_gather_command(scitex_dir):
+    # Arrange
+    _boot()
+    from django.test import RequestFactory
+
+    from scitex_storage._django.views import sunburst
+
+    # Act
+    body = sunburst(RequestFactory().get("/storage/sunburst/")).content.decode()
+    # Assert
+    assert "fleet-status --gather" in body
+
+
+def test_sunburst_view_serves_a_gathered_snapshot(scitex_dir):
+    # Arrange
+    _boot()
+    from scitex_storage._observe import default_sunburst_path
+
+    _write_snapshot_file(default_sunburst_path())
+    from django.test import RequestFactory
+
+    from scitex_storage._django.views import sunburst
+
+    # Act
+    body = sunburst(RequestFactory().get("/storage/sunburst/")).content.decode()
+    # Assert
+    assert "FLEET-SENTINEL" in body
+
+
+def test_usage_tab_shows_fleet_links_once_a_snapshot_exists(scitex_dir):
+    # Arrange -- a gathered snapshot turns the promo back on.
+    _boot()
+    from scitex_storage._observe import default_snapshot_path
+
+    _write_snapshot_file(default_snapshot_path())
+    # Act
+    body = _get(scitex_dir, {"tab": "usage"}).content.decode()
+    # Assert
+    assert "Fleet visualizations" in body
 
 
 # EOF

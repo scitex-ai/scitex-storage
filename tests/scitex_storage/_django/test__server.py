@@ -28,6 +28,13 @@ def standalone_pages(tmp_path):
     volume = tmp_path / "volume"
     volume.mkdir()
     (volume / "payload.bin").write_bytes(b"standalone fixture")
+    # Seed one gathered fleet snapshot in the sandboxed state dir: the Usage
+    # tab links the fleet views only once a snapshot exists, and this
+    # server-level proof covers the populated state (the empty state --
+    # no links -- is pinned by the view unit tests).
+    state_runtime = tmp_path / "state" / "scitex-storage" / "runtime"
+    state_runtime.mkdir(parents=True)
+    (state_runtime / "fleet-dashboard.html").write_text("<!doctype html>", encoding="utf-8")
     source = Path(__file__).resolve().parents[3] / "src"
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
         reservation.bind(("127.0.0.1", 0))
