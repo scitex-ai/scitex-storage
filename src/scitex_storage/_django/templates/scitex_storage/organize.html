@@ -45,10 +45,7 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
 {% endblock %}
 {% block scitex_app_content %}
 <div id="stx-storage-app" class="stx-storage" data-app-name="scitex_storage">
-    <header class="stx-storage-head">
-        <h1 class="stx-storage-title"><i class="fas fa-database" aria-hidden="true"></i> {% translate "Storage" %}</h1>
-        <p class="stx-storage-lede">{% translate "Organize your storage: see usage, resolve duplication, move between tiers." %}</p>
-    </header>
+    {% include "scitex_storage/_app_header.html" %}
 
     <nav class="stx-storage-tabs" role="tablist" aria-label="{% translate 'Storage sections' %}">
         {% for t in tabs %}

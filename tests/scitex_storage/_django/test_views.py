@@ -422,4 +422,62 @@ def test_usage_tab_shows_fleet_links_once_a_snapshot_exists(scitex_dir):
     assert "Fleet visualizations" in body
 
 
+def test_storage_pages_render_shared_app_header_row(tmp_path):
+    """Both Storage surfaces carry the SDK SSoT header row (title slot).
+
+    Operator header mandate (Writer/Scholar shape): the shared
+    ``.stx-app-header`` row replaces the leaf-owned title block, on the
+    Backup placeholder (index.html) AND the organize tabs (organize.html).
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("stx-app-header" in body for body in bodies)
+
+
+def test_storage_header_shows_live_leaf_version(tmp_path):
+    """The shared row shows the LEAF version, never a hand-written string."""
+    # Arrange
+    _boot()
+    from scitex_storage import __version__
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all(f"v{__version__}" in body for body in bodies)
+
+
+def test_storage_header_carries_project_selector_slot(tmp_path):
+    """The canonical project-selector slot is present (empty: user-scope)."""
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("stx-app-header__slot--project-selector" in body for body in bodies)
+
+
+def test_storage_pages_carry_no_bespoke_title_markup(tmp_path):
+    """The old leaf-owned h1.stx-storage-title block is gone everywhere."""
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("stx-storage-title" not in body for body in bodies)
+
+
 # EOF
