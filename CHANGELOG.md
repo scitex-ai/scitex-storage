@@ -7,6 +7,23 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-18
+
+### Added
+
+- Leaf Django resolves project scope via `scitex_sdk` host capabilities
+  only (SDK capability scope resolution, PR #124).
+- Fleet views: `fleet-status --gather` wired to the three GUI snapshots
+  (PR #127).
+- Shared SSoT header row adopted in Storage templates (PR #128).
+
+### Fixed
+
+- Fleet visualizations promo removed from Usage (operator: unneeded)
+  (PR #126).
+- Release workflow hardening: runs-on fallback, pinned checkout, native
+  SIF execution (PR #123).
+
 ## [0.5.5] - 2026-10-08
 
 Vendored shell completion as drop-in module (contract v1, PR #119):
