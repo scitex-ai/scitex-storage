@@ -39,7 +39,11 @@ jobs:
 
   rtd-sphinx-build:
     # Required-status-check context: "rtd-sphinx-build / docs-sphinx"
-    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@main
+    # Pinned to the qualified org revision (2026-10-18): rtd-sphinx-build@main
+    # grew publish jobs requesting contents:write/pull-requests:write, which
+    # fails startup against this caller's read-only scope. Re-pin when the org
+    # ships a caller-permissions contract for the new jobs.
+    uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@8c646081e9f1352077d3d8674052cce7ec75a1b7
     secrets: inherit
 
   # Keep the real integration suite on the admitted org runner workflow.
