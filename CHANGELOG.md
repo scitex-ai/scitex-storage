@@ -7,6 +7,20 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-19
+
+### Fixed
+
+- Storage GUI uses the full hub pane width: dropped the 960px cap on
+  `.stx-storage` (left ~40% of a 1571px pane as dead gutter; siblings
+  Scholar/Writer fill the pane) and laid the per-volume Usage cards out
+  in a responsive auto-fit grid (PR #131).
+- SDK AppHeader primitive mounted plus authed project picker (Writer
+  precedent), replacing the hand-written header (PR #131).
+- Guarded the function-local `django.template` import in
+  `_project_picker_available` (PS-233; one unguarded site poisoned all
+  20 django sites) (PR #131).
+
 ## [0.6.0] - 2026-10-18
 
 ### Added
