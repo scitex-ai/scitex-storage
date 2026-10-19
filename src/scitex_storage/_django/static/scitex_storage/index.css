@@ -7,9 +7,11 @@
   --stx-storage-muted: var(--text-muted, #8b949e);
   box-sizing: border-box;
   width: 100%;
-  max-width: 960px;
+  /* No max-width cap: sibling apps (Scholar .app-main, Writer) fill the hub
+     pane, and capping here at 960px left ~40% of a 1571px pane as dead
+     gutter. Long-form text still caps itself (see .stx-storage-coming p). */
   margin: 0 auto;
-  padding: 20px 16px calc(var(--site-dock-live-height, 0px) + 32px);
+  padding: 20px 24px calc(var(--site-dock-live-height, 0px) + 32px);
   color: var(--text-primary, inherit);
   font-size: 15px;
 }
@@ -64,6 +66,21 @@
   border: 1px solid var(--stx-storage-border);
   border-radius: 12px;
   background: var(--stx-storage-surface);
+  min-width: 0; /* allow grid/flex children to shrink instead of overflowing */
+}
+
+/* Responsive card grid (Usage per-volume cards, Move tier cards): side by
+   side on a wide hub pane, single column on narrow/standalone widths. The
+   auto-fit minmax means no fixed breakpoints to maintain. */
+.stx-storage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.stx-storage-grid > .stx-storage-card {
+  margin-bottom: 0;
 }
 
 .stx-storage-machine {
