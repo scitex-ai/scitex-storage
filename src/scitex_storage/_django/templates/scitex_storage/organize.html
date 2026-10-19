@@ -101,6 +101,8 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
         </section>
         {% endif %}
 
+        {% if statuses %}
+        <div class="stx-storage-grid">
         {% for v in statuses %}
         <section class="stx-storage-card">
             <h2 class="stx-storage-machine"><i class="fas fa-hdd" aria-hidden="true"></i> {{ v.volume.label }}</h2>
@@ -117,9 +119,11 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
                 <p class="stx-storage-empty">{% translate "This volume is not reachable from here." %}</p>
             {% endif %}
         </section>
-        {% empty %}
-        <section class="stx-storage-card"><p class="stx-storage-empty">{% translate "No storage is assigned to your account yet." %}</p></section>
         {% endfor %}
+        </div>
+        {% else %}
+        <section class="stx-storage-card"><p class="stx-storage-empty">{% translate "No storage is assigned to your account yet." %}</p></section>
+        {% endif %}
 
         <section class="stx-storage-card">
             <h2 class="stx-storage-machine"><i class="fas fa-folder-tree" aria-hidden="true"></i> {% translate "Per-folder breakdown" %}</h2>
