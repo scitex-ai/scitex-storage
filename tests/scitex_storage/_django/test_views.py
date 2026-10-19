@@ -423,11 +423,12 @@ def test_usage_tab_shows_fleet_links_once_a_snapshot_exists(scitex_dir):
 
 
 def test_storage_pages_render_shared_app_header_row(tmp_path):
-    """Both Storage surfaces carry the SDK SSoT header row (title slot).
+    """Both Storage surfaces mount the SDK AppHeader primitive (CCT4618).
 
-    Operator header mandate (Writer/Scholar shape): the shared
-    ``.stx-app-header`` row replaces the leaf-owned title block, on the
-    Backup placeholder (index.html) AND the organize tabs (organize.html).
+    Operator SSoT: the header row must match all apps exactly — one row,
+    only the app name differs. The row itself is SDK-owned
+    (ts/app/app-header renders it client-side); what the server must emit
+    is the primitive's mount root, so that is what is pinned here.
     """
     # Arrange
     _boot()
@@ -437,11 +438,29 @@ def test_storage_pages_render_shared_app_header_row(tmp_path):
         _get(tmp_path, {"tab": "usage"}).content.decode(),
     )
     # Assert
-    assert all("stx-app-header" in body for body in bodies)
+    assert all("data-stx-app-header" in body for body in bodies)
 
 
-def test_storage_header_shows_live_leaf_version(tmp_path):
-    """The shared row shows the LEAF version, never a hand-written string."""
+def test_storage_header_mount_carries_leaf_title(tmp_path):
+    """The mount root stamps the translated leaf title.
+
+    The "v" prefix and the hide-when-unknown rule are SDK-owned (covered by
+    the SDK's own contract tests); the leaf's job is passing the right
+    values in, never a hand-written string and never the host's version.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all('data-app-title="Storage"' in body for body in bodies)
+
+
+def test_storage_header_mount_carries_leaf_version(tmp_path):
+    """The mount root stamps the LEAF package version (never the host's)."""
     # Arrange
     _boot()
     from scitex_storage import __version__
@@ -451,11 +470,11 @@ def test_storage_header_shows_live_leaf_version(tmp_path):
         _get(tmp_path, {"tab": "usage"}).content.decode(),
     )
     # Assert
-    assert all(f"v{__version__}" in body for body in bodies)
+    assert all(f'data-app-version="{__version__}"' in body for body in bodies)
 
 
-def test_storage_header_carries_project_selector_slot(tmp_path):
-    """The canonical project-selector slot is present (empty: user-scope)."""
+def test_storage_header_loads_sdk_header_css(tmp_path):
+    """Both pages load the SDK header CSS (the row's 40px shape lives there)."""
     # Arrange
     _boot()
     # Act
@@ -464,10 +483,28 @@ def test_storage_header_carries_project_selector_slot(tmp_path):
         _get(tmp_path, {"tab": "usage"}).content.decode(),
     )
     # Assert
-    assert all("stx-app-header__slot--project-selector" in body for body in bodies)
+    assert all("scitex_sdk/ui/css/app/app-header.css" in body for body in bodies)
 
 
-def test_storage_pages_carry_no_bespoke_title_markup(tmp_path):
+def test_storage_header_loads_sdk_header_module(tmp_path):
+    """Both pages load the prebuilt auto-mount module.
+
+    The primitive is code, not just classes: without app-header.js nothing
+    mounts the [data-stx-app-header] root and the page ships a header mount
+    that never renders.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("scitex_sdk/ui/js/app/app-header.js" in body for body in bodies)
+
+
+def test_storage_pages_carry_no_bespoke_title_class(tmp_path):
     """The old leaf-owned h1.stx-storage-title block is gone everywhere."""
     # Arrange
     _boot()
@@ -478,6 +515,129 @@ def test_storage_pages_carry_no_bespoke_title_markup(tmp_path):
     )
     # Assert
     assert all("stx-storage-title" not in body for body in bodies)
+
+
+def test_storage_pages_carry_no_handwritten_header_row(tmp_path):
+    """No hand-written <header class="stx-app-header..."> anywhere.
+
+    The row is SDK-owned and client-rendered; a server-rendered copy would
+    double-mount (or drift from) the primitive.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all('<header class="stx-app-header' not in body for body in bodies)
+
+
+def test_storage_pages_carry_no_leaf_row_class(tmp_path):
+    """No leaf-local row class: the only Storage string on the row is title."""
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("storage-app-header" not in body for body in bodies)
+
+
+def _both_surfaces_with_provider(tmp_path, provider_url="/stub-projects/"):
+    """Render Backup (index) + Usage (organize) with a host provider URL set."""
+    from django.test import override_settings
+
+    with override_settings(SCITEX_PROJECT_PROVIDER_URL=provider_url):
+        return (
+            _get(tmp_path, {"tab": "backup"}).content.decode(),
+            _get(tmp_path, {"tab": "usage"}).content.decode(),
+        )
+
+
+def test_storage_header_renders_picker_element_with_provider(tmp_path):
+    """Both surfaces carry the picker element the mover drops in the slot.
+
+    Operator CCT4707: the content dump showed an empty picker slot because
+    NOTHING server-rendered a picker at all. With the host provider URL set
+    (the hub sets ``SCITEX_PROJECT_PROVIDER_URL``; standalone leaves it
+    empty) both surfaces must carry the ``data-stx-project-picker`` element
+    — the same element Writer serves.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = _both_surfaces_with_provider(tmp_path)
+    # Assert
+    assert all("data-stx-project-picker" in body for body in bodies)
+
+
+def test_storage_header_picker_points_at_host_provider(tmp_path):
+    """The rendered picker fetches from the host's provider URL, not a guess.
+
+    The tag resolves ``settings.SCITEX_PROJECT_PROVIDER_URL`` (a literal
+    path passes through; a URL name reverses) and stamps it as
+    ``data-provider-url`` for the picker's HTTP transport.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = _both_surfaces_with_provider(tmp_path, "/stub-projects/")
+    # Assert
+    assert all('data-provider-url="/stub-projects/"' in body for body in bodies)
+
+
+def test_storage_header_includes_picker_mover_with_provider(tmp_path):
+    """Both surfaces include the leaf mover that slots the picker (CCT4707).
+
+    The SDK AppHeader primitive only ever CREATES the canonical slot — the
+    leaf-owned ``header-picker.js`` moves the server-rendered picker into it
+    after mount (module order after both auto-mounts, fail-soft otherwise).
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = _both_surfaces_with_provider(tmp_path)
+    # Assert
+    assert all("scitex_storage/header-picker.js" in body for body in bodies)
+
+
+def test_storage_header_renders_no_picker_markup_without_provider(tmp_path):
+    """Standalone (no host provider) ships no picker markup.
+
+    The tag yields ``""`` without ``SCITEX_PROJECT_PROVIDER_URL``, so the
+    content dump stays exactly as before the picker slice: mount root only,
+    no dead picker element fetching nowhere.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("data-stx-project-picker" not in body for body in bodies)
+
+
+def test_storage_header_stamps_no_provider_url_without_provider(tmp_path):
+    """Without a host provider no provider URL is stamped anywhere.
+
+    Guards the fail-closed direction: no setting means no
+    ``data-provider-url`` attribute the picker transport could read.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("data-provider-url" not in body for body in bodies)
 
 
 # EOF

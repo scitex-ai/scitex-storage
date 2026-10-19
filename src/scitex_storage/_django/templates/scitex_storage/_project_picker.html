@@ -1,0 +1,21 @@
+{% load scitex_project_picker %}{% comment %}
+Storage project picker — the element the SDK AppHeader slot receives.
+
+Writer-shaped: the picker is server-rendered here (inside the leaf header
+include) and moved into the canonical
+`.stx-app-header__slot--project-selector` slot client-side by
+`scitex_storage/header-picker.js`. The tag itself renders NOTHING unless the
+request is signed in AND the host registered a project provider
+(`settings.SCITEX_PROJECT_PROVIDER_URL`, which the hub sets and standalone
+leaves empty) — so standalone serves byte-identical markup to before, and a
+hub-mounted authed user gets the same picker Writer/Scholar show.
+
+Scope is passed EXPLICITLY (`scope="project"`): Storage's file API is
+project-scoped (hub `get_current_project` + `can_view`), and the tag's scope
+parameter is what decides rendering — never the manifest default.
+
+Included only when `project_picker_available` (views/organize set it by
+probing the template engines, Writer's `_project_picker_available`
+precedent): `{% load %}`ing a library that is not installed is a hard
+TemplateSyntaxError, so the guard lives in the caller, not here.
+{% endcomment %}{% scitex_project_picker scope="project" %}

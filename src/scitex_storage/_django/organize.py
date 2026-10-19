@@ -163,6 +163,7 @@ def _base_context(active: str) -> dict:
         **_views._leaf_identity(),
         "app_label": _views._app_label("SciTeX Storage"),
         "favicon_href": FAVICON_HREF,
+        "project_picker_available": _views._project_picker_available(),
         "tabs": [
             {"key": key, "label": label, "soon": soon, "active": key == active}
             for key, label, soon in ORGANIZE_TABS

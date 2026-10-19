@@ -89,6 +89,21 @@ def _leaf_identity() -> dict:
     return {"storage_version": __version__}
 
 
+def _project_picker_available() -> bool:
+    """True when the host registered the `scitex_project_picker` tag library.
+
+    Writer's `_project_picker_available` precedent, same reason: the picker
+    partial `{% load %}`s a library the host provides, and loading a missing
+    library is a hard TemplateSyntaxError — so the header renders the picker
+    include only when the tag resolves. Standalone `scitex-storage gui`
+    without the SDK UI (or any host without the library) gets no picker
+    markup at all rather than a 500.
+    """
+    from django.template import engines
+
+    return "scitex_project_picker" in engines["django"].engine.template_libraries
+
+
 #: Tabs of the storage app. Usage/Duplicates/Move are real views (see
 #: :mod:`.organize`); only Backup is still a placeholder.
 TABS = (
@@ -116,6 +131,7 @@ def index(request):
         **_leaf_identity(),
         "app_label": _app_label("SciTeX Storage"),
         "favicon_href": FAVICON_HREF,
+        "project_picker_available": _project_picker_available(),
         "tabs": _tab_context(tab),
         "tab": tab,
     }
