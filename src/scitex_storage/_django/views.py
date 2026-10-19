@@ -99,7 +99,13 @@ def _project_picker_available() -> bool:
     without the SDK UI (or any host without the library) gets no picker
     markup at all rather than a 500.
     """
-    from django.template import engines
+    try:
+        from django.template import engines
+    except ImportError as exc:
+        raise ImportError(
+            "scitex-storage GUI views require Django: "
+            "pip install scitex-storage[gui]"
+        ) from exc
 
     return "scitex_project_picker" in engines["django"].engine.template_libraries
 
