@@ -20,6 +20,11 @@ tags: [scitex-storage-gui-shared-elements]
 - Tabs (`?tab=` server-rendered links) stay leaf-owned until the SDK
   content-tabs standard is consumable AND adoption guidance exists —
   converging without guidance is guessing.
+- Organize tabs carry an in-tab scope control (`?scope=all|project`,
+  All-projects default): project scope scans/resolves within the active
+  `ProjectScope` (fail-closed `None` renders an explicit no-project
+  notice, never a silent fallback); move planning additionally confines
+  the source inside the project dir (double containment).
 - The Move plan display names the delete gate (count-and-size read-back by
   default, `--verify-content` for the independent re-hash) — same honesty
   as the CLI "delete cleared by" line.

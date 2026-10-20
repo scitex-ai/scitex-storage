@@ -767,3 +767,125 @@ def test_leaf_pane_padding_stays_tight():
     block = match.group(1)
     # Assert -- 12px top / 16px sides; the old 20px/24px read as margins.
     assert "padding: 12px 16px calc(var(--site-dock-live-height, 0px) + 16px)" in block
+
+
+class _ScopeUser:
+    def __init__(self, username):
+        self.username = username
+        self.is_authenticated = True
+
+
+class _ScopeProject:
+    def __init__(self, path, name="Paper Project"):
+        self._path = path
+        self.name = name
+
+    def get_local_path(self):
+        from pathlib import Path
+
+        return Path(self._path)
+
+
+def _get_scoped(tmp_path, params, username=None, project_path=None, project_name="Paper Project"):
+    """GET through the index view with an optional authed user + project seam."""
+    from django.test import RequestFactory, override_settings
+
+    from scitex_storage._django import project_files
+    from scitex_storage._django.views import index
+
+    _VOLUME_ROOT["path"] = str(tmp_path)
+    dotted = f"{__name__}.provide_test_volumes"
+    request = RequestFactory().get("/storage/", params)
+    prev = project_files._GET_CURRENT_PROJECT
+    if username is not None:
+        request.user = _ScopeUser(username)
+
+        def seam(request, user=None):
+            return _ScopeProject(project_path, project_name)
+
+        project_files._GET_CURRENT_PROJECT = seam
+    try:
+        with override_settings(SCITEX_STORAGE_VOLUMES_PROVIDER=dotted):
+            return index(request)
+    finally:
+        project_files._GET_CURRENT_PROJECT = prev
+
+
+def test_usage_shows_scope_control_defaulting_to_all_projects(tmp_path):
+    # Arrange
+    _boot()
+    # Act
+    body = _get(tmp_path, {}).content.decode()
+    # Assert
+    assert "scope=project" in body
+
+
+def test_usage_project_scope_without_project_names_no_project(tmp_path):
+    # Arrange -- no authed user, so no project can resolve.
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "usage", "scope": "project"}).content.decode()
+    # Assert
+    assert "No project in scope" in body
+
+
+def test_usage_project_scope_scans_the_project_directory(tmp_path):
+    # Arrange -- project dir holds the only file; the volume root is empty.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+    # Act
+    body = _get_scoped(
+        tmp_path, {"tab": "usage", "scope": "project"}, username="u", project_path=str(proj)
+    ).content.decode()
+    # Assert
+    assert "Paper Project" in body
+
+
+def test_move_project_scope_without_project_refuses_planning(tmp_path):
+    # Arrange
+    _boot()
+    # Act
+    body = _get(
+        tmp_path,
+        {"tab": "move", "scope": "project", "plan": "1", "volume": "mine",
+         "dir": "", "destination": "scitex-nas-01"},
+    ).content.decode()
+    # Assert
+    assert "No project in scope" in body
+
+
+def test_move_project_scope_rejects_dir_outside_project(tmp_path):
+    # Arrange -- project dir is a subdir; planning the volume root escapes it.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    # Act
+    response = _get_scoped(
+        tmp_path,
+        {"tab": "move", "scope": "project", "plan": "1", "volume": "mine",
+         "dir": "", "destination": "scitex-nas-01"},
+        username="u",
+        project_path=str(proj),
+    )
+    # Assert
+    assert response.status_code == 403
+
+
+def test_move_project_scope_plans_dir_inside_project(tmp_path):
+    # Arrange
+    _boot()
+    proj = tmp_path / "proj"
+    (proj / "old-exp").mkdir(parents=True)
+    ((proj / "old-exp") / "a.bin").write_bytes(b"x")
+    # Act
+    body = _get_scoped(
+        tmp_path,
+        {"tab": "move", "scope": "project", "plan": "1", "volume": "mine",
+         "dir": "proj/old-exp", "destination": "scitex-nas-01"},
+        username="u",
+        project_path=str(proj),
+    ).content.decode()
+    # Assert
+    assert "Move plan (not executed)" in body

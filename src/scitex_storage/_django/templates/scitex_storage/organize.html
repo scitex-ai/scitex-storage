@@ -58,6 +58,16 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
         {% endfor %}
     </nav>
 
+    {% if show_scope %}
+    <div class="stx-vol-pick" role="group" aria-label="{% translate 'Disk scope' %}">
+        <a href="{{ scope_all_url }}"{% if scope == "all" %} class="is-active"{% endif %}>{% translate "All projects" %}</a>
+        <a href="{{ scope_project_url }}"{% if scope == "project" %} class="is-active"{% endif %}>{% if project_name %}{% blocktranslate with name=project_name %}Project: {{ name }}{% endblocktranslate %}{% else %}{% translate "This project" %}{% endif %}</a>
+    </div>
+    {% if scope_notice %}
+    <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ scope_notice }}</p></div>
+    {% endif %}
+    {% endif %}
+
     {% if tab == "usage" %}
         <section class="stx-storage-card">
             <h2 class="stx-storage-machine"><i class="fas fa-chart-pie" aria-hidden="true"></i> {% translate "Where your bytes live" %}</h2>
@@ -132,14 +142,14 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
             <div class="stx-vol-pick">
                 {% for v in statuses %}
                     {% if v.status == reachable %}
-                    <a href="?tab=usage&amp;volume={{ v.volume.key|urlencode }}"{% if folder_volume and folder_volume.key == v.volume.key %} class="is-active"{% endif %}>{{ v.volume.label }}</a>
+                    <a href="?tab=usage&amp;volume={{ v.volume.key|urlencode }}{{ scope_qs }}"{% if folder_volume and folder_volume.key == v.volume.key %} class="is-active"{% endif %}>{{ v.volume.label }}</a>
                     {% endif %}
                 {% endfor %}
             </div>
             {% if folder_note %}
                 <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ folder_note }}</p></div>
             {% endif %}
-            {% if folder_segments and folder_volume %}
+            {% if folder_segments and folder_label %}
             <div class="stx-donut-wrap">
                 <svg class="stx-donut" width="180" height="180" viewBox="0 0 160 160" role="img" aria-label="{% translate 'Per-folder usage donut' %}">
                     <circle class="stx-donut-ring" cx="80" cy="80" r="70"></circle>
@@ -153,7 +163,7 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
                     {% endfor %}
                     </g>
                     <text x="80" y="78" text-anchor="middle" class="stx-donut-total">{{ folder_total|filesizeformat }}</text>
-                    <text x="80" y="94" text-anchor="middle" class="stx-donut-sub">{{ folder_volume.label }}</text>
+                    <text x="80" y="94" text-anchor="middle" class="stx-donut-sub">{{ folder_label }}</text>
                 </svg>
                 <ul class="stx-legend">
                     {% for seg in folder_segments %}
@@ -235,6 +245,7 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
             <p class="stx-storage-note">{% translate "Planning is read-only: it measures the folder and shows where it would go. Nothing moves until an operator confirms." %}</p>
             <form method="get" action="">
                 <input type="hidden" name="tab" value="move">
+                {% if scope == "project" %}<input type="hidden" name="scope" value="project">{% endif %}
                 <div class="stx-form-row">
                     <div class="stx-field">
                         <label for="mv-volume">{% translate "From volume" %}</label>
