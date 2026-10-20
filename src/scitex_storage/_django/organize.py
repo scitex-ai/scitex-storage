@@ -178,6 +178,69 @@ def _user_volumes(request):
     return volumes.resolve_user_volumes(request)
 
 
+def _scope_selection(request):
+    """("all"|"project", ProjectScope|None) for the organize tabs.
+
+    Never raises: anything unresolvable reads as no-project-in-scope, and
+    the views render that state explicitly rather than failing closed
+    into a 500 or silently open into user space.
+    """
+    if request.GET.get("scope") != "project":
+        return "all", None
+    from . import project_files
+
+    try:
+        return "project", project_files.resolve_project_scope(request)
+    except Exception:
+        return "project", None
+
+
+def _scope_urls(request, tab):
+    """(all_url, project_url) preserving the tab and the other GET params."""
+    from urllib.parse import urlencode
+
+    keep = [(k, v) for k, v in request.GET.items() if k not in ("tab", "scope")]
+    base = urlencode([("tab", tab)] + keep)
+    return f"?{base}", f"?{base}&scope=project"
+
+
+def _scope_context(request, tab):
+    """Shared scope-control context for the organize tabs."""
+    scope, pscope = _scope_selection(request)
+    all_url, project_url = _scope_urls(request, tab)
+    notice = ""
+    name = ""
+    if scope == "project":
+        if pscope is None:
+            notice = str(
+                _("No project in scope -- showing user space. Pick a project "
+                  "in the header to filter these tabs to it.")
+            )
+        else:
+            name = pscope.name or pscope.slug or str(_("this project"))
+    return {
+        "scope": scope,
+        "show_scope": True,
+        "scope_all_url": all_url,
+        "scope_project_url": project_url,
+        "scope_qs": "&scope=project" if scope == "project" else "",
+        "project_name": name,
+        "scope_notice": notice,
+        "pscope": pscope,
+    }
+
+
+def _within(path, root) -> bool:
+    """True when ``path`` sits inside ``root`` (both resolved)."""
+    from pathlib import Path
+
+    try:
+        Path(path).resolve().relative_to(Path(root).resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def _selected_volume(request, user_volumes, statuses):
     """Pick a volume by ``?volume=`` key, defaulting to the first reachable.
 
@@ -230,7 +293,16 @@ def usage(request):
     folder_volume = _selected_volume(request, user_volumes, statuses)
     if request.GET.get("volume") and folder_volume is None:
         return HttpResponseForbidden(str(_("That volume is not yours.")))
-    if folder_volume is not None:
+    scope_ctx = _scope_context(request, "usage")
+    pscope = scope_ctx["pscope"]
+    folder_label = folder_volume.label if folder_volume is not None else ""
+    scan_root = None
+    if scope_ctx["scope"] == "project" and pscope is not None:
+        # Project scope wins over the volume picker: the breakdown answers
+        # "where do THIS project's bytes live", not "what is on the volume".
+        scan_root = pscope.project_dir
+        folder_label = scope_ctx["project_name"]
+    if folder_volume is not None or scan_root is not None:
         try:
             from scitex_storage import scan as _scan
         except ImportError:
@@ -240,7 +312,8 @@ def usage(request):
                 _("Per-folder breakdown needs the scitex-storage package.")
             )
         else:
-            ok, result = _run_bounded(lambda: _scan(folder_volume.path), SCAN_TIMEOUT_S)
+            root = scan_root if scan_root is not None else folder_volume.path
+            ok, result = _run_bounded(lambda: _scan(root), SCAN_TIMEOUT_S)
             if ok:
                 top = result.by_size()[:8]
                 folder_items = [(c.name, c.size) for c in top]
@@ -274,11 +347,13 @@ def usage(request):
 
     context = {
         **_base_context("usage"),
+        **scope_ctx,
         "fleet_segments": donut_segments(fleet_items),
         "fleet_total": sum(v for _label, v in fleet_items),
         "statuses": statuses,
         "reachable": volumes.REACHABLE,
         "folder_volume": folder_volume,
+        "folder_label": folder_label,
         "folder_segments": donut_segments(folder_items),
         "folder_total": sum(v for _label, v in folder_items),
         "folder_note": folder_note,
@@ -298,6 +373,11 @@ def duplicates(request):
         for st in statuses
         if st.status == volumes.REACHABLE and st.volume.path.is_dir()
     ]
+    scope_ctx = _scope_context(request, "duplicates")
+    pscope = scope_ctx["pscope"]
+    if scope_ctx["scope"] == "project" and pscope is not None:
+        # Duplicates within the project only: same report, narrower roots.
+        roots = [pscope.project_dir]
 
     groups: list[dict] = []
     reclaimable: int | None = None
@@ -368,6 +448,7 @@ def duplicates(request):
 
     context = {
         **_base_context("duplicates"),
+        **scope_ctx,
         "groups": groups,
         "group_total": len(groups),
         "truncated": False,
@@ -407,6 +488,8 @@ def move(request):
     form_volume = request.GET.get("volume", "")
     form_dir = request.GET.get("dir", "")
     form_dest = request.GET.get("destination", "")
+    scope_ctx = _scope_context(request, "move")
+    pscope = scope_ctx["pscope"]
     if "plan" in request.GET:
         volume = volumes.find_volume(user_volumes, form_volume)
         if volume is None:
@@ -415,7 +498,16 @@ def move(request):
             source = volumes.contained_dir(volume, (form_dir or "").strip().strip("/"))
         except Exception:
             return HttpResponseForbidden(str(_("That folder is outside the volume.")))
-        if form_dest not in destinations:
+        if scope_ctx["scope"] == "project":
+            if pscope is None:
+                plan_error = scope_ctx["scope_notice"]
+            elif not _within(source, pscope.project_dir):
+                return HttpResponseForbidden(
+                    str(_("That folder is outside the current project."))
+                )
+        if plan_error:
+            pass
+        elif form_dest not in destinations:
             plan_error = str(
                 _("Pick an archive tier: %(tiers)s.")
                 % {"tiers": ", ".join(destinations) if destinations else "—"}
@@ -453,6 +545,7 @@ def move(request):
 
     context = {
         **_base_context("move"),
+        **scope_ctx,
         "tiers": sorted(tiers.items()),
         "reachable": volumes.REACHABLE,
         "destinations": destinations,
