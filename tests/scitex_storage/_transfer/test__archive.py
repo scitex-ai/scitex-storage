@@ -1453,3 +1453,21 @@ def test_apply_archive_records_destination_tier_on_manifest(tmp_path, sandbox_ho
     manifest = apply_archive(plan, runner=_FakeRunner(returncode=0))
     # Assert
     assert manifest.destination_tier == "tier1"
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_records_content_digest_when_content_gate_runs(
+    tmp_path, sandbox_home
+):
+    # Arrange
+    from scitex_storage._transfer._content_verify import digest_tree, tree_digest
+
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(
+        plan, verify_content_too=True, runner=_FaithfulDigestRunner()
+    )
+    # Assert
+    assert manifest.content_digest == tree_digest(digest_tree(str(source)))

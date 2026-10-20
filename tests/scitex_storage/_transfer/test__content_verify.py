@@ -476,3 +476,45 @@ def test_remote_tally_none_is_not_zero_still_holds():
     assert verdict.may_remove_source is False
 
 # EOF
+
+
+def test_tree_digest_is_order_independent():
+    # Arrange
+    from scitex_storage._transfer._content_verify import ContentManifest, tree_digest
+
+    first = ContentManifest(digests={"b": "0" * 64, "a": "1" * 64})
+    second = ContentManifest(digests={"a": "1" * 64, "b": "0" * 64})
+    # Act
+    digest = tree_digest(first)
+    # Assert
+    assert digest == tree_digest(second)
+
+
+def test_tree_digest_moves_when_any_entry_moves():
+    # Arrange
+    from scitex_storage._transfer._content_verify import ContentManifest, tree_digest
+
+    before = ContentManifest(digests={"a": "1" * 64})
+    after = ContentManifest(digests={"a": "2" * 64})
+    # Act
+    digest = tree_digest(before)
+    # Assert
+    assert digest != tree_digest(after)
+
+
+def test_tree_digest_agrees_across_local_and_remote_manifests(tmp_path):
+    # Arrange -- the scrub comparison: a locally-hashed tree and the same
+    # tree hashed on the far side must reduce to the same digest, or every
+    # cold re-verify would cry wolf.
+    from scitex_storage._transfer._content_verify import digest_tree, tree_digest
+    from scitex_storage._transfer._remote_digest import parse_remote_manifest
+
+    (tmp_path / "a.bin").write_bytes(b"alpha")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "b.bin").write_bytes(b"beta")
+    local = digest_tree(str(tmp_path))
+    lines = "".join(f"{h} ./{rel}\n" for rel, h in sorted(local.digests.items()))
+    # Act
+    digest = tree_digest(local)
+    # Assert
+    assert digest == tree_digest(parse_remote_manifest(lines))

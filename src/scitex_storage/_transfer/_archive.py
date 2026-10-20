@@ -71,7 +71,7 @@ from pathlib import Path
 
 from scitex_ssh import SSHResult, exec_remote, sync_dir
 
-from ._content_verify import digest_tree, verify_content
+from ._content_verify import digest_tree, tree_digest, verify_content
 from ._remote_digest import REMOTE_DIGEST_CMD, parse_remote_manifest
 
 from ._archive_transport import (
@@ -235,6 +235,12 @@ class ArchiveManifest:
     #: Tier of the destination host (canonical :mod:`.._tiers` facts).
     #: Defaulted so older manifests still load via from_dict.
     destination_tier: str = "unknown"
+    #: Canonical tree digest of the SOURCE at archive time, recorded ONLY
+    #: when the content gate ran (--verify-content: the source was hashed
+    #: anyway, so keeping its digest costs nothing). Empty when the delete
+    #: was cleared by tally -- a scrub then falls back to tally compare and
+    #: reports content as unknown rather than manufacturing a baseline.
+    content_digest: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -382,6 +388,7 @@ def apply_archive(
         observed=observed,
     )
     method = "tally"
+    content_digest = ""
 
     # OPTIONAL SECOND GATE: compare CONTENT, not a tally of it.
     #
@@ -415,8 +422,9 @@ def apply_archive(
             REMOTE_DIGEST_CMD.format(path=_quote_remote_path(plan.remote_path)),
             runner=runner,
         )
+        source_manifest = digest_tree(str(plan.source))
         content_verdict = verify_content(
-            digest_tree(str(plan.source)),
+            source_manifest,
             parse_remote_manifest(
                 digest_probe.stdout, probe_succeeded=digest_probe.success
             ),
@@ -426,6 +434,9 @@ def apply_archive(
         # actually decided, not from the weaker one that happened to run first.
         verdict = content_verdict
         method = "content"
+        # The source was hashed anyway: keep its canonical digest as the
+        # scrub baseline at zero marginal cost.
+        content_digest = tree_digest(source_manifest)
 
     manifest = ArchiveManifest(
         source=str(plan.source),
@@ -446,6 +457,7 @@ def apply_archive(
         verification_method=method,
         sidecar_path=manifest_sidecar_remote_path(plan.remote_path),
         destination_tier=tier_of_destination(plan.destination),
+        content_digest=content_digest,
     )
     plan.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     plan.manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))
