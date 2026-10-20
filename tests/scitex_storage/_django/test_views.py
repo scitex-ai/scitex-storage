@@ -1048,3 +1048,24 @@ def test_move_button_uses_sdk_button_primitive():
         "form-controls.css" in text,
         ".stx-btn {" not in text,
     ) == (True, True, True)
+
+
+def test_selected_tab_text_stays_monochrome():
+    # Arrange -- operator verdict: only the underline carries accent; the
+    # selected label stays in the monochrome range, never gold/navy text.
+    import re
+    from pathlib import Path
+
+    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    match = re.search(
+        r'\.stx-content-tabs__tab\[aria-selected="true"\]\s*\{(.*?)\}', body, re.S
+    )
+    # Act
+    block = match.group(1)
+    lines = [ln.strip() for ln in block.splitlines()]
+    # Assert -- label monochrome, underline accent: each in its own line.
+    assert (
+        "color: var(--text-primary, inherit);" in lines,
+        "border-bottom: 2px solid var(--accent, #1a2a40);" in lines,
+    ) == (True, True)
