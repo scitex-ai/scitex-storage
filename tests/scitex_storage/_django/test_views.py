@@ -641,3 +641,77 @@ def test_storage_header_stamps_no_provider_url_without_provider(tmp_path):
 
 
 # EOF
+
+
+def _leaf_storage_block():
+    """Declarations of the leaf ``.stx-storage`` rule, comments stripped."""
+    import re
+    from pathlib import Path
+
+    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    stripped = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    match = re.search(r"^\.stx-storage \{(.*?)\}", stripped, re.M | re.S)
+    if match is None:
+        raise ValueError("leaf .stx-storage rule must still exist")
+    return match.group(1)
+
+
+def test_organize_roots_carry_shared_layout_fill(tmp_path):
+    """Usage/Move/Duplicates roots use the SDK width contract, not a leaf rule."""
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+        _get(tmp_path, {"tab": "move"}).content.decode(),
+        _get(tmp_path, {"tab": "duplicates"}).content.decode(),
+    )
+    # Assert
+    assert all('class="stx-storage stx-layout-fill"' in body for body in bodies)
+
+
+def test_backup_root_carries_shared_layout_fill(tmp_path):
+    """Backup placeholder (index.html) carries the same shared root class."""
+    # Arrange
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "backup"}).content.decode()
+    # Assert
+    assert 'class="stx-storage stx-layout-fill"' in body
+
+
+def test_templates_load_shared_sdk_layout_css(tmp_path):
+    """Both templates link the SDK utility stylesheet (app_shell is a shim)."""
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("scitex_sdk/ui/css/utils/layout.css" in body for body in bodies)
+
+
+def test_leaf_sets_no_width_rule(tmp_path):
+    """No competing ``width`` on the leaf root (SDK no-!important contract)."""
+    # Arrange
+    _boot()
+    # Act
+    import re
+
+    props = re.findall(r"^\s*([a-z-]+)\s*:", _leaf_storage_block(), re.M)
+    # Assert
+    assert "width" not in props
+
+
+def test_leaf_sets_no_max_width_rule(tmp_path):
+    """No competing ``max-width`` on the leaf root (SDK no-!important contract)."""
+    # Arrange
+    _boot()
+    # Act
+    import re
+
+    props = re.findall(r"^\s*([a-z-]+)\s*:", _leaf_storage_block(), re.M)
+    # Assert
+    assert "max-width" not in props

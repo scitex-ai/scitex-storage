@@ -1,5 +1,5 @@
 {% extends "scitex_sdk/app/app_shell.html" %}
-{% load i18n scitex_static %}
+{% load i18n static scitex_static %}
 {% comment %}
 Storage organize tabs (Usage / Duplicates / Move), leaf-owned.
 The Backup tab is still served by the upstream scitex-storage view;
@@ -7,6 +7,8 @@ this template covers only the three tabs dispatched to storage_app.organize.
 Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
 {% endcomment %}
 {% block extra_css %}
+    {# Shared full-pane width contract (scitex-sdk>=0.3.8); see index.html. #}
+    <link rel="stylesheet" href="{% static 'scitex_sdk/ui/css/utils/layout.css' %}">
     <link rel="stylesheet" href="{% app_static 'scitex_storage/index.css' %}">
     <style>
     .stx-donut-wrap { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
@@ -44,7 +46,7 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
     </style>
 {% endblock %}
 {% block scitex_app_content %}
-<div id="stx-storage-app" class="stx-storage" data-app-name="scitex_storage">
+<div id="stx-storage-app" class="stx-storage stx-layout-fill" data-app-name="scitex_storage">
     {% include "scitex_storage/_app_header.html" %}
 
     <nav class="stx-storage-tabs" role="tablist" aria-label="{% translate 'Storage sections' %}">
