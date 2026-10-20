@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.10] - 2026-10-20
+
+### Fixed
+
+- Usage pane side margins 16px → 8px (CCT4926; top 12px, bottom dock+16px
+  stay). Shipped live via hub collectstatic the same night.
+
 ## [0.6.9] - 2026-10-20
 
 ### Added
