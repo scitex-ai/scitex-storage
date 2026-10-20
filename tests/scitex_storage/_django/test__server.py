@@ -64,7 +64,12 @@ def standalone_pages(tmp_path):
                                    cwd=tmp_path, env=env, stdout=log, stderr=log)
         try:
             root = f"http://127.0.0.1:{port}"
-            deadline = time.monotonic() + 5
+            # Generous on purpose: under xdist parallel load on shared
+            # runners, Django boot has needed well over 5s four times in one
+            # night (2026-10-20), each green on rerun. A readiness deadline
+            # tighter than the slowest healthy boot is a flake factory, and
+            # this probe gates the whole suite (-x) when it misfires.
+            deadline = time.monotonic() + 30
             while True:
                 if process.poll() is not None:
                     log.seek(0)
@@ -77,7 +82,11 @@ def standalone_pages(tmp_path):
                     break
                 except (URLError, TimeoutError):
                     if time.monotonic() >= deadline:
-                        raise TimeoutError("standalone did not become ready")
+                        log.seek(0)
+                        tail = log.read()[-4000:]
+                        raise TimeoutError(
+                            "standalone did not become ready within 30s; "
+                            f"server log tail:\n{tail}")
                     time.sleep(0.05)
             pages = {}
             for name, route in {"usage": "/?tab=usage&volume=fixture",
