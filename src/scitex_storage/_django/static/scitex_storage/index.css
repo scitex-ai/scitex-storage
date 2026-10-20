@@ -37,7 +37,10 @@
 
 /* Operator verdict 2026-10-20: the shared selected state curls (radius +
    inset shadow round the 2px indicator). Approved Cards pattern instead:
-   transparent bg, 2px solid accent bottom border, weight 700, NO radius. */
+   transparent bg, 2px solid accent bottom border, weight 700, NO radius.
+   NOTE: the SDK primitive now carries this exact verdict itself (proxy fix
+   0a45d6e); this rule stays as a floor-guard so installs on older SDK
+   floors render identically. Same values, same outcome. */
 .stx-content-tabs__tab[aria-selected="true"] {
   background: transparent;
   border: 1px solid transparent;
