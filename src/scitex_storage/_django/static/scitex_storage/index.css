@@ -38,16 +38,18 @@
 /* Operator verdict 2026-10-20: the shared selected state curls (radius +
    inset shadow round the 2px indicator). Approved Cards pattern instead:
    transparent bg, 2px solid accent bottom border, weight 700, NO radius.
-   NOTE: the SDK primitive now carries this exact verdict itself (proxy fix
-   0a45d6e); this rule stays as a floor-guard so installs on older SDK
-   floors render identically. Same values, same outcome. */
+   NOTE: the SDK primitive now carries the straight underline itself (proxy
+   fix 0a45d6e); this rule stays as a floor-guard for older SDK floors, and
+   goes one step further per verdict: the label stays monochrome while the
+   primitive paints it accent. */
 .stx-content-tabs__tab[aria-selected="true"] {
   background: transparent;
-  border: 1px solid transparent;
+  border: none;
   border-bottom: 2px solid var(--accent, #1a2a40);
   border-radius: 0;
   box-shadow: none;
-  color: var(--accent, #1a2a40);
+  /* Label stays monochrome: only the underline carries accent. */
+  color: var(--text-primary, inherit);
   font-weight: 700;
 }
 
