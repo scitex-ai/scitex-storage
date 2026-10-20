@@ -765,8 +765,8 @@ def test_leaf_pane_padding_stays_tight():
     match = re.search(r"^\.stx-storage \{(.*?)\}", body, re.M | re.S)
     # Act
     block = match.group(1)
-    # Assert -- 12px top / 16px sides; the old 20px/24px read as margins.
-    assert "padding: 12px 16px calc(var(--site-dock-live-height, 0px) + 16px)" in block
+    # Assert -- 12px top / 8px sides; the old 16px sides read as margins.
+    assert "padding: 12px 8px calc(var(--site-dock-live-height, 0px) + 16px)" in block
 
 
 class _ScopeUser:
