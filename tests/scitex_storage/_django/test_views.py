@@ -953,9 +953,9 @@ def test_selected_tab_uses_cards_pattern():
     ) == (True, True, True, True)
 
 
-def test_picker_pills_have_no_curly_radius():
-    # Arrange -- operator verdict: no curly highlight anywhere; the pill
-    # radius (999px) on scope/volume picks is a curl by construction.
+def test_picker_pills_keep_pill_radius():
+    # Arrange -- operator verdict: curly OBJECTS are acceptable; only the
+    # selected-state highlight must be straight. Pills stay round.
     import re
     from pathlib import Path
 
@@ -966,4 +966,4 @@ def test_picker_pills_have_no_curly_radius():
     # Act
     block = match.group(1)
     # Assert
-    assert ("border-radius: 0" in block, "999px" not in block) == (True, True)
+    assert "border-radius: 999px" in block
