@@ -152,20 +152,22 @@ def main(ctx: click.Context, help_recursive: bool, as_json: bool) -> None:
 # Adding a verb means adding one registry line, and it can no longer break
 # unrelated verbs at import time.
 #
-# TWO EXCEPTIONS, attached eagerly on purpose. The CLI-conventions audit
-# (§1a) requires `list-python-apis` and an `mcp` group to be DISCOVERABLE,
-# and it introspects the attached-command mapping rather than calling
-# `list_commands()`/`get_command()`, so lazily-registered verbs are invisible
-# to it. Attaching these two costs nothing and reintroduces no coupling:
-# both import only stdlib, click, `._compat` and `scitex_storage` itself --
-# verified, not assumed. The failure this module exists to prevent came in
-# through `_archive_cmd` -> `_archive` -> `scitex_ssh`, an EXTERNAL sibling
-# package, and neither of these touches one.
+# THREE EXCEPTIONS, attached eagerly on purpose. The CLI-conventions audit
+# (§1a) requires `list-python-apis`, an `mcp` group and a `skills` group to
+# be DISCOVERABLE, and it introspects the attached-command mapping rather
+# than calling `list_commands()`/`get_command()`, so lazily-registered
+# verbs are invisible to it. Attaching these three costs nothing and
+# reintroduces no coupling: all import only stdlib, click, `._compat` and
+# `scitex_storage` itself -- verified, not assumed. The failure this module
+# exists to prevent came in through `_archive_cmd` -> `_archive` ->
+# `scitex_ssh`, an EXTERNAL sibling package, and none of these touches one.
 from ._introspect import list_python_apis  # noqa: E402
 from ._mcp_commands import mcp  # noqa: E402
+from ._skills_cmd import skills_group  # noqa: E402
 
 main.add_command(list_python_apis)
 main.add_command(mcp)
+main.add_command(skills_group, name="skills")
 
 # §1a: install-shell-completion + print-shell-completion (canonical leaves).
 # Vendored drop-in module (``._completion``): stdlib + click only, so shell

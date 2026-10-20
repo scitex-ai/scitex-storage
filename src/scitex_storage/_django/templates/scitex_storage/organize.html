@@ -266,6 +266,7 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
                 <div class="stx-storage-ok">
                     <strong>{% translate "Move plan (not executed)." %}</strong>
                     {% blocktranslate with size=plan.size_bytes|filesizeformat count=plan.file_count src=plan.source dest=plan.destination remote=plan.remote_path %}{{ size }} in {{ count }} files: {{ src }} → {{ dest }}:{{ remote }}{% endblocktranslate %}
+                    <p class="stx-storage-note" style="margin: 4px 0 0">{% translate "Applying this clears the delete on a count-and-size read-back. For an independent per-file re-hash of both trees first, add" %} <code class="stx-cli">--verify-content</code></p>
                 </div>
             {% endif %}
             <div class="stx-storage-warn">

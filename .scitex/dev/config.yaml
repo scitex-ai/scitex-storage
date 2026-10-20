@@ -15,9 +15,3 @@
 # it carried (no new modules at this root) was unenforceable precisely BECAUSE
 # the rule was masked — a guard cannot fire through the exemption that hides it.
 # That is why the count kept moving with nobody noticing.
-
-audit:
-  root-whitelist:
-    # Battery-included agent skill doc (skills/scitex-storage/SKILL.md);
-    # ships in the wheel via force-include. A declared layout, not a skip.
-    dirs: [skills]
