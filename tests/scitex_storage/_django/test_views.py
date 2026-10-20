@@ -889,3 +889,34 @@ def test_move_project_scope_plans_dir_inside_project(tmp_path):
     ).content.decode()
     # Assert
     assert "Move plan (not executed)" in body
+
+
+def test_tabs_use_shared_content_tabs_primitive(tmp_path):
+    # Arrange -- converge on the SDK standard (underline-only selected):
+    # shared container + item classes, selected state via aria-selected.
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+    )
+    # Assert
+    assert all(
+        'class="stx-content-tabs"' in body
+        and "stx-content-tabs__tab" in body
+        and "scitex_sdk/ui/css/app/content-tabs.css" in body
+        for body in bodies
+    )
+
+
+def test_leaf_carries_no_private_tabs_variant(tmp_path):
+    # Arrange -- the reinvented .stx-storage-tabs/.stx-storage-tab is gone.
+    import re
+    from pathlib import Path
+
+    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    # Act
+    private = re.findall(r"\.stx-storage-tabs?\b", body)
+    # Assert
+    assert private == []

@@ -7,8 +7,9 @@ this template covers only the three tabs dispatched to storage_app.organize.
 Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
 {% endcomment %}
 {% block extra_css %}
-    {# Shared full-pane width contract (scitex-sdk>=0.3.8); see index.html. #}
+    {# Shared tab contracts (scitex-sdk>=0.3.9, underline-only selected); see index.html. #}
     <link rel="stylesheet" href="{% static 'scitex_sdk/ui/css/utils/layout.css' %}">
+    <link rel="stylesheet" href="{% static 'scitex_sdk/ui/css/app/content-tabs.css' %}">
     <link rel="stylesheet" href="{% app_static 'scitex_storage/index.css' %}">
     <style>
     .stx-donut-wrap { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
@@ -49,9 +50,9 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
 <div id="stx-storage-app" class="stx-storage stx-layout-fill" data-app-name="scitex_storage">
     {% include "scitex_storage/_app_header.html" %}
 
-    <nav class="stx-storage-tabs" role="tablist" aria-label="{% translate 'Storage sections' %}">
+    <nav class="stx-content-tabs" role="tablist" aria-label="{% translate 'Storage sections' %}">
         {% for t in tabs %}
-            <a role="tab" href="?tab={{ t.key }}" class="stx-storage-tab{% if t.active %} is-active{% endif %}"
+            <a role="tab" href="?tab={{ t.key }}" class="stx-content-tabs__tab"
                aria-selected="{% if t.active %}true{% else %}false{% endif %}">
                 {{ t.label }}{% if t.soon %} <span class="stx-storage-soon">{% translate "Soon" %}</span>{% endif %}
             </a>
