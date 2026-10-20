@@ -29,6 +29,25 @@
    UA underline that would double up with the selected indicator. */
 .stx-content-tabs__tab[href] { text-decoration: none; }
 
+/* Operator verdict 2026-10-20 (screenshots): the SDK AppHeader's warm
+   bottom border reads as a peach line between the global header and our
+   top-most content. Removed here (this stylesheet loads only on our
+   pages, so no other app is touched). */
+.stx-app-header { border-bottom: none; }
+
+/* Operator verdict 2026-10-20: the shared selected state curls (radius +
+   inset shadow round the 2px indicator). Approved Cards pattern instead:
+   transparent bg, 2px solid accent bottom border, weight 700, NO radius. */
+.stx-content-tabs__tab[aria-selected="true"] {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 2px solid var(--accent, #1a2a40);
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--accent, #1a2a40);
+  font-weight: 700;
+}
+
 .stx-storage-soon {
   padding: 1px 6px;
   border: 1px solid var(--stx-storage-border);

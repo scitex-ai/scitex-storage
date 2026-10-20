@@ -920,3 +920,34 @@ def test_leaf_carries_no_private_tabs_variant(tmp_path):
     private = re.findall(r"\.stx-storage-tabs?\b", body)
     # Assert
     assert private == []
+
+
+def _leaf_css_block():
+    import re
+    from pathlib import Path
+
+    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+
+def test_no_peach_rule_under_app_header():
+    # Arrange -- the SDK AppHeader's warm bottom border reads as a peach
+    # line between the global header and our content; the leaf removes it.
+    # Act
+    body = _leaf_css_block()
+    # Assert
+    assert (".stx-app-header" in body, "border-bottom: none" in body) == (True, True)
+
+
+def test_selected_tab_uses_cards_pattern():
+    # Arrange -- operator verdict: transparent bg, 2px solid accent bottom
+    # border, weight 700, NO radius (radius + inset shadow curled the line).
+    # Act
+    body = _leaf_css_block()
+    # Assert
+    assert (
+        "border-bottom: 2px solid var(--accent" in body,
+        "border-radius: 0" in body,
+        "font-weight: 700" in body,
+        "box-shadow: none" in body,
+    ) == (True, True, True, True)
