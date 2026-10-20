@@ -90,6 +90,7 @@ from ._archive_transport import (
 )
 from ._restore import RestorePlan, apply_restore, plan_restore
 from .._measure._scan import MissingSystemDependencyError, _measure_dir
+from .._tiers import tier_of_destination
 from .._measure._space import remote_free_bytes
 from ._sweep import InsufficientSpaceError, check_space
 from ._verify import (
@@ -231,6 +232,9 @@ class ArchiveManifest:
     sidecar_written: bool = False
     #: Human-readable sidecar outcome, success or failure reason.
     sidecar_detail: str = "sidecar not attempted by this version"
+    #: Tier of the destination host (canonical :mod:`.._tiers` facts).
+    #: Defaulted so older manifests still load via from_dict.
+    destination_tier: str = "unknown"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -441,6 +445,7 @@ def apply_archive(
         # direction for a field that gates an irreversible delete.
         verification_method=method,
         sidecar_path=manifest_sidecar_remote_path(plan.remote_path),
+        destination_tier=tier_of_destination(plan.destination),
     )
     plan.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     plan.manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))
