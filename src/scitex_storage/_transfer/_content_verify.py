@@ -193,6 +193,33 @@ def digest_tree(root: str) -> ContentManifest:
     return ContentManifest(digests=digests, unreadable=unreadable)
 
 
+def tree_digest(manifest: ContentManifest) -> str:
+    """One sha256 over a whole hashed tree: sorted ``rel`` + hash lines.
+
+    The O(1)-storage baseline for cold scrub: instead of keeping every
+    per-file digest in the manifest, the archive records this single value
+    and a later re-hash of the destination must reproduce it EXACTLY. Any
+    added, removed or altered entry moves it; key order never does (sorted
+    before hashing). Unreadable entries are part of the hashed population
+    as their reason strings -- a tree that could not be fully read has a
+    different identity than the same tree fully read, and conflating them
+    would let a partial re-hash pass against a complete baseline.
+    """
+    h = hashlib.sha256()
+    for rel in sorted(manifest.digests):
+        h.update(rel.encode("utf-8", "surrogateescape"))
+        h.update(b"\x00")
+        h.update(manifest.digests[rel].encode("ascii"))
+        h.update(b"\x00")
+    for rel in sorted(manifest.unreadable):
+        h.update(b"unreadable:")
+        h.update(rel.encode("utf-8", "surrogateescape"))
+        h.update(b"\x00")
+        h.update(manifest.unreadable[rel].encode("utf-8", "surrogateescape"))
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
 def verify_content(source: ContentManifest, destination: ContentManifest) -> TransferVerdict:
     """Compare two manifests and answer whether the SOURCE may be removed.
 

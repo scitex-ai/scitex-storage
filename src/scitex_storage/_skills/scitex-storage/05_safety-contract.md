@@ -20,6 +20,10 @@ tags: [scitex-storage-safety-contract]
      sha256 of BOTH trees (`_remote_digest` over ssh, BusyBox-safe),
      replacing the tally verdict. Costs a full re-read of both sides —
      that is why it is opt-in, and the manifest records which gate ran.
+   When the content gate runs, the manifest also keeps the source's
+   canonical tree digest (`content_digest`, zero marginal cost) as the
+   baseline for cold scrub; tally-cleared manifests carry none, and a
+   scrub reports content as unknown rather than manufacturing one.
 4. `checksum` defaults on (rsync `--checksum` reads every byte in flight);
    destination free-space preflight before a byte moves.
 5. Manifests live at `~/.scitex/scitex-storage/runtime/archive-manifests`
