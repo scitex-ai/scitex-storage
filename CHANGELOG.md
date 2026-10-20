@@ -7,6 +7,17 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.12] - 2026-10-20
+
+### Added
+
+- Backup: copy-verified second copies with the source retained
+  (`apply_archive(remove_source=False)`, `backup` CLI verb, real Backup
+  tab with planner + recorded list).
+- Project scope is header-driven (in-tab toggle removed); Move/Backup
+  planning double-confines the source.
+- Plan-move button adopts the SDK `.stx-button` primitive (theme-paired).
+
 ## [0.6.11] - 2026-10-20
 
 ### Changed
