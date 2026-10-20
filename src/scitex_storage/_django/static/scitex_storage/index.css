@@ -24,35 +24,10 @@
   box-sizing: border-box;
 }
 
-.stx-storage-tabs {
-  display: flex;
-  gap: 4px;
-  margin: 12px 0 16px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--stx-storage-border);
-  scrollbar-width: none;
-}
-
-.stx-storage-tab {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 0 12px;
-  border-bottom: 2px solid transparent;
-  color: var(--stx-storage-muted);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.stx-storage-tab:hover { color: var(--text-primary, inherit); }
-
-.stx-storage-tab.is-active {
-  color: var(--text-primary, inherit);
-  border-bottom-color: var(--stx-storage-accent);
-  font-weight: 600;
-}
+/* Anchor adapter for the shared tabs: the SDK primitive is written for
+   <button> producers; our tabs are server-rendered links, which bring a
+   UA underline that would double up with the selected indicator. */
+.stx-content-tabs__tab[href] { text-decoration: none; }
 
 .stx-storage-soon {
   padding: 1px 6px;
