@@ -242,3 +242,32 @@ def test_format_archive_report_says_content_when_the_content_gate_ran(tmp_path):
 
 
 # EOF
+
+
+def test_format_archive_report_names_sidecar_on_success(tmp_path):
+    # Arrange
+    from scitex_storage._report import format_archive_report
+
+    manifest = _archived_manifest("tally")
+    manifest.sidecar_path = "~/scitex-storage-archive/old.scitex-archive-manifest.json"
+    manifest.sidecar_written = True
+    # Act
+    text = format_archive_report(
+        _archive_plan(tmp_path), applied=True, manifest=manifest
+    )
+    # Assert
+    assert "sidecar: ~/scitex-storage-archive/old.scitex-archive-manifest.json" in text
+
+
+def test_format_archive_report_shouts_when_sidecar_missing(tmp_path):
+    # Arrange -- a missing replica must read as a warning, not as silence.
+    from scitex_storage._report import format_archive_report
+
+    manifest = _archived_manifest("tally")
+    manifest.sidecar_detail = "scp refused"
+    # Act
+    text = format_archive_report(
+        _archive_plan(tmp_path), applied=True, manifest=manifest
+    )
+    # Assert
+    assert "sidecar: NOT WRITTEN" in text

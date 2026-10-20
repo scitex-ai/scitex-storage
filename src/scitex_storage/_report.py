@@ -358,6 +358,16 @@ def format_archive_report(
             f"delete cleared by: {manifest.verification_method}) -- "
             f"source removed, manifest written to {plan.manifest_path}"
         )
+        # The sidecar is the operator's proof the map survived the machine:
+        # name it on success, and FAIL LOUD (not just in the manifest JSON)
+        # when the replica did not land.
+        if manifest.sidecar_written:
+            lines.append(f"  sidecar: {manifest.sidecar_path}")
+        else:
+            lines.append(
+                "  sidecar: NOT WRITTEN "
+                f"({manifest.sidecar_detail}; local manifest only)"
+            )
     else:
         lines.append("  WOULD ARCHIVE (dry-run — pass --yes/-y to actually sync + remove)")
     return "\n".join(lines)

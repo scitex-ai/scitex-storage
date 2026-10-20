@@ -1344,3 +1344,100 @@ def test_a_verified_archive_records_verified_in_the_manifest(tmp_path, sandbox_h
 
 
 # EOF
+
+
+class _SidecarEchoRunner(_FakeRunner):
+    """A faithful destination that also echoes the sidecar back on `cat`.
+
+    Records the local manifest path from the scp argv, then answers the
+    read-back `cat` with those exact bytes -- the round trip the real
+    sidecar write performs, without a network.
+    """
+
+    def __init__(self):
+        super().__init__(returncode=0)
+        self._sidecar_src = None
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        first = os.path.basename(str(cmd[0])) if cmd else ""
+        if first == "scp":
+            self._sidecar_src = str(cmd[-2])
+            return _FakeCompletedProcess(0, "", "")
+        if first == "ssh" and "cat " in " ".join(str(p) for p in cmd):
+            if self._sidecar_src is None:
+                return _FakeCompletedProcess(0, "", "")
+            with open(self._sidecar_src, encoding="utf-8") as fh:
+                return _FakeCompletedProcess(0, fh.read(), "")
+        if _looks_like_tally(cmd):
+            tally = _simulated_destination_tally(self.calls)
+            return _FakeCompletedProcess(0, tally, "")
+        return _FakeCompletedProcess(0, "", "")
+
+
+class _SidecarFailingRunner(_FakeRunner):
+    """scp refuses; everything else answers like a faithful destination."""
+
+    def __call__(self, cmd, **kwargs):
+        first = os.path.basename(str(cmd[0])) if cmd else ""
+        if first == "scp":
+            self.calls.append(cmd)
+            return _FakeCompletedProcess(1, "", "scp: connection refused")
+        return super().__call__(cmd, **kwargs)
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_sends_manifest_sidecar_to_destination(tmp_path, sandbox_home):
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    runner = _SidecarEchoRunner()
+    # Act
+    apply_archive(plan, runner=runner)
+    # Assert
+    assert any(
+        "scitex-archive-manifest.json" in str(p) for c in runner.calls for p in c
+    )
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_marks_sidecar_written_on_matching_readback(
+    tmp_path, sandbox_home
+):
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(plan, runner=_SidecarEchoRunner())
+    # Assert
+    got = (
+        manifest.sidecar_written,
+        manifest.sidecar_path.endswith(".scitex-archive-manifest.json"),
+    )
+    assert got == (True, True)
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_removes_source_despite_sidecar_failure(tmp_path, sandbox_home):
+    # Arrange -- a replica hiccup must not strand a verified migration.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    apply_archive(plan, runner=_SidecarFailingRunner())
+    # Assert
+    assert not source.exists()
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_records_sidecar_failure_in_manifest(tmp_path, sandbox_home):
+    # Arrange -- the gap must be visible in the manifest, not silent.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(plan, runner=_SidecarFailingRunner())
+    # Assert
+    assert (manifest.sidecar_written, bool(manifest.sidecar_detail)) == (False, True)
