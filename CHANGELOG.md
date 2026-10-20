@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.11] - 2026-10-20
+
+### Changed
+
+- Tabs converged on the shared SDK `stx-content-tabs` primitive
+  (scitex-sdk>=0.3.9, underline-only selected); leaf variant deleted.
+
 ## [0.6.10] - 2026-10-20
 
 ### Fixed
