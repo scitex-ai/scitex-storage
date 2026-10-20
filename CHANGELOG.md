@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-10-20
+
+### Fixed
+
+- Usage pane bottom reserve tightened (dock + 32px air → + 16px);
+  the 76px dead band is now 60px (PR #144).
+
 ## [0.6.6] - 2026-10-20
 
 ### Added
