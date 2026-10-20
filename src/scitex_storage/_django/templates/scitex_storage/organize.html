@@ -281,6 +281,70 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
                 </p>
             </div>
         </section>
+    {% elif tab == "backup" %}
+        <section class="stx-storage-card">
+            <h2 class="stx-storage-machine"><i class="fas fa-copy" aria-hidden="true"></i> {% translate "Backups on cold tiers" %}</h2>
+            {% if backups %}
+            <ul class="stx-storage-list">
+                {% for b in backups %}
+                <li class="stx-storage-row" style="display: block">
+                    <span class="stx-storage-name">{{ b.source }} → {{ b.destination }}</span>
+                    <span class="stx-storage-size">{{ b.when }} · {% translate "checked by" %} {{ b.method }}{% if b.retained %} · {% translate "source kept" %}{% endif %}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="stx-storage-empty">{% translate "No backups recorded on this machine yet." %}</p>
+            {% endif %}
+        </section>
+
+        <section class="stx-storage-card">
+            <h2 class="stx-storage-machine"><i class="fas fa-truck-moving" aria-hidden="true"></i> {% translate "Plan a backup" %}</h2>
+            <p class="stx-storage-note">{% translate "Planning is read-only: it measures the folder and shows where a copy would go. The source is never removed by a backup." %}</p>
+            <form method="get" action="">
+                <input type="hidden" name="tab" value="backup">
+                {% if scope == "project" %}<input type="hidden" name="scope" value="project">{% endif %}
+                <div class="stx-form-row">
+                    <div class="stx-field">
+                        <label for="bk-volume">{% translate "From volume" %}</label>
+                        <select id="bk-volume" name="volume">
+                            {% for v in user_volumes %}
+                            <option value="{{ v.key }}"{% if v.key == form_volume %} selected{% endif %}>{{ v.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="stx-field">
+                        <label for="bk-dir">{% translate "Folder (inside the volume)" %}</label>
+                        <input id="bk-dir" name="dir" type="text" value="{{ form_dir }}" placeholder="paper-figures">
+                    </div>
+                    <div class="stx-field">
+                        <label for="bk-dest">{% translate "To tier" %}</label>
+                        <select id="bk-dest" name="destination">
+                            {% for d in destinations %}
+                            <option value="{{ d }}"{% if d == form_dest %} selected{% endif %}>{{ d }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button class="stx-button stx-button--primary" type="submit" name="plan" value="1">{% translate "Plan backup" %}</button>
+                </div>
+            </form>
+            {% if plan_error %}
+                <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ plan_error }}</p></div>
+            {% endif %}
+            {% if plan %}
+                <div class="stx-storage-ok">
+                    <strong>{% translate "Backup plan (not executed)." %}</strong>
+                    {% blocktranslate with size=plan.size_bytes|filesizeformat count=plan.file_count src=plan.source dest=plan.destination remote=plan.remote_path %}{{ size }} in {{ count }} files: {{ src }} → {{ dest }}:{{ remote }} (source kept){% endblocktranslate %}
+                </div>
+            {% endif %}
+            <div class="stx-storage-warn">
+                <strong>{% translate "Applying a backup is disabled in the browser." %}</strong>
+                <p class="stx-storage-note" style="margin: 4px 0 0">
+                    {% translate "The copy runs from the command line, never from a click:" %}
+                    <code class="stx-cli">scitex-storage backup &lt;folder&gt; --to &lt;tier&gt; --yes</code>
+                </p>
+            </div>
+        </section>
     {% endif %}
 </div>
 {% endblock %}

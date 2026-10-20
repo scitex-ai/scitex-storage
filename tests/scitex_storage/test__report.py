@@ -271,3 +271,15 @@ def test_format_archive_report_shouts_when_sidecar_missing(tmp_path):
     )
     # Assert
     assert "sidecar: NOT WRITTEN" in text
+
+
+def test_format_archive_report_says_retained_for_backup(tmp_path):
+    # Arrange -- a backup manifest must never read as a delete.
+    from scitex_storage._report import format_archive_report
+
+    manifest = _archived_manifest("tally")
+    manifest.retained_source = True
+    # Act
+    text = format_archive_report(_archive_plan(tmp_path), applied=True, manifest=manifest)
+    # Assert
+    assert ("source retained (backup)" in text, "source removed" not in text) == (True, True)
