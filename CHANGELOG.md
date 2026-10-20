@@ -7,6 +7,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-20
+
+### Added
+
+- Battery-included skill docs in canonical
+  `src/scitex_storage/_skills/scitex-storage/` (index + numbered leaves),
+  shipped in the wheel; new `skills {list,get,install}` CLI group (PR #135).
+
+### Changed
+
+- GUI Move plan display names the delete gate (count-and-size read-back
+  by default, `--verify-content` for the independent re-hash) (PR #135).
+
 ## [0.6.2] - 2026-10-20
 
 ### Changed
