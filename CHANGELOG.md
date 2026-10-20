@@ -7,6 +7,17 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-20
+
+### Changed
+
+- Storage GUI adopts the shared SDK `.stx-layout-fill` utility
+  (scitex-sdk>=0.3.8, linked by the leaf itself): organize roots carry the
+  shared class and the leaf `.stx-storage` width rule is dropped (PR #133).
+- SDK floor raised 0.3.1 -> 0.3.8 (dev + gui extras).
+- Battery-included agent skill doc `skills/scitex-storage/SKILL.md`,
+  shipped in the wheel (PR #133).
+
 ## [0.6.1] - 2026-10-19
 
 ### Fixed
