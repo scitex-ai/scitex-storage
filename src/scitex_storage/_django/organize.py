@@ -181,18 +181,23 @@ def _user_volumes(request):
 def _scope_selection(request):
     """("all"|"project", ProjectScope|None) for the organize tabs.
 
-    Never raises: anything unresolvable reads as no-project-in-scope, and
-    the views render that state explicitly rather than failing closed
-    into a 500 or silently open into user space.
+    Header-driven: the shared app header already selects the project, so
+    a resolved header scope means project scope -- no second control.
+    Never raises: anything unresolvable reads as no-project-in-scope.
+    An explicit ``?scope=project`` with nothing in the header resolves to
+    ("project", None) so the views render the pick-in-header notice.
     """
-    if request.GET.get("scope") != "project":
-        return "all", None
     from . import project_files
 
     try:
-        return "project", project_files.resolve_project_scope(request)
+        pscope = project_files.resolve_project_scope(request)
     except Exception:
+        pscope = None
+    if pscope is not None:
+        return "project", pscope
+    if request.GET.get("scope") == "project":
         return "project", None
+    return "all", None
 
 
 def _scope_urls(request, tab):

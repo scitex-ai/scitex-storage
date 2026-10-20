@@ -811,13 +811,28 @@ def _get_scoped(tmp_path, params, username=None, project_path=None, project_name
         project_files._GET_CURRENT_PROJECT = prev
 
 
-def test_usage_shows_scope_control_defaulting_to_all_projects(tmp_path):
-    # Arrange
+def test_usage_has_no_duplicate_scope_control(tmp_path):
+    # Arrange -- scope lives in the shared app header; the tabs must not
+    # render a second project control.
     _boot()
     # Act
     body = _get(tmp_path, {}).content.decode()
     # Assert
-    assert "scope=project" in body
+    assert "Disk scope" not in body
+
+
+def test_usage_auto_scopes_from_header_project(tmp_path):
+    # Arrange -- header project resolves: breakdown scans it with no param.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+    # Act
+    body = _get_scoped(
+        tmp_path, {"tab": "usage"}, username="u", project_path=str(proj)
+    ).content.decode()
+    # Assert
+    assert "Paper Project" in body
 
 
 def test_usage_project_scope_without_project_names_no_project(tmp_path):
