@@ -967,3 +967,21 @@ def test_picker_pills_keep_pill_radius():
     block = match.group(1)
     # Assert
     assert "border-radius: 999px" in block
+
+
+def test_move_button_uses_sdk_button_primitive():
+    # Arrange -- operator verdict: hardcoded leaf button colors caused
+    # white-on-gold in dark mode; the SDK .stx-button primitive carries
+    # the theme-paired tokens instead.
+    # Act
+    text = (
+        __import__("pathlib").Path(
+            "src/scitex_storage/_django/templates/scitex_storage/organize.html"
+        ).read_text()
+    )
+    # Assert
+    assert (
+        "stx-button stx-button--primary" in text,
+        "form-controls.css" in text,
+        ".stx-btn {" not in text,
+    ) == (True, True, True)
