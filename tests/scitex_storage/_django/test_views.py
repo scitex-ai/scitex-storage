@@ -737,3 +737,18 @@ def test_move_plan_names_the_verify_content_gate(tmp_path):
     ).content.decode()
     # Assert
     assert "--verify-content" in body
+
+
+def test_leaf_bottom_reserve_stays_tight():
+    """The dock reserve must not balloon the pane bottom (operator: 76px)."""
+    # Arrange -- read the shipped stylesheet, not a constant.
+    import re
+    from pathlib import Path
+
+    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    match = re.search(r"^\.stx-storage \{(.*?)\}", body, re.M | re.S)
+    # Act
+    block = match.group(1)
+    # Assert -- bottom = live dock height + 16px air, never the old +32px.
+    assert " + 32px" not in block

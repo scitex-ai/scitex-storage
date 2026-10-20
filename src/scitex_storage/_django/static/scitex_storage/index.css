@@ -11,7 +11,9 @@
      max-width here per its no-!important contract. Long-form text still
      caps itself (see .stx-storage-coming p). */
   margin: 0 auto;
-  padding: 20px 24px calc(var(--site-dock-live-height, 0px) + 32px);
+  /* Dock reserve + 16px air: the 32px gap read as a dead band at the pane
+     bottom (operator 2026-10-20). Sides stay 24px. */
+  padding: 20px 24px calc(var(--site-dock-live-height, 0px) + 16px);
   color: var(--text-primary, inherit);
   font-size: 15px;
 }
