@@ -51,6 +51,7 @@ import click
 #: some unrelated verb's dependency is skewed.
 VERB_REGISTRY: dict[str, str] = {
     "scan": "._scan_cmd:scan_cmd",
+    "scrub": "._scrub_cmd:scrub_cmd",
     "validate-inodes": "._inodes_cmd:inodes_cmd",
     "find-duplicates": "._duplicates_cmd:find_duplicates_cmd",
     "find-recipe": "._regenerable_cmd:regenerable_cmd",
@@ -66,8 +67,8 @@ VERB_REGISTRY: dict[str, str] = {
     "verify-content": "._verify_content_cmd:verify_content_cmd",
     "fleet-status": "._fleet_status_cmd:fleet_status_cmd",
     "alarm": "._alarm_cmd:alarm_cmd",
-    # NOTE: `list-python-apis` and `mcp` are deliberately NOT here -- they are
-    # attached eagerly in __init__.py. See the comment there.
+    # NOTE: `list-python-apis`, `mcp` and `skills` are deliberately NOT here --
+    # they are attached eagerly in __init__.py. See the comment there.
     "gui": "._gui_cmd:gui_group",
     "start-gui": "._gui_cmd:start_gui_cmd",
 }

@@ -1465,9 +1465,10 @@ def test_apply_archive_records_content_digest_when_content_gate_runs(
     source = tmp_path / "source"
     _touch(source / "a.bin")
     plan = plan_archive(source, "nas")
+    expected = tree_digest(digest_tree(str(source)))
     # Act
     manifest = apply_archive(
         plan, verify_content_too=True, runner=_FaithfulDigestRunner()
     )
     # Assert
-    assert manifest.content_digest == tree_digest(digest_tree(str(source)))
+    assert manifest.content_digest == expected
