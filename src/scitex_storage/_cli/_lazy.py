@@ -51,7 +51,6 @@ import click
 #: some unrelated verb's dependency is skewed.
 VERB_REGISTRY: dict[str, str] = {
     "scan": "._scan_cmd:scan_cmd",
-    "skills": "._skills_cmd:skills_group",
     "validate-inodes": "._inodes_cmd:inodes_cmd",
     "find-duplicates": "._duplicates_cmd:find_duplicates_cmd",
     "find-recipe": "._regenerable_cmd:regenerable_cmd",

@@ -58,3 +58,15 @@ def test_cli_skills_install_dry_run_writes_nothing(tmp_path):
     )
     # Assert
     assert not dest.exists()
+
+
+def test_cli_skills_group_is_eagerly_discoverable():
+    """The audit (§1a) reads the attached-command mapping, not the lazy registry."""
+    # Arrange
+    import click
+
+    from scitex_storage._cli import main
+    # Act
+    group = main.commands.get("skills")
+    # Assert
+    assert isinstance(group, click.Group)

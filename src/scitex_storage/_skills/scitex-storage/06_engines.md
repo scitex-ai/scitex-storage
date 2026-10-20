@@ -24,8 +24,10 @@ tags: [scitex-storage-engines]
   adapter into `_transfer` engines. Do not present the broker as an
   execution engine.
 - `_cli/` — verbs behind a lazy registry (`_lazy.py`): help/completion must
-  never fail because an unrelated verb's dependency is skewed. Domain
-  verdict exit codes start at 10; 1/2 stay generic failure/usage error.
+  never fail because an unrelated verb's dependency is skewed. Three
+  stdlib+click-only exceptions attach eagerly (`list-python-apis`, `mcp`,
+  `skills`) because the CLI audit reads the attached-command mapping.
+  Domain verdict exit codes start at 10; 1/2 stay generic failure/usage error.
 - `_django/` — GUI leaf. Views call backend `plan_*` functions only
   ("No web apply"); the Move tab is a read-only tier overview + archive
   planner. `resolve_project_scope` is fail-closed (`None` = explicit
