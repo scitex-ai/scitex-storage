@@ -61,7 +61,9 @@ _VOLUME_ROOT = {}
 
 def provide_test_volumes(request):
     """Volumes provider wired in via SCITEX_STORAGE_VOLUMES_PROVIDER."""
-    return [{"key": "mine", "label": "Mine", "path": _VOLUME_ROOT["path"], "machine": "box"}]
+    return [
+        {"key": "mine", "label": "Mine", "path": _VOLUME_ROOT["path"], "machine": "box"}
+    ]
 
 
 def _get(tmp_path, params):
@@ -78,9 +80,9 @@ def _get(tmp_path, params):
 def _boot():
     pytest.importorskip("django")
     pytest.importorskip("scitex_sdk")
-    importlib.import_module('scitex_sdk.app._django')
+    importlib.import_module("scitex_sdk.app._django")
     pytest.importorskip("scitex_sdk")
-    importlib.import_module('scitex_sdk.ui')
+    importlib.import_module("scitex_sdk.ui")
     _boot_django_for_storage_gui()
 
 
@@ -193,9 +195,9 @@ def test_index_declares_every_shell_pane_so_none_reserves_width(tmp_path):
     # Arrange
     pytest.importorskip("django")
     pytest.importorskip("scitex_sdk")
-    importlib.import_module('scitex_sdk.app._django')
+    importlib.import_module("scitex_sdk.app._django")
     pytest.importorskip("scitex_sdk")
-    importlib.import_module('scitex_sdk.ui')
+    importlib.import_module("scitex_sdk.ui")
     _boot_django_for_storage_gui()
 
     from scitex_sdk.ui.branding import PANE_NAMES
@@ -220,9 +222,9 @@ def test_index_declares_every_shell_pane_unused(tmp_path):
     # Arrange
     pytest.importorskip("django")
     pytest.importorskip("scitex_sdk")
-    importlib.import_module('scitex_sdk.app._django')
+    importlib.import_module("scitex_sdk.app._django")
     pytest.importorskip("scitex_sdk")
-    importlib.import_module('scitex_sdk.ui')
+    importlib.import_module("scitex_sdk.ui")
     _boot_django_for_storage_gui()
 
     # Act
@@ -245,9 +247,9 @@ def test_index_declares_files_pane_unused_not_client_populated(tmp_path):
     # Arrange
     pytest.importorskip("django")
     pytest.importorskip("scitex_sdk")
-    importlib.import_module('scitex_sdk.app._django')
+    importlib.import_module("scitex_sdk.app._django")
     pytest.importorskip("scitex_sdk")
-    importlib.import_module('scitex_sdk.ui')
+    importlib.import_module("scitex_sdk.ui")
     _boot_django_for_storage_gui()
 
     # Act
@@ -261,9 +263,9 @@ def test_healthz_returns_ok():
     # Arrange
     pytest.importorskip("django")
     pytest.importorskip("scitex_sdk")
-    importlib.import_module('scitex_sdk.app._django')
+    importlib.import_module("scitex_sdk.app._django")
     pytest.importorskip("scitex_sdk")
-    importlib.import_module('scitex_sdk.ui')
+    importlib.import_module("scitex_sdk.ui")
     _boot_django_for_storage_gui()
     from django.test import RequestFactory
 
@@ -464,6 +466,7 @@ def test_storage_header_mount_carries_leaf_version(tmp_path):
     # Arrange
     _boot()
     from scitex_storage import __version__
+
     # Act
     bodies = (
         _get(tmp_path, {"tab": "backup"}).content.decode(),
@@ -715,3 +718,22 @@ def test_leaf_sets_no_max_width_rule(tmp_path):
     props = re.findall(r"^\s*([a-z-]+)\s*:", _leaf_storage_block(), re.M)
     # Assert
     assert "max-width" not in props
+
+
+def test_move_plan_names_the_verify_content_gate(tmp_path):
+    """The plan display states which gate clears the delete (tally default)."""
+    # Arrange
+    _boot()
+    # Act
+    body = _get(
+        tmp_path,
+        {
+            "tab": "move",
+            "plan": "1",
+            "volume": "mine",
+            "dir": "",
+            "destination": "scitex-nas-01",
+        },
+    ).content.decode()
+    # Assert
+    assert "--verify-content" in body

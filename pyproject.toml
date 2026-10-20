@@ -148,8 +148,6 @@ storage = "scitex_storage:validate_storage_contract"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/scitex_storage"]
-# Battery-included agent skill doc (kept consistent with src behavior).
-force-include = { "skills" = "skills" }
 # Pre-built Sphinx HTML served in-wheel by scitex-cloud (PS-121); refreshed
 # by the rtd-sphinx-build CI job on main/develop pushes.
 artifacts = [
