@@ -951,3 +951,19 @@ def test_selected_tab_uses_cards_pattern():
         "font-weight: 700" in body,
         "box-shadow: none" in body,
     ) == (True, True, True, True)
+
+
+def test_picker_pills_have_no_curly_radius():
+    # Arrange -- operator verdict: no curly highlight anywhere; the pill
+    # radius (999px) on scope/volume picks is a curl by construction.
+    import re
+    from pathlib import Path
+
+    text = (
+        Path("src/scitex_storage/_django/templates/scitex_storage/organize.html")
+    ).read_text()
+    match = re.search(r"\.stx-vol-pick a \{(.*?)\}", text, re.S)
+    # Act
+    block = match.group(1)
+    # Assert
+    assert ("border-radius: 0" in block, "999px" not in block) == (True, True)
