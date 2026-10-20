@@ -10,6 +10,7 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
     {# Shared tab contracts (scitex-sdk>=0.3.9, underline-only selected); see index.html. #}
     <link rel="stylesheet" href="{% static 'scitex_sdk/ui/css/utils/layout.css' %}">
     <link rel="stylesheet" href="{% static 'scitex_sdk/ui/css/app/content-tabs.css' %}">
+    <link rel="stylesheet" href="{% static 'scitex_sdk/ui/css/app/form-controls.css' %}">
     <link rel="stylesheet" href="{% app_static 'scitex_storage/index.css' %}">
     <style>
     .stx-donut-wrap { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
@@ -34,9 +35,6 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
     .stx-field label { font-size: 0.82rem; color: var(--stx-storage-muted); }
     .stx-field input, .stx-field select { min-height: 40px; padding: 6px 10px; border-radius: 8px;
         border: 1px solid var(--stx-storage-border); background: transparent; color: inherit; }
-    .stx-btn { min-height: 40px; padding: 8px 16px; border-radius: 8px; cursor: pointer;
-        border: 1px solid var(--stx-storage-border); background: var(--stx-storage-accent); color: #fff; }
-    .stx-btn[disabled] { opacity: 0.55; cursor: not-allowed; }
     .stx-dup-paths { margin: 6px 0 0; padding-left: 18px; font-size: 0.85rem; word-break: break-all; }
     .stx-vol-pick { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
     .stx-vol-pick a { padding: 4px 10px; border: 1px solid var(--stx-storage-border);
@@ -268,7 +266,7 @@ Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
                             {% endfor %}
                         </select>
                     </div>
-                    <button class="stx-btn" type="submit" name="plan" value="1">{% translate "Plan move" %}</button>
+                    <button class="stx-button stx-button--primary" type="submit" name="plan" value="1">{% translate "Plan move" %}</button>
                 </div>
             </form>
             {% if plan_error %}
