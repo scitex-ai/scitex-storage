@@ -752,3 +752,18 @@ def test_leaf_bottom_reserve_stays_tight():
     block = match.group(1)
     # Assert -- bottom = live dock height + 16px air, never the old +32px.
     assert " + 32px" not in block
+
+
+def test_leaf_pane_padding_stays_tight():
+    """Top/side pane padding stays minimal (operator: content fills pane)."""
+    # Arrange -- read the shipped stylesheet, not a constant.
+    import re
+    from pathlib import Path
+
+    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    match = re.search(r"^\.stx-storage \{(.*?)\}", body, re.M | re.S)
+    # Act
+    block = match.group(1)
+    # Assert -- 12px top / 16px sides; the old 20px/24px read as margins.
+    assert "padding: 12px 16px calc(var(--site-dock-live-height, 0px) + 16px)" in block
