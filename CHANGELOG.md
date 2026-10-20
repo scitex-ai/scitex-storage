@@ -7,6 +7,18 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-10-20
+
+### Added
+
+- Project-scoped disk filter on organize tabs: in-tab `?scope=all|project`
+  control (All-projects default); Usage scans the project dir, Duplicates
+  narrows roots, Move planning double-confines the source (PR #148).
+
+### Changed
+
+- SDK floor 0.3.8 → 0.3.9 (underline-only tabs; consumed surface unchanged).
+
 ## [0.6.8] - 2026-10-20
 
 ### Fixed
