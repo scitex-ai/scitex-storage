@@ -6,10 +6,10 @@
   --stx-storage-border: var(--border-muted, rgba(127, 127, 127, 0.3));
   --stx-storage-muted: var(--text-muted, #8b949e);
   box-sizing: border-box;
-  width: 100%;
-  /* No max-width cap: sibling apps (Scholar .app-main, Writer) fill the hub
-     pane, and capping here at 960px left ~40% of a 1571px pane as dead
-     gutter. Long-form text still caps itself (see .stx-storage-coming p). */
+  /* Full-pane width comes from the shared SDK .stx-layout-fill utility
+     (linked in the templates, scitex-sdk>=0.3.8): no competing width or
+     max-width here per its no-!important contract. Long-form text still
+     caps itself (see .stx-storage-coming p). */
   margin: 0 auto;
   padding: 20px 24px calc(var(--site-dock-live-height, 0px) + 32px);
   color: var(--text-primary, inherit);
