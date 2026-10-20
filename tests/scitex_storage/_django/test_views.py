@@ -131,14 +131,62 @@ def test_absolute_path_param_is_not_scanned(tmp_path):
     assert "passwd" not in body
 
 
-def test_backup_tab_is_still_coming_soon(tmp_path):
-    # Arrange -- Usage/Move/Duplicates are real views now (organize.py);
-    # Backup is the remaining placeholder.
+def test_backup_tab_renders_planner_and_existing_list(tmp_path):
+    # Arrange -- Backup is a real view now (organize.backup): plan form plus
+    # the recorded-backup list, read-only like Move.
     _boot()
     # Act
     body = _get(tmp_path, {"tab": "backup"}).content.decode()
     # Assert
-    assert "Coming soon" in body
+    assert ("Plan a backup" in body, "No backups recorded" in body) == (True, True)
+
+
+def test_backup_tab_lists_recorded_manifests(tmp_path):
+    # Arrange -- an archive written to the sandboxed HOME shows up.
+    _boot()
+    from scitex_storage._transfer._archive import apply_archive, plan_archive
+    from scitex_storage._transfer._verify import local_tally
+
+    class _FaithfulRunner:
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, cmd, **kwargs):
+            self.calls.append(cmd)
+            joined = " ".join(str(p) for p in cmd)
+            if "find " in joined and "wc " in joined:
+                for prev in reversed(self.calls):
+                    if prev and str(prev[0]).rsplit("/", 1)[-1] == "rsync":
+                        tally = local_tally(str(prev[-2]).rstrip("/"))
+                        return _Completed(0, f"{tally.entry_count}\n{tally.size_bytes}\n", "")
+            return _Completed(0, "", "")
+
+    class _Completed:
+        def __init__(self, returncode, stdout, stderr):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    home = tmp_path / "home"
+    home.mkdir()
+    prev = os.environ.get("HOME")
+    os.environ["HOME"] = str(home)
+    try:
+        source = tmp_path / "paper"
+        source.mkdir()
+        (source / "a.bin").write_bytes(b"x")
+        plan = plan_archive(source, "nas")
+        apply_archive(plan, runner=_FaithfulRunner())
+        # Act -- while HOME is still sandboxed, so the view reads the
+        # same manifest dir the archive just wrote.
+        body = _get(tmp_path, {"tab": "backup"}).content.decode()
+    finally:
+        if prev is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = prev
+    # Assert
+    assert str(source) in body
 
 
 def test_usage_tab_renders_donut(tmp_path):

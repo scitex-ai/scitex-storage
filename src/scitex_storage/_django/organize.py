@@ -45,13 +45,13 @@ except ImportError as exc:
         "pip install scitex-storage[gui]"
     ) from exc
 
-#: Tabs this module serves. ``backup`` stays upstream (still [Soon] there).
-HANDLED_TABS = ("usage", "duplicates", "move")
+#: Tabs this module serves (all four organize tabs).
+HANDLED_TABS = ("usage", "duplicates", "move", "backup")
 
 ORGANIZE_TABS = (
     ("usage", _("Usage"), False),
     ("move", _("Move"), False),
-    ("backup", _("Backup"), True),
+    ("backup", _("Backup"), False),
     ("duplicates", _("Duplicates"), False),
 )
 
@@ -476,6 +476,37 @@ def _tier_of(volume) -> str:
     return (getattr(volume, "tier", "") or "").strip().lower() or "other"
 
 
+def _planned_source(request, user_volumes, scope_ctx):
+    """Resolve a plan form's source dir with volume+project containment.
+
+    Returns ``(source, None)`` on success, ``(None, HttpResponse)`` for
+    fail-closed refusals (unknown volume, escape), or ``(None, str)`` for
+    a soft planning error (no project in scope) that renders as a notice.
+    Shared by the move and backup planners so the two cannot disagree
+    about what "inside" means.
+    """
+    from . import volumes
+
+    form_volume = request.GET.get("volume", "")
+    form_dir = request.GET.get("dir", "")
+    volume = volumes.find_volume(user_volumes, form_volume)
+    if volume is None:
+        return None, HttpResponseForbidden(str(_("That volume is not yours.")))
+    try:
+        source = volumes.contained_dir(volume, (form_dir or "").strip().strip("/"))
+    except Exception:
+        return None, HttpResponseForbidden(str(_("That folder is outside the volume.")))
+    if scope_ctx["scope"] == "project":
+        pscope = scope_ctx["pscope"]
+        if pscope is None:
+            return None, scope_ctx["scope_notice"]
+        if not _within(source, pscope.project_dir):
+            return None, HttpResponseForbidden(
+                str(_("That folder is outside the current project."))
+            )
+    return source, None
+
+
 def move(request):
     """Tier overview + read-only archive planning. No web apply."""
     from . import volumes
@@ -494,24 +525,13 @@ def move(request):
     form_dir = request.GET.get("dir", "")
     form_dest = request.GET.get("destination", "")
     scope_ctx = _scope_context(request, "move")
-    pscope = scope_ctx["pscope"]
     if "plan" in request.GET:
-        volume = volumes.find_volume(user_volumes, form_volume)
-        if volume is None:
-            return HttpResponseForbidden(str(_("That volume is not yours.")))
-        try:
-            source = volumes.contained_dir(volume, (form_dir or "").strip().strip("/"))
-        except Exception:
-            return HttpResponseForbidden(str(_("That folder is outside the volume.")))
-        if scope_ctx["scope"] == "project":
-            if pscope is None:
-                plan_error = scope_ctx["scope_notice"]
-            elif not _within(source, pscope.project_dir):
-                return HttpResponseForbidden(
-                    str(_("That folder is outside the current project."))
-                )
-        if plan_error:
-            pass
+        source, problem = _planned_source(request, user_volumes, scope_ctx)
+        if problem is not None:
+            if isinstance(problem, str):
+                plan_error = problem
+            else:
+                return problem
         elif form_dest not in destinations:
             plan_error = str(
                 _("Pick an archive tier: %(tiers)s.")
@@ -564,10 +584,110 @@ def move(request):
     return render(request, "scitex_storage/organize.html", context)
 
 
+def _backup_summaries():
+    """Local manifests as display dicts, newest first; never raises."""
+    import datetime
+
+    try:
+        from scitex_storage._transfer._archive import iter_manifests
+    except ImportError:
+        return []
+    try:
+        manifests = iter_manifests()
+    except Exception:
+        return []
+    rows = []
+    for m in manifests:
+        try:
+            stamp = datetime.datetime.fromtimestamp(m.archived_at)
+            when = stamp.strftime("%Y-%m-%d %H:%M")
+        except (OSError, OverflowError, ValueError):
+            when = "?"
+        rows.append(
+            {
+                "source": m.source,
+                "destination": m.destination,
+                "when": when,
+                "method": m.verification_method,
+                "retained": bool(m.retained_source),
+            }
+        )
+    return rows
+
+
+def backup(request):
+    """Backup planning + existing-backup list. No web apply, like move."""
+    user_volumes = _user_volumes(request)
+    destinations = _archive_destinations()
+    plan = None
+    plan_error = ""
+    form_volume = request.GET.get("volume", "")
+    form_dir = request.GET.get("dir", "")
+    form_dest = request.GET.get("destination", "")
+    scope_ctx = _scope_context(request, "backup")
+    if "plan" in request.GET:
+        source, problem = _planned_source(request, user_volumes, scope_ctx)
+        if problem is not None:
+            if isinstance(problem, str):
+                plan_error = problem
+            else:
+                return problem
+        elif form_dest not in destinations:
+            plan_error = str(
+                _("Pick a backup tier: %(tiers)s.")
+                % {"tiers": ", ".join(destinations) if destinations else "—"}
+            )
+        else:
+            try:
+                from scitex_storage import plan_archive as _plan
+            except ImportError:
+                _plan = None
+            if _plan is None:
+                plan_error = str(
+                    _("Backup planning needs the scitex-storage package.")
+                )
+            else:
+                ok, result = _run_bounded(
+                    lambda: _plan(source, form_dest), PLAN_TIMEOUT_S
+                )
+                if ok:
+                    plan = result
+                else:
+                    err = result
+                    if type(err).__name__ == "MissingSystemDependencyError":
+                        plan_error = str(
+                            _(
+                                "Backup planning is unavailable here: "
+                                "the `fd` binary is not installed on this host."
+                            )
+                        )
+                    elif isinstance(err, TimeoutError):
+                        plan_error = str(_("Backup planning timed out."))
+                    else:
+                        plan_error = str(
+                            _("Could not plan that backup: %(err)s") % {"err": err}
+                        )
+
+    context = {
+        **_base_context("backup"),
+        **scope_ctx,
+        "destinations": destinations,
+        "form_volume": form_volume,
+        "form_dir": form_dir,
+        "form_dest": form_dest,
+        "user_volumes": user_volumes,
+        "plan": plan,
+        "plan_error": plan_error,
+        "backups": _backup_summaries(),
+    }
+    return render(request, "scitex_storage/organize.html", context)
+
+
 _HANDLERS = {
     "usage": usage,
     "duplicates": duplicates,
     "move": move,
+    "backup": backup,
 }
 
 

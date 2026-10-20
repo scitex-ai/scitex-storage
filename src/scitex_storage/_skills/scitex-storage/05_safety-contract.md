@@ -31,3 +31,7 @@ tags: [scitex-storage-safety-contract]
 6. Destinations are host aliases (`scitex-nas-01/02/03`; retired `nas*`
    aliases still accepted with rewrite notice). There is no hot/warm/cold
    tier type yet — do not invent one in passing.
+7. Backup (`apply_archive(remove_source=False)`, `backup` verb/tab) copies
+   and verifies exactly like archive but retains the source, recorded as
+   `retained_source`. Verification is NOT relaxed: an unverified copy
+   raises either way.

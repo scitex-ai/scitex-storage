@@ -241,6 +241,10 @@ class ArchiveManifest:
     #: was cleared by tally -- a scrub then falls back to tally compare and
     #: reports content as unknown rather than manufacturing a baseline.
     content_digest: str = ""
+    #: True when this run was a BACKUP: the destination verified but the
+    #: source was deliberately retained. Defaulted so older manifests
+    #: (always deletes) still load via from_dict.
+    retained_source: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -250,16 +254,47 @@ class ArchiveManifest:
         return cls(**data)
 
 
+def iter_manifests() -> list[ArchiveManifest]:
+    """All readable local manifests, newest first; unreadable files skipped.
+
+    A corrupt JSON next to real manifests must not break listing -- it is
+    skipped silently here and surfaced by nothing, because a half-written
+    manifest from a killed run is routine, not an event. Sort key is the
+    recorded ``archived_at``, not mtime: the file may have been rewritten
+    (sidecar status) after the archive it records.
+    """
+    found: list[ArchiveManifest] = []
+    try:
+        paths = sorted(_manifest_dir().glob("*.json"))
+    except OSError:
+        return []
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            found.append(ArchiveManifest.from_dict(data))
+        except (OSError, ValueError, TypeError):
+            continue
+    found.sort(key=lambda m: m.archived_at, reverse=True)
+    return found
+
+
 def apply_archive(
     plan: ArchivePlan,
     *,
     checksum: bool = True,
     exclude: tuple[str, ...] = (),
     verify_content_too: bool = False,
+    remove_source: bool = True,
     runner=None,
 ) -> ArchiveManifest:
     """Execute an archive plan: push, READ THE DESTINATION BACK, write the
     manifest, and remove the source ONLY on a positive verification.
+
+    ``remove_source=False`` is BACKUP mode: the destination is copied and
+    verified exactly the same way, the manifest records ``retained_source``
+    and the source is left in place. Verification is NOT relaxed -- a
+    failed read-back raises either way, because an unverified copy is not
+    a backup either.
 
     Until 2026-07-28 this docstring already said "verify" and the body did
     not do it — the source was removed on rsync's exit code alone. A
@@ -458,6 +493,7 @@ def apply_archive(
         sidecar_path=manifest_sidecar_remote_path(plan.remote_path),
         destination_tier=tier_of_destination(plan.destination),
         content_digest=content_digest,
+        retained_source=not remove_source,
     )
     plan.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     plan.manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))
@@ -489,7 +525,8 @@ def apply_archive(
             f"confirm."
         )
 
-    shutil.rmtree(plan.source)
+    if remove_source:
+        shutil.rmtree(plan.source)
     return manifest
 
 

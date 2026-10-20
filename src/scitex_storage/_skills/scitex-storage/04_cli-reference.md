@@ -13,6 +13,7 @@ tags: [scitex-storage-cli-reference]
 | `find-duplicates`, `validate-inodes`, `find-recipe` | analysis verdicts |
 | `sweep`, `sweep-status`, `reclaim` | local rotation / reclamation |
 | `archive --to DST [--yes] [--verify-content]` | tier move + verified delete |
+| `backup --to DST [--yes]` | copy-verified second copy, source retained |
 | `restore`, `reclaim-restore` | bring data back |
 | `verify-content SRC DST` | standalone delete-safety verdict |
 | `scrub MANIFEST [--content]` | cold re-verify vs manifest (read-only; exit 0/16/17) |

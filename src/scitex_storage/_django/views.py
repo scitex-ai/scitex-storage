@@ -115,7 +115,7 @@ def _project_picker_available() -> bool:
 TABS = (
     ("usage", gettext_lazy("Usage"), False),
     ("move", gettext_lazy("Move"), False),
-    ("backup", gettext_lazy("Backup"), True),
+    ("backup", gettext_lazy("Backup"), False),
     ("duplicates", gettext_lazy("Duplicates"), False),
 )
 

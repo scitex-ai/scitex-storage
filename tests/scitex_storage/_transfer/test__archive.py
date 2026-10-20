@@ -1472,3 +1472,69 @@ def test_apply_archive_records_content_digest_when_content_gate_runs(
     )
     # Assert
     assert manifest.content_digest == expected
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_keeps_source_when_remove_source_is_false(tmp_path, sandbox_home):
+    # Arrange -- backup mode: copy-verified, source retained.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(plan, remove_source=False, runner=_FakeRunner(returncode=0))
+    # Assert
+    assert (source.exists(), manifest.retained_source) == (True, True)
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_still_refuses_unverified_backup(tmp_path, sandbox_home):
+    # Arrange -- retained source does not relax verification: a failed
+    # read-back raises before anything is recorded as done.
+    from scitex_storage._transfer._archive import ArchiveNotVerifiedError
+
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    ctx = pytest.raises(ArchiveNotVerifiedError)
+    # Assert
+    with ctx:
+        apply_archive(
+            plan,
+            remove_source=False,
+            runner=_LyingTallyRunner("0\n0\n"),
+        )
+
+
+def test_iter_manifests_lists_written_manifests_newest_first(tmp_path, sandbox_home):
+    # Arrange
+    import time
+
+    from scitex_storage._transfer._archive import iter_manifests
+
+    for name in ("a", "b"):
+        source = tmp_path / name
+        _touch(source / "f.bin")
+        plan = plan_archive(source, "nas")
+        apply_archive(plan, runner=_FakeRunner(returncode=0))
+        time.sleep(0.01)
+    # Act
+    found = iter_manifests()
+    # Assert
+    assert [m.source for m in found] == [str(tmp_path / "b"), str(tmp_path / "a")]
+
+
+def test_iter_manifests_skips_unreadable_files(tmp_path, sandbox_home):
+    # Arrange -- a corrupt JSON next to real manifests must not break listing.
+    from scitex_storage._transfer._archive import _manifest_dir, iter_manifests
+
+    _manifest_dir().mkdir(parents=True, exist_ok=True)
+    (_manifest_dir() / "junk.json").write_text("{nope")
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    apply_archive(plan, runner=_FakeRunner(returncode=0))
+    # Act
+    found = iter_manifests()
+    # Assert
+    assert len(found) == 1
