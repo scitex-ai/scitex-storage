@@ -7,6 +7,16 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-10-20
+
+### Added
+
+- Manifest sidecar replica: `apply_archive` ships the manifest next to
+  the archived tree (`<remote>.scitex-archive-manifest.json`, outside the
+  verified tree) via scp and reads it back byte-for-byte, so the map
+  travels with the data. Replica failure is recorded (`sidecar_*`) and
+  shouted in the CLI report, never blocks a verified delete (PR #137).
+
 ## [0.6.3] - 2026-10-20
 
 ### Added
