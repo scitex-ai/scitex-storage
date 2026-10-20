@@ -28,6 +28,10 @@ tags: [scitex-storage-engines]
   stdlib+click-only exceptions attach eagerly (`list-python-apis`, `mcp`,
   `skills`) because the CLI audit reads the attached-command mapping.
   Domain verdict exit codes start at 10; 1/2 stay generic failure/usage error.
+- `_tiers.py` — canonical destination-tier facts (one owner for the NAS-unit
+  mapping; manifests record `destination_tier`). Fleet roles and the shared
+  host registry stay where they are — this answers only the archive-tier
+  question, with honest "unknown".
 - `_django/` — GUI leaf. Views call backend `plan_*` functions only
   ("No web apply"); the Move tab is a read-only tier overview + archive
   planner. `resolve_project_scope` is fail-closed (`None` = explicit

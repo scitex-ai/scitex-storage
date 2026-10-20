@@ -1441,3 +1441,15 @@ def test_apply_archive_records_sidecar_failure_in_manifest(tmp_path, sandbox_hom
     manifest = apply_archive(plan, runner=_SidecarFailingRunner())
     # Assert
     assert (manifest.sidecar_written, bool(manifest.sidecar_detail)) == (False, True)
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_records_destination_tier_on_manifest(tmp_path, sandbox_home):
+    # Arrange -- "nas" rewrites to scitex-nas-03, the tier1 unit.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(plan, runner=_FakeRunner(returncode=0))
+    # Assert
+    assert manifest.destination_tier == "tier1"
