@@ -84,7 +84,9 @@ from ._archive_transport import (
     _manifest_path,
     _quote_remote_path,
     _rsync_binary,
+    manifest_sidecar_remote_path,
     resolve_destination,
+    write_manifest_sidecar,
 )
 from ._restore import RestorePlan, apply_restore, plan_restore
 from .._measure._scan import MissingSystemDependencyError, _measure_dir
@@ -211,9 +213,8 @@ class ArchiveManifest:
     #: reads, not in a sentence a human might.
     #:
     #: "tally"   entry count + byte total. Cannot see same-length corruption.
-    #: "content" sha256 per entry. Not yet reachable here: the destination is
-    #:           remote and `digest_tree` hashes a local path. Tracked on
-    #:           storage-archive-deletes-on-a-tally-gated-check-20260811.
+    #: "content" sha256 per entry, via the opt-in second gate in
+    #:           apply_archive (REMOTE_DIGEST_CMD + verify_content).
     #:
     #: Defaulted to "unknown" rather than "tally" ON PURPOSE. Manifests written
     #: before this field existed were ALSO tally-verified, but that is my
@@ -221,6 +222,15 @@ class ArchiveManifest:
     #: back-filling it would manufacture evidence. An old manifest genuinely
     #: does not say, and "unknown" is what it does not say.
     verification_method: str = "unknown"
+    #: Remote path of the manifest SIDECAR replica written next to the
+    #: archived tree (see ``manifest_sidecar_remote_path``). Recorded even
+    #: when the replica FAILED -- a missing map must be visible, not silent.
+    #: Defaulted so older manifests still load via from_dict.
+    sidecar_path: str = ""
+    #: Whether the sidecar round trip (scp + read-back compare) succeeded.
+    sidecar_written: bool = False
+    #: Human-readable sidecar outcome, success or failure reason.
+    sidecar_detail: str = "sidecar not attempted by this version"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -430,9 +440,25 @@ def apply_archive(
         # on a stronger check rather than the reverse, which is the safe
         # direction for a field that gates an irreversible delete.
         verification_method=method,
+        sidecar_path=manifest_sidecar_remote_path(plan.remote_path),
     )
     plan.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     plan.manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))
+
+    if verdict.may_remove_source:
+        # Manifest REPLICA next to the archived tree, so the map travels
+        # with the data. Best-effort by contract (see write_manifest_sidecar):
+        # a replica failure is recorded on the manifest and the local file
+        # rewritten, but it never blocks a verified delete.
+        sidecar = write_manifest_sidecar(
+            plan.destination,
+            plan.remote_path,
+            plan.manifest_path,
+            runner=runner,
+        )
+        manifest.sidecar_written = sidecar.written
+        manifest.sidecar_detail = sidecar.detail
+        plan.manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))
 
     if not verdict.may_remove_source:
         raise ArchiveNotVerifiedError(
