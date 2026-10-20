@@ -7,6 +7,15 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-10-20
+
+### Added
+
+- Cold scrub: `scrub_manifest` re-verifies an archived tree against its
+  manifest (tally always, per-file re-hash when a `content_digest`
+  baseline exists; read-only, exit 0/16/17) plus a `scrub` CLI verb.
+  Manifests record `content_digest` when the content gate runs (PR #141).
+
 ## [0.6.5] - 2026-10-20
 
 ### Added
