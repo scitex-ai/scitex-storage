@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-10-20
+
+### Added
+
+- Canonical destination-tier facts (`_tiers.py`, one owner for the
+  NAS-unit mapping); manifests record `destination_tier` (PR #139).
+
 ## [0.6.4] - 2026-10-20
 
 ### Added
