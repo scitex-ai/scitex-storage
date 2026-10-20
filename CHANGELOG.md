@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-10-20
+
+### Fixed
+
+- Usage pane fills the pane: top padding 20px → 12px, sides 24px → 16px
+  (bottom stays dock + 16px) (PR #146).
+
 ## [0.6.7] - 2026-10-20
 
 ### Fixed
