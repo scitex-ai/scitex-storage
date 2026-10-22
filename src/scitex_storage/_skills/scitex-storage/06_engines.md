@@ -34,5 +34,7 @@ tags: [scitex-storage-engines]
   question, with honest "unknown".
 - `_django/` — GUI leaf. Views call backend `plan_*` functions only
   ("No web apply"); the Move tab is a read-only tier overview + archive
-  planner. `resolve_project_scope` is fail-closed (`None` = explicit
+  planner, the Backup tab a plan form + recorded-manifest list. Both are
+  read-only like the CLI dry-run default — the CLI `--yes` gate stays the
+  only mutator. `resolve_project_scope` is fail-closed (`None` = explicit
   no-project state, never silent user-space fallback).
