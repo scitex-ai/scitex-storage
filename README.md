@@ -304,13 +304,20 @@ duplicates fundamentally requires reading bytes, which `scan` never does.
 
 ```
 scitex_storage/
-├── _scan.py        ← scan, scan_roots, ChildUsage, RootScan (fd-backed)
-├── _duplicates.py  ← find_duplicates (fclones-backed)
+├── _transfer/      ← plan/apply for sweep, archive, restore, backup
+│                     (+ _verify.py: the copy→read-back→manifest→delete gate)
+├── _measure/       ← scan, find_duplicates, classify (fd/fclones-backed)
 ├── _images.py      ← plan_prune, apply_prune, PruneCandidate, PrunePlan
-├── _sweep.py       ← plan_sweep, apply_sweep, sweep_status, SweepPlan, SweepResult
-├── _archive.py     ← plan_archive, apply_archive, plan_restore, apply_restore, ArchiveManifest
-├── _report.py      ← format_report, format_duplicates_report, to_json_dict, format_prune_report, format_sweep_report, format_archive_report, format_size
-└── _cli/           ← scan, find-duplicates, images prune, sweep, sweep-status, archive, restore, list-python-apis, mcp list-tools
+├── _report.py      ← format_report, format_duplicates_report, to_json_dict,
+│                     format_prune_report, format_sweep_report,
+│                     format_archive_report, format_size
+├── _tiers.py       ← canonical NAS tier definitions + manifest sidecar
+├── _alarm/         ← free-space alarm (decide + notify, cron-safe)
+└── _cli/           ← scan, survey, find-duplicates, find-recipe, images,
+                      sweep, sweep-status, archive, restore, backup, scrub,
+                      validate-inodes, verify-content, reclaim,
+                      reclaim-restore, fleet-status, alarm, document-sorter,
+                      gui, start-gui, skills, mcp, list-python-apis
 ```
 
 ## 1 Interfaces
