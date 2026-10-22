@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Organize views for the Storage app: Usage / Duplicates / Move tabs.
+"""Organize views for the Storage app: Usage / Duplicates / Move / Backup tabs.
 
-This module implements the three organize tabs (Backup stays a ``[Soon]``
-placeholder in :mod:`.views`), backed by the ``scitex-storage`` Python API (ported from the scitex-hub mount glue, which
+This module implements the four organize tabs, backed by the ``scitex-storage`` Python API (ported from the scitex-hub mount glue, which
 used to carry them hub-side):
 
 * Usage — donut breakdown from ``volumes.measure_all`` (statvfs, always
@@ -146,7 +145,7 @@ def _run_bounded(fn: Callable[[], Any], timeout_s: float) -> tuple[bool, Any]:
 
 
 def _base_context(active: str) -> dict:
-    """Shell + tab-nav context shared by the three organize tabs."""
+    """Shell + tab-nav context shared by the four organize tabs."""
     try:
         from scitex_sdk.ui.branding import shell_context
     except ImportError as exc:

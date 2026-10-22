@@ -130,7 +130,7 @@ Documentation = "https://scitex-storage.readthedocs.io"
 # Generic hub mount (thin-hub rule): ``pip install`` is the whole install.
 # The host mounts ``scitex_storage._django.urls`` at the manifest route
 # (apps/storage/) and lists the tile from ``_django/manifest.json``.
-# Usage/Duplicates/Move tabs are implemented leaf-side (organize.py),
+# Usage/Duplicates/Move/Backup tabs are implemented leaf-side (organize.py),
 # so no host wrapper is needed for them.
 storage = "scitex_storage._django.apps:StorageConfig"
 
