@@ -803,7 +803,8 @@ def test_leaf_bottom_reserve_stays_tight():
 
 
 def test_leaf_pane_padding_stays_tight():
-    """Top/side pane padding stays minimal (operator: content fills pane)."""
+    """Top/side pane padding stays minimal and symmetric (operator: content
+    fills the pane; identical-row program: top and left air match)."""
     # Arrange -- read the shipped stylesheet, not a constant.
     import re
     from pathlib import Path
@@ -813,8 +814,8 @@ def test_leaf_pane_padding_stays_tight():
     match = re.search(r"^\.stx-storage \{(.*?)\}", body, re.M | re.S)
     # Act
     block = match.group(1)
-    # Assert -- 12px top / 8px sides; the old 16px sides read as margins.
-    assert "padding: 12px 8px calc(var(--site-dock-live-height, 0px) + 16px)" in block
+    # Assert -- 12px all around; top and left identical, dock reserve kept.
+    assert "padding: 12px 12px calc(var(--site-dock-live-height, 0px) + 16px)" in block
 
 
 class _ScopeUser:
