@@ -506,7 +506,7 @@ def test_storage_header_mount_carries_leaf_title(tmp_path):
         _get(tmp_path, {"tab": "usage"}).content.decode(),
     )
     # Assert
-    assert all('data-app-title="Storage"' in body for body in bodies)
+    assert all('data-app-title="SciTeX Storage"' in body for body in bodies)
 
 
 def test_storage_header_mount_carries_leaf_version(tmp_path):
