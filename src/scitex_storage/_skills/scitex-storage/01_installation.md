@@ -16,7 +16,8 @@ pip install scitex-storage[dev]       # + full test suite deps
 - GUI needs `scitex-sdk[gui]>=0.3.12` (shared `.stx-layout-fill` utility,
   AppHeader, project picker) and `django>=5.0`.
 - System binaries (not PyPI, declared not bundled): `fd` (scan),
-  `rsync` + ssh (archive/restore transport). Missing binaries fail loud
+  `fclones` (find-duplicates), `rsync` + ssh (archive/restore/backup
+  transport). Missing binaries fail loud
   with install instructions (`MissingSystemDependencyError`) — never
   silently degraded results.
 - The venv contract on SciTeX nodes: reuse `/uvwork/venv-agent`
