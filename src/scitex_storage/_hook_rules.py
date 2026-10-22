@@ -106,6 +106,42 @@ def provide() -> list:
             "05_safety-contract.md",
         ),
         _rule(
+            id="storage.api-python-cli-parity",
+            rule="Every destructive capability ships as BOTH a typed Python "
+            "function (`plan_*`/`apply_*`) and a CLI verb with identical "
+            "semantics; the CLI is a thin wrapper, never a second "
+            "implementation.",
+            reason="Two implementations of one destructive operation drift "
+            "apart silently, and the one exercised less is the one that "
+            "loses data. `list-python-apis` plus the CLI surface keep the "
+            "pairing enumerable; PS-140 keeps the imports honest.",
+            severity="warn",
+            matches=("Bash",),
+            implemented_in="scitex_storage._cli (thin wrappers over "
+            "scitex_storage plan_/apply_ functions) + "
+            "`list-python-apis` introspection",
+            doctrine="src/scitex_storage/_skills/scitex-storage/"
+            "03_python-api.md + 04_cli-reference.md",
+        ),
+        _rule(
+            id="storage.api-delete-gate-shape",
+            rule="Every surface that can delete source data names the "
+            "verification gate it cleared (`delete cleared by: …`); "
+            "unverifiable deletes are refused in every surface, including "
+            "future ones.",
+            reason="The gate is the contract, not the implementation: a new "
+            "surface (MCP server, Web API) that deletes without naming its "
+            "gate reintroduces the 2026-08-11 silent-loss class through a "
+            "door the CLI rules never guarded.",
+            severity="deny",
+            matches=("Bash",),
+            implemented_in="scitex_storage._transfer._archive:apply_archive "
+            "(verification_method in manifest + CLI report); "
+            "MCP/Web surfaces bind to the same callables",
+            doctrine="src/scitex_storage/_skills/scitex-storage/"
+            "05_safety-contract.md §2-3",
+        ),
+        _rule(
             id="storage.manifest-sidecar-on-destination",
             rule="Archived trees carry a manifest sidecar on the "
             "destination, and cold scrub re-verifies trees against "
