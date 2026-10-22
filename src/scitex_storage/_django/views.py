@@ -135,7 +135,7 @@ def index(request):
     context = {
         **shell_context("Storage", panes=SHELL_PANES),
         **_leaf_identity(),
-        "app_label": _app_label("SciTeX Storage"),
+        "app_label": _app_label("Storage"),
         "favicon_href": FAVICON_HREF,
         "project_picker_available": _project_picker_available(),
         "tabs": _tab_context(tab),
