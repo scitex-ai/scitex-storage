@@ -1,7 +1,8 @@
 {
   "name": "storage_app",
   "slug": "storage",
-  "label": "SciTeX Storage",
+  "label": "Storage",
+  "group": "foundation",
   "icon": "fas fa-hard-drive",
   "subtitle": "Project data management: browse, upload, download, move, delete",
   "about": "Project-scoped data management inside your active SciTeX project. Browse files and folders, and create, upload, download, rename, move, and delete them — all scoped to the project you are working in, with fail-closed path containment and typed errors. Development-only (wip): not exposed in the public App Store until daily internal use is stable. The fleet disk-usage scan remains available at the scan view.",
