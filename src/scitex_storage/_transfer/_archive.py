@@ -215,7 +215,7 @@ class ArchiveManifest:
     #:
     #: "tally"   entry count + byte total. Cannot see same-length corruption.
     #: "content" sha256 per entry, via the opt-in second gate in
-    #:           apply_archive (REMOTE_DIGEST_CMD + verify_content).
+    #: apply_archive (REMOTE_DIGEST_CMD + verify_content).
     #:
     #: Defaulted to "unknown" rather than "tally" ON PURPOSE. Manifests written
     #: before this field existed were ALSO tally-verified, but that is my

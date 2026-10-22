@@ -1,5 +1,5 @@
 NAS NFS Setup (fleet runbook)
-============================
+=================================
 
 How the three SciTeX NAS boxes were moved from SSHFS to native NFS,
 with the benchmark numbers that justified it. Measured 2026-09-22 from
