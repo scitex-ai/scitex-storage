@@ -108,8 +108,7 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
         <div class="stx-storage-grid">
         {% for v in statuses %}
         <section class="stx-storage-card">
-            <h2 class="stx-storage-machine"><i class="fas fa-hdd" aria-hidden="true"></i> {{ v.volume.label }}</h2>
-            {% if v.volume.tier %}<p class="stx-storage-conn">{% translate "Tier" %}: {{ v.volume.tier }}</p>{% endif %}
+            <h2 class="stx-storage-machine"><i class="fas fa-hdd" aria-hidden="true"></i> {% if v.volume.tier %}<span style="text-transform: capitalize">{{ v.volume.tier }}</span>{% else %}{% translate "Storage" %}{% endif %}</h2>
             {% if v.status == reachable %}
                 <div class="stx-storage-bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ v.used_pct|stringformat:'.1f' }}"
                      aria-label="{% translate 'Disk used' %}">
@@ -133,7 +132,7 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
             <div class="stx-vol-pick">
                 {% for v in statuses %}
                     {% if v.status == reachable %}
-                    <a href="?tab=usage&amp;volume={{ v.volume.key|urlencode }}{{ scope_qs }}"{% if folder_volume and folder_volume.key == v.volume.key %} class="is-active"{% endif %}>{{ v.volume.label }}</a>
+                    <a href="?tab=usage&amp;volume={{ v.volume.key|urlencode }}{{ scope_qs }}"{% if folder_volume and folder_volume.key == v.volume.key %} class="is-active"{% endif %} style="text-transform: capitalize">{% if v.volume.tier %}{{ v.volume.tier }}{% else %}{% translate "Storage" %}{% endif %}</a>
                     {% endif %}
                 {% endfor %}
             </div>
@@ -212,7 +211,6 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
                     <ul class="stx-storage-list">
                         {% for v in tier_statuses %}
                         <li class="stx-storage-row" style="display: block">
-                            <span class="stx-storage-name">{{ v.volume.label }}</span>
                             {% if v.status == reachable %}
                             <span class="stx-storage-size">{{ v.used|filesizeformat }} / {{ v.total|filesizeformat }}</span>
                             {% else %}
@@ -242,7 +240,7 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
                         <label for="mv-volume">{% translate "From volume" %}</label>
                         <select id="mv-volume" name="volume">
                             {% for v in user_volumes %}
-                            <option value="{{ v.key }}"{% if v.key == form_volume %} selected{% endif %}>{{ v.label }}</option>
+                            <option value="{{ v.key }}"{% if v.key == form_volume %} selected{% endif %} style="text-transform: capitalize">{% if v.tier %}{{ v.tier }}{% else %}{{ v.label }}{% endif %}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -307,7 +305,7 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
                         <label for="bk-volume">{% translate "From volume" %}</label>
                         <select id="bk-volume" name="volume">
                             {% for v in user_volumes %}
-                            <option value="{{ v.key }}"{% if v.key == form_volume %} selected{% endif %}>{{ v.label }}</option>
+                            <option value="{{ v.key }}"{% if v.key == form_volume %} selected{% endif %} style="text-transform: capitalize">{% if v.tier %}{{ v.tier }}{% else %}{{ v.label }}{% endif %}</option>
                             {% endfor %}
                         </select>
                     </div>
