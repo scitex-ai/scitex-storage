@@ -143,6 +143,12 @@ scitex-storage = "scitex_storage"
 [project.entry-points."scitex_dev.system_deps"]
 scitex-storage = "scitex_storage._system_deps:provide"
 
+# Leaf scope of the hooks federation: storage's own agent guardrails,
+# declared like scitex-dev's own provider. scitex-dev dispatches; each
+# leaf owns its scope (standing goal 2026-10-22).
+[project.entry-points."scitex_dev.hooks"]
+scitex-storage = "scitex_storage._hook_rules:provide"
+
 [project.entry-points."scitex_hub.dev"]
 storage = "scitex_storage:validate_storage_contract"
 
