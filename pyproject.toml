@@ -96,7 +96,7 @@ dev = [
     # Mirror the `gui` runtime extra so `pip install -e .[dev]` runs the
     # full suite. Tests import these unguarded; PS-210 audit invariant.
     "django>=5.0",
-    "scitex-sdk[gui]>=0.3.9",  # .stx-layout-fill utility (utils/layout.css)
+    "scitex-sdk[gui]>=0.3.11",  # .stx-layout-fill utility (utils/layout.css)
 ]
 docs = [
     "sphinx>=7.0",
@@ -110,7 +110,7 @@ docs = [
 # The adapter uses the public scitex_sdk.app.embed API available in SDK 0.3.1.
 gui = [
     "django>=5.0",
-    "scitex-sdk[gui]>=0.3.9",  # .stx-layout-fill utility (utils/layout.css)
+    "scitex-sdk[gui]>=0.3.11",  # .stx-layout-fill utility (utils/layout.css)
     "scitex-dev>=0.30.0",  # gui_runtime, used by the gui {open,serve,status,stop} group at runtime
 ]
 all = [
