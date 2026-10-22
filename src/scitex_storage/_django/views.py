@@ -110,8 +110,8 @@ def _project_picker_available() -> bool:
     return "scitex_project_picker" in engines["django"].engine.template_libraries
 
 
-#: Tabs of the storage app. Usage/Duplicates/Move are real views (see
-#: :mod:`.organize`); only Backup is still a placeholder.
+#: Tabs of the storage app. All four are real views (see :mod:`.organize`),
+#: including Backup (plan form + recorded-manifest list, read-only).
 TABS = (
     ("usage", gettext_lazy("Usage"), False),
     ("move", gettext_lazy("Move"), False),
