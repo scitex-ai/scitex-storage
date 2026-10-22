@@ -36,8 +36,9 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
 _GROUP_KWARGS = spec_group_kwargs(
         summary="Research-data storage triage (scan + duplicates + versioned-image rotation).",
         description=(
-            "Discovery + rotation layers of a planned storage-tiering tool "
-            "(local SSD -> NAS SSD -> NAS HDD -> offline). `scan` is a "
+            "Storage triage plus verified tiering (local -> NAS over ssh, "
+            "copy -> read-back -> manifest -> delete)."
+            " `scan` is a "
             "read-only, stat-only directory walk (via `fd`) that reports "
             "the biggest space and inode (file-count) consumers per "
             "top-level child of a root -- no file contents are ever read. "
@@ -55,7 +56,9 @@ _GROUP_KWARGS = spec_group_kwargs(
             "gated on an explicit per-directory confirm. `archive` moves a "
             "directory to nas/nas2 over ssh (scitex-ssh's sync_dir), "
             "verifying before removing the local copy and writing a "
-            "manifest `restore` reads back. `reclaim` moves a path aside "
+            "manifest `restore` reads back. `backup` copies the same way "
+            "but retains the source (manifest marked `retained_source`). "
+            "`reclaim` moves a path aside "
             "into a reversible local archive (default adjacent `.old/`, or "
             "--archive-root on another filesystem to free inodes) instead of "
             "deleting it, so a rough cleanup call costs only a "
