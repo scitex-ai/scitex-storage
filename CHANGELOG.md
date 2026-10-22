@@ -7,6 +7,17 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Docs drift (7 fixes, all evidenced by the code): Backup named as the
+  4th real organize tab (template header comment, skills 02/06/07);
+  README module tree matched to the post-#72 `_transfer`/`_measure`
+  layout with the full 20-verb CLI list; package scope docstring names
+  `backup` + `scrub`; install skill names `fclones`; CLI `--help`
+  header states verified tiering as shipped (not planned).
+- Sphinx docs build is zero-warning (was 1 docutils ERROR + 2 warnings);
+  quickstart example verified runnable.
+
 ## [0.6.12] - 2026-10-20
 
 ### Added
