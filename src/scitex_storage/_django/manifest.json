@@ -31,7 +31,9 @@
       "scitex-dev"
     ],
     "system": [
-      "fd-find"
+      "fd-find",
+      "fclones",
+      "rsync"
     ]
   },
   "mount_policy": {
