@@ -1,10 +1,8 @@
 {% extends "scitex_sdk/app/app_shell.html" %}
 {% load i18n static scitex_static %}
 {% comment %}
-Storage organize tabs (Usage / Duplicates / Move), leaf-owned.
-The Backup tab is still served by the upstream scitex-storage view;
-this template covers only the three tabs dispatched to storage_app.organize.
-Reuses the upstream .stx-storage-* classes so the three tabs feel like one app.
+Storage organize tabs (Usage / Duplicates / Move / Backup), leaf-owned.
+Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
 {% endcomment %}
 {% block extra_css %}
     {# Shared tab contracts (scitex-sdk>=0.3.9, underline-only selected); see index.html. #}

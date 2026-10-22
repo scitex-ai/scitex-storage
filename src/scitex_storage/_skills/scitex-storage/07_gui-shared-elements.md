@@ -17,11 +17,14 @@ tags: [scitex-storage-gui-shared-elements]
   width/max-width rule (the SDK's no-`!important` contract forbids
   competing rules on the same element); SDK `AppHeader`; header project
   picker (rendered only when the host provides the tag library).
-- Tabs converged on the shared SDK `stx-content-tabs` primitive
-  (scitex-sdk>=0.3.9, underline-only selected via `aria-selected`): our
-  tabs stay server-rendered links (no JS pane producer — a click loads a
-  new page), plus one anchor adapter resetting UA underline. The old
-  `.stx-storage-tabs` variant is deleted.
+- Organize tabs (Usage / Duplicates / Move / Backup) are server-rendered
+  links on the shared SDK `stx-content-tabs` primitive
+  (scitex-sdk>=0.3.9, underline-only selected via `aria-selected`): a
+  click loads a new page, no JS pane producer, plus one anchor adapter
+  resetting UA underline. The old `.stx-storage-tabs` variant is deleted.
+  All four tabs are real views in `organize.py` (`HANDLED_TABS`); Backup
+  is plan-form plus recorded-manifest list, read-only like Move — no web
+  apply, the CLI `backup --yes` gate stays the only mutator.
 - Organize tabs carry an in-tab scope control (`?scope=all|project`,
   All-projects default): project scope scans/resolves within the active
   `ProjectScope` (fail-closed `None` renders an explicit no-project
