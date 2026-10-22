@@ -13,7 +13,7 @@ def test_provide_declares_storage_scope():
     # Act
     rules = provide()
     # Assert
-    assert len(rules) >= 4
+    assert len(rules) >= 6
 
 
 def test_provide_yields_hook_rules_only():
