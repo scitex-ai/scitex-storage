@@ -22,4 +22,5 @@ scitex-storage skills list                 # bundled agent skill docs
 ```
 
 GUI: `scitex-storage gui open` (standalone) or `/apps/storage/` on the hub
-(Usage / Move / Duplicates tabs; Move plans but never applies).
+(Usage / Move / Duplicates / Backup tabs; Move plans but never applies,
+Backup plans and lists recorded manifests but never applies).
