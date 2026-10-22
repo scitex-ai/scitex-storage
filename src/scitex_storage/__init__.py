@@ -13,7 +13,10 @@ directory currently references; ``sweep`` — tars an inode-hog directory
 in place (compute-node-only, explicit per-directory confirm required);
 and ``archive``/``restore`` — move-not-delete tiering to nas/nas2 over
 ssh, verified before the local copy is removed, with a manifest
-``restore`` reads back. Every mutating command defaults to a dry-run.
+``restore`` reads back; ``backup`` — same verified copy without the
+delete (source retained, manifest marked ``retained_source``); and
+``scrub`` — cold re-verification of archived trees against their
+manifests. Every mutating command defaults to a dry-run.
 
 Public names — including ``__version__`` — are exposed via PEP 562
 ``__getattr__`` (lazy, on first access) so ``import scitex_storage`` itself
