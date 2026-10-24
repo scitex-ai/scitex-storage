@@ -245,6 +245,11 @@ class ArchiveManifest:
     #: source was deliberately retained. Defaulted so older manifests
     #: (always deletes) still load via from_dict.
     retained_source: bool = False
+    #: Where the source was staged when this run retired it instead of
+    #: deleting it (restorable retention). Empty when the source was deleted
+    #: or kept in place. Defaulted so older manifests still load via
+    #: from_dict.
+    staged_path: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -285,6 +290,8 @@ def apply_archive(
     exclude: tuple[str, ...] = (),
     verify_content_too: bool = False,
     remove_source: bool = True,
+    retire_source: bool = False,
+    retention_days: float = 7.0,
     runner=None,
 ) -> ArchiveManifest:
     """Execute an archive plan: push, READ THE DESTINATION BACK, write the
@@ -295,6 +302,12 @@ def apply_archive(
     and the source is left in place. Verification is NOT relaxed -- a
     failed read-back raises either way, because an unverified copy is not
     a backup either.
+
+    ``retire_source=True`` (with the default ``remove_source=True``) is the
+    safe-move mode: after a positive verification the source is moved aside
+    into restorable staging (same filesystem, atomic rename) instead of
+    being deleted, and a sweeper deletes it once ``retention_days``
+    (default 7) expire. The manifest records ``staged_path``.
 
     Until 2026-07-28 this docstring already said "verify" and the body did
     not do it — the source was removed on rsync's exit code alone. A
@@ -473,6 +486,13 @@ def apply_archive(
         # scrub baseline at zero marginal cost.
         content_digest = tree_digest(source_manifest)
 
+    if retire_source and not remove_source:
+        raise ValueError(
+            "retire_source=True stages the source aside instead of deleting "
+            "it; combine it with the default remove_source=True, or use "
+            "remove_source=False alone for backup mode."
+        )
+
     manifest = ArchiveManifest(
         source=str(plan.source),
         destination=plan.destination,
@@ -526,7 +546,15 @@ def apply_archive(
         )
 
     if remove_source:
-        shutil.rmtree(plan.source)
+        if retire_source:
+            from ._retention import stage_for_retention
+
+            staged = stage_for_retention(plan.source, retention_days=retention_days)
+            manifest.retained_source = True
+            manifest.staged_path = staged.staged_path
+            plan.manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))
+        else:
+            shutil.rmtree(plan.source)
     return manifest
 
 

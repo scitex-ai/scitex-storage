@@ -283,3 +283,22 @@ def test_format_archive_report_says_retained_for_backup(tmp_path):
     text = format_archive_report(_archive_plan(tmp_path), applied=True, manifest=manifest)
     # Assert
     assert ("source retained (backup)" in text, "source removed" not in text) == (True, True)
+
+
+def test_format_archive_report_names_the_staging_for_retired(tmp_path):
+    # Arrange -- a retired move stages the source; the report must say so,
+    # never "retained (backup)" and never "removed".
+    from scitex_storage._report import format_archive_report
+
+    manifest = _archived_manifest("tally")
+    manifest.retained_source = True
+    manifest.staged_path = "/vol/.stx-restorable/20261024T000000Z--old-exp"
+    # Act
+    text = format_archive_report(_archive_plan(tmp_path), applied=True, manifest=manifest)
+    # Assert
+    result = (
+        "staged restorable" in text,
+        "source removed" not in text,
+        "source retained (backup)" not in text,
+    )
+    assert result == (True, True, True)
