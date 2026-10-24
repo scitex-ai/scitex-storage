@@ -32,9 +32,10 @@ tags: [scitex-storage-engines]
   mapping; manifests record `destination_tier`). Fleet roles and the shared
   host registry stay where they are — this answers only the archive-tier
   question, with honest "unknown".
-- `_django/` — GUI leaf. Views call backend `plan_*` functions only
-  ("No web apply"); the Move tab is a read-only tier overview + archive
-  planner, the Backup tab a plan form + recorded-manifest list. Both are
-  read-only like the CLI dry-run default — the CLI `--yes` gate stays the
-  only mutator. `resolve_project_scope` is fail-closed (`None` = explicit
-  no-project state, never silent user-space fallback).
+- `_django/` — GUI leaf. Views call backend `plan_*` functions, plus the
+  explicit-confirm `move_apply` (bounded run, edit rights enforced for
+  project scope, staged restorable). The Move tab is a tier overview +
+  archive planner with that apply form; the Backup tab stays plan-only
+  (the CLI `--yes` gate is its only mutator). `resolve_project_scope` is
+  fail-closed (`None` = explicit no-project state, never silent user-space
+  fallback).

@@ -23,13 +23,16 @@ tags: [scitex-storage-gui-shared-elements]
   click loads a new page, no JS pane producer, plus one anchor adapter
   resetting UA underline. The old `.stx-storage-tabs` variant is deleted.
   All four tabs are real views in `organize.py` (`HANDLED_TABS`); Backup
-  is plan-form plus recorded-manifest list, read-only like Move — no web
-  apply, the CLI `backup --yes` gate stays the only mutator.
-- Organize tabs carry an in-tab scope control (`?scope=all|project`,
-  All-projects default): project scope scans/resolves within the active
+  is plan-form plus recorded-manifest list (plan-only — the CLI
+  `backup --yes` gate stays its only mutator). Move adds an explicit-confirm
+  apply form posting to `move-apply/` (bounded run, edit rights enforced
+  for project scope, staged restorable instead of deleted).
+- Organize tabs are scope-aware through the shared app header (no in-tab
+  scope toggle by design): project scope scans/resolves within the active
   `ProjectScope` (fail-closed `None` renders an explicit no-project
   notice, never a silent fallback); move planning additionally confines
   the source inside the project dir (double containment).
 - The Move plan display names the delete gate (count-and-size read-back by
   default, `--verify-content` for the independent re-hash) — same honesty
-  as the CLI "delete cleared by" line.
+  as the CLI "delete cleared by" line; the applied card names the
+  restorable staging instead of a delete.

@@ -9,9 +9,12 @@ tags: [scitex-storage-safety-contract]
 # Safety contract (non-negotiable)
 
 1. Dry-run by default; `--yes` is the only mutation gate.
-2. Copy → independent read-back → manifest → delete source ONLY on a
-   positive verdict. "Could not check" blocks the delete as firmly as
+2. Copy → independent read-back → manifest → retire or delete source ONLY
+   on a positive verdict. "Could not check" blocks the delete as firmly as
    "check failed" (`ArchiveNotVerifiedError` leaves the source intact).
+   The post-verify fate is staged restorable where the caller asked for it
+   (browser move-apply, `archive --retire-source`) and a verified delete
+   otherwise; both are recorded on the manifest.
 3. Two delete gates, honestly named in the manifest (`verification_method`)
    and the CLI report ("delete cleared by: …"):
    - `tally` (default): entry count + total bytes read back. Cheap;
@@ -35,3 +38,9 @@ tags: [scitex-storage-safety-contract]
    and verifies exactly like archive but retains the source, recorded as
    `retained_source`. Verification is NOT relaxed: an unverified copy
    raises either way.
+8. Restorable staging (operator 2026-10-24): a retired source moves aside
+   atomically next to itself (`.stx-restorable/`, no extra space), recorded
+   in the manifest (`staged_path`) and a central registry. Only a sweeper
+   deletes it, only after its 7-day retention, only with a matching marker,
+   and never outside a `.stx-restorable` directory (`sweep-restorable`,
+   dry-run by default).
