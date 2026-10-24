@@ -893,6 +893,33 @@ def test_usage_project_scope_without_project_names_no_project(tmp_path):
     assert "No project in scope" in body
 
 
+def test_usage_scope_notice_names_hub_mount_without_provider(tmp_path):
+    # Arrange -- standalone: no host provider URL, so the header renders no
+    # picker (operator "No Project Selected": the notice must not point at
+    # a control that does not exist).
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "usage", "scope": "project"}).content.decode()
+    # Assert
+    assert "No project in scope" in body
+    assert "Pick a project in the header" not in body
+    assert "hub-mounted" in body
+
+
+def test_usage_scope_notice_points_at_header_picker_with_provider(tmp_path):
+    # Arrange -- hub-mounted: the host provider URL is set, so the header
+    # can offer the picker; the notice may direct the user to it.
+    from django.test import override_settings
+
+    _boot()
+    # Act
+    with override_settings(SCITEX_PROJECT_PROVIDER_URL="/stub-projects/"):
+        body = _get(tmp_path, {"tab": "usage", "scope": "project"}).content.decode()
+    # Assert
+    assert "No project in scope" in body
+    assert "Pick a project in the header" in body
+
+
 def test_usage_project_scope_scans_the_project_directory(tmp_path):
     # Arrange -- project dir holds the only file; the volume root is empty.
     _boot()

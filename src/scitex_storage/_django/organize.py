@@ -208,6 +208,25 @@ def _scope_urls(request, tab):
     return f"?{base}", f"?{base}&scope=project"
 
 
+def _host_can_pick_project() -> bool:
+    """True when the header can actually offer a project picker.
+
+    The scope notice otherwise points at a control that does not exist:
+    without the host provider URL (standalone) the picker tag renders
+    nothing, so "pick a project in the header" is a dead-end instruction
+    there. Library + provider URL are both required for the picker to
+    appear (see ``_project_picker.html``).
+    """
+    from django.conf import settings
+
+    from . import views as _views
+
+    return bool(
+        getattr(settings, "SCITEX_PROJECT_PROVIDER_URL", "")
+        and _views._project_picker_available()
+    )
+
+
 def _scope_context(request, tab):
     """Shared scope-control context for the organize tabs."""
     scope, pscope = _scope_selection(request)
@@ -216,10 +235,17 @@ def _scope_context(request, tab):
     name = ""
     if scope == "project":
         if pscope is None:
-            notice = str(
-                _("No project in scope -- showing user space. Pick a project "
-                  "in the header to filter these tabs to it.")
-            )
+            if _host_can_pick_project():
+                notice = str(
+                    _("No project in scope -- showing user space. Pick a project "
+                      "in the header to filter these tabs to it.")
+                )
+            else:
+                notice = str(
+                    _("No project in scope -- showing user space. Project "
+                      "filtering needs the hub-mounted app with a signed-in "
+                      "project.")
+                )
         else:
             name = pscope.name or pscope.slug or str(_("this project"))
     return {
