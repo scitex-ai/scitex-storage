@@ -242,10 +242,10 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
                     {% if scope == "project" %}<input type="hidden" name="scope" value="project">{% endif %}
                     <div class="stx-form-row">
                         <div class="stx-field">
-                            <label><input type="checkbox" name="verify_content" value="yes"> {% translate "Re-hash both trees (slower, stronger)" %}</label>
+                            <label class="stx-checkbox-label"><input class="stx-checkbox" type="checkbox" name="verify_content" value="yes"> {% translate "Re-hash both trees (slower, stronger)" %}</label>
                         </div>
                         <div class="stx-field">
-                            <label><input type="checkbox" name="confirm" value="yes" required> {% translate "I confirm: move it and remove the source after verification" %}</label>
+                            <label class="stx-checkbox-label"><input class="stx-checkbox" type="checkbox" name="confirm" value="yes" required> {% translate "I confirm: move it and stage the original restorable after verification" %}</label>
                         </div>
                         <button class="stx-button stx-button--primary" type="submit">{% translate "Apply move" %}</button>
                     </div>
