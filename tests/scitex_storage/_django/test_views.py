@@ -238,6 +238,33 @@ def test_usage_project_scope_shows_only_project_bytes(tmp_path):
     assert result == (True, True, False)
 
 
+def test_usage_tab_has_no_per_folder_breakdown_section(tmp_path):
+    # Arrange -- operator 2026-10-24: no per-folder breakdown; the sunburst
+    # resolves all of it. The vol-pick pills stay (round-pill verdict) as
+    # the sunburst-root picker.
+    _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
+    # Act
+    body = _get(tmp_path, {"tab": "usage"}).content.decode()
+    # Assert
+    result = ("Per-folder breakdown" in body, "Sunburst root:" in body)
+    assert result == (False, True)
+
+
+def test_usage_scope_hides_the_root_picker(tmp_path):
+    # Arrange -- under project scope the project wins; no root to pick.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+    # Act
+    body = _get_scoped(
+        tmp_path, {"tab": "usage", "scope": "project"}, username="u", project_path=str(proj)
+    ).content.decode()
+    # Assert
+    assert "Sunburst root:" not in body
+
+
 def test_usage_tab_links_fleet_views(scitex_dir):
     # Arrange -- operator 2026-10-17: no empty promo. With no snapshot
     # gathered the Usage tab shows no Fleet-visualizations section

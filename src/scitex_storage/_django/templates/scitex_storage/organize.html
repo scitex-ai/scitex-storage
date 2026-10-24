@@ -56,6 +56,19 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
             {% else %}
             <p class="stx-storage-note">{% blocktranslate with total=fleet_total|filesizeformat %}{{ total }} across volumes.{% endblocktranslate %}</p>
             {% endif %}
+            {% if folder_note %}
+                <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ folder_note }}</p></div>
+            {% endif %}
+            {% if scope != "project" or not pscope %}
+            <div class="stx-vol-pick">
+                <span class="stx-storage-note">{% translate "Sunburst root:" %}</span>
+                {% for v in statuses %}
+                    {% if v.status == reachable %}
+                    <a href="?tab=usage&amp;volume={{ v.volume.key|urlencode }}{{ scope_qs }}"{% if folder_volume and folder_volume.key == v.volume.key %} class="is-active"{% endif %}>{{ v.volume.label }}</a>
+                    {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
             <p>
                 <a href="{% url 'scitex_storage:usage_sunburst' %}{% if sunburst_qs %}?{{ sunburst_qs }}{% endif %}">{% translate "Open interactive sunburst" %}</a>
             </p>
@@ -75,11 +88,8 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
         {% endif %}
 
         {% if scope == "project" and pscope %}
-        {% if folder_note %}
-        <section class="stx-storage-card">
-            <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ folder_note }}</p></div>
-        </section>
-        {% endif %}
+        {# Project bytes are shown in the sunburst section above; no
+           per-volume cards and no root picker under project scope. #}
         {% else %}
         {% if statuses %}
         <div class="stx-storage-grid">
@@ -103,24 +113,6 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
         {% else %}
         <section class="stx-storage-card"><p class="stx-storage-empty">{% translate "No storage is assigned to your account yet." %}</p></section>
         {% endif %}
-
-        <section class="stx-storage-card">
-            <h2 class="stx-storage-machine"><i class="fas fa-folder-tree" aria-hidden="true"></i> {% translate "Per-folder breakdown" %}</h2>
-            {% if folder_label %}
-            <p class="stx-storage-note">{% blocktranslate with root=folder_label %}Breakdown root: {{ root }}.{% endblocktranslate %}</p>
-            {% endif %}
-            <div class="stx-vol-pick">
-                {% for v in statuses %}
-                    {% if v.status == reachable %}
-                    <a href="?tab=usage&amp;volume={{ v.volume.key|urlencode }}{{ scope_qs }}"{% if folder_volume and folder_volume.key == v.volume.key %} class="is-active"{% endif %} style="text-transform: capitalize">{% if v.volume.tier %}{{ v.volume.tier }}{% else %}{% translate "Storage" %}{% endif %}</a>
-                    {% endif %}
-                {% endfor %}
-            </div>
-            {% if folder_note %}
-                <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ folder_note }}</p></div>
-            {% endif %}
-            <p class="stx-storage-note">{% translate "The folder breakdown lives in the interactive sunburst above: zoom, hover, and bookmark via the address bar." %}</p>
-        </section>
         {% endif %}
 
     {% elif tab == "duplicates" %}
