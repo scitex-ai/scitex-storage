@@ -12,7 +12,8 @@ tags: [scitex-storage-cli-reference]
 | `scan`, `survey` | read-only tree measurement |
 | `find-duplicates`, `validate-inodes`, `find-recipe` | analysis verdicts |
 | `sweep`, `sweep-status`, `reclaim` | local rotation / reclamation |
-| `archive --to DST [--yes] [--verify-content]` | tier move + verified delete |
+| `archive --to DST [--yes] [--verify-content] [--retire-source]` | tier move + verified delete (or restorable staging) |
+| `sweep-restorable [--yes]` | delete expired restorable-staged trees (dry-run lists) |
 | `backup --to DST [--yes]` | copy-verified second copy, source retained |
 | `restore`, `reclaim-restore` | bring data back |
 | `verify-content SRC DST` | standalone delete-safety verdict |
