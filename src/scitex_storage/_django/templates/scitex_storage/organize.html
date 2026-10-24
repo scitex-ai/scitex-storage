@@ -225,20 +225,39 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
             {% if plan_error %}
                 <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ plan_error }}</p></div>
             {% endif %}
+            {% if apply_error %}
+                <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ apply_error }}</p></div>
+            {% endif %}
             {% if plan %}
                 <div class="stx-storage-ok">
                     <strong>{% translate "Move plan (not executed)." %}</strong>
                     {% blocktranslate with size=plan.size_bytes|filesizeformat count=plan.file_count src=plan.source dest=plan.destination remote=plan.remote_path %}{{ size }} in {{ count }} files: {{ src }} → {{ dest }}:{{ remote }}{% endblocktranslate %}
                     <p class="stx-storage-note" style="margin: 4px 0 0">{% translate "Applying this clears the delete on a count-and-size read-back. For an independent per-file re-hash of both trees first, add" %} <code class="stx-cli">--verify-content</code></p>
                 </div>
+                <form method="post" action="{% url 'scitex_storage:move_apply' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="volume" value="{{ form_volume }}">
+                    <input type="hidden" name="dir" value="{{ form_dir }}">
+                    <input type="hidden" name="destination" value="{{ form_dest }}">
+                    {% if scope == "project" %}<input type="hidden" name="scope" value="project">{% endif %}
+                    <div class="stx-form-row">
+                        <div class="stx-field">
+                            <label><input type="checkbox" name="verify_content" value="yes"> {% translate "Re-hash both trees (slower, stronger)" %}</label>
+                        </div>
+                        <div class="stx-field">
+                            <label><input type="checkbox" name="confirm" value="yes" required> {% translate "I confirm: move it and remove the source after verification" %}</label>
+                        </div>
+                        <button class="stx-button stx-button--primary" type="submit">{% translate "Apply move" %}</button>
+                    </div>
+                </form>
             {% endif %}
-            <div class="stx-storage-warn">
-                <strong>{% translate "Applying a move is disabled in the browser." %}</strong>
-                <p class="stx-storage-note" style="margin: 4px 0 0">
-                    {% translate "The archive removes the local copy only after the remote copy verifies, and it always needs an explicit confirm — so it runs from the command line, never from a click:" %}
-                    <code class="stx-cli">scitex-storage archive &lt;folder&gt; --to &lt;tier&gt; --yes</code>
-                </p>
-            </div>
+            {% if applied %}
+                <div class="stx-storage-ok">
+                    <strong>{% translate "Move applied and verified." %}</strong>
+                    {% blocktranslate with size=applied.size_bytes|filesizeformat count=applied.file_count src=applied.source dest=applied.destination remote=applied.remote_path method=applied.verification_method %}{{ size }} in {{ count }} files: {{ src }} → {{ dest }}:{{ remote }} ({{ method }}){% endblocktranslate %}
+                    <p class="stx-storage-note" style="margin: 4px 0 0">{% translate "The source was removed only after the destination read-back passed." %}</p>
+                </div>
+            {% endif %}
         </section>
     {% elif tab == "backup" %}
         <section class="stx-storage-card">

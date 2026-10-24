@@ -38,6 +38,7 @@ try:
     from django.http import HttpResponse, HttpResponseForbidden
     from django.shortcuts import render
     from django.utils.translation import gettext_lazy as _
+    from django.views.decorators.http import require_POST
 except ImportError as exc:
     raise ImportError(
         "scitex-storage organize views require Django: "
@@ -62,6 +63,16 @@ DUP_MAX_DEPTH = 4
 SCAN_TIMEOUT_S = 15.0
 DUPLICATES_TIMEOUT_S = 60.0
 PLAN_TIMEOUT_S = 20.0
+
+#: Seconds a browser-triggered archive may run before the tab reports a
+#: timeout instead. Longer than the planners: an apply moves real bytes.
+APPLY_TIMEOUT_S = 120.0
+
+#: Transport seam for the browser move-apply. Tests inject a fake runner
+#: (save/set/restore, the ``_GET_CURRENT_PROJECT`` precedent -- never a
+#: mock); production leaves ``None`` so :func:`apply_archive` shells out
+#: to rsync and the real pre-flight probe runs.
+_APPLY_RUNNER = None
 
 #: Donut geometry (r=70 in a 160x160 viewBox) + a fixed segment palette.
 DONUT_R = 70.0
@@ -681,6 +692,182 @@ def move(request):
         "user_volumes": user_volumes,
         "plan": plan,
         "plan_error": plan_error,
+    }
+    return render(request, "scitex_storage/organize.html", context)
+
+
+def _apply_source(request, user_volumes):
+    """Resolve + authorize a browser move-apply source.
+
+    Returns ``(source, destination)`` or ``(None, HttpResponse)`` for
+    fail-closed refusals (unknown volume, escape, no edit rights) and
+    ``(None, str)`` for input errors rendered on the tab. Project scope
+    requires edit rights (apps-lead decision: a browser-applied move is a
+    real mutation, like rename/delete/mkdir); user-space volumes are the
+    requester's own, so no project permission applies there.
+    """
+    from . import project_files, volumes
+
+    form_volume = request.POST.get("volume", "")
+    form_dir = request.POST.get("dir", "")
+    form_dest = request.POST.get("destination", "")
+    volume = volumes.find_volume(user_volumes, form_volume)
+    if volume is None:
+        return None, HttpResponseForbidden(str(_("That volume is not yours.")))
+    try:
+        source = volumes.contained_dir(volume, (form_dir or "").strip().strip("/"))
+    except Exception:
+        return None, HttpResponseForbidden(str(_("That folder is outside the volume.")))
+    try:
+        editable = project_files.resolve_project_scope(request, require_edit=True)
+    except project_files.PermissionDenied as exc:
+        return None, HttpResponseForbidden(str(exc))
+    if editable is not None:
+        if not _within(source, editable.project_dir):
+            return None, HttpResponseForbidden(
+                str(_("That folder is outside the current project."))
+            )
+    elif request.POST.get("scope") == "project":
+        return None, HttpResponseForbidden(
+            str(_("No project in scope -- applying a move needs a project you may edit."))
+        )
+    return (source, form_dest), None
+
+
+@require_POST
+def move_apply(request):
+    """Execute a planned archive from the Move tab. A real mutation.
+
+    POST-only: ``volume`` + ``dir`` + ``destination`` identify the planned
+    move, ``confirm=yes`` is the explicit human confirm (no silent apply),
+    ``verify_content`` opts into the second content gate. Edit rights are
+    enforced for project-scoped sources; the transport is pre-flighted
+    before a byte moves; plan and apply each run bounded.
+    """
+    from . import volumes
+
+    user_volumes = _user_volumes(request)
+    destinations = _archive_destinations()
+    applied = None
+    apply_error = ""
+    form_volume = request.POST.get("volume", "")
+    form_dir = request.POST.get("dir", "")
+    form_dest = request.POST.get("destination", "")
+    scope_ctx = _scope_context(request, "move")
+    resolved, problem = _apply_source(request, user_volumes)
+    if problem is not None:
+        if not isinstance(problem, str):
+            return problem
+        apply_error = problem
+        source = None
+    else:
+        source, form_dest = resolved
+    if not apply_error:
+        if form_dest not in destinations:
+            apply_error = str(
+                _("Pick an archive tier: %(tiers)s.")
+                % {"tiers": ", ".join(destinations) if destinations else "—"}
+            )
+        elif request.POST.get("confirm") != "yes":
+            apply_error = str(
+                _("Applying a move needs an explicit confirm -- check the confirm box.")
+            )
+    plan = None
+    if not apply_error:
+        try:
+            from scitex_storage import plan_archive as _plan
+        except ImportError:
+            _plan = None
+        if _plan is None:
+            apply_error = str(
+                _("Archive planning needs the scitex-storage package.")
+            )
+        else:
+            ok, result = _run_bounded(
+                lambda: _plan(source, form_dest), PLAN_TIMEOUT_S
+            )
+            if ok:
+                plan = result
+            else:
+                err = result
+                if type(err).__name__ == "MissingSystemDependencyError":
+                    apply_error = str(
+                        _(
+                            "Archive planning is unavailable here: "
+                            "the `fd` binary is not installed on this host."
+                        )
+                    )
+                elif isinstance(err, TimeoutError):
+                    apply_error = str(_("Archive planning timed out."))
+                else:
+                    apply_error = str(
+                        _("Could not plan that move: %(err)s") % {"err": err}
+                    )
+    if not apply_error:
+        if _APPLY_RUNNER is None:
+            try:
+                from scitex_storage._transfer._archive_transport import (
+                    probe_transport as _probe,
+                )
+            except ImportError:
+                _probe = None
+            if _probe is not None:
+                probe = _probe(form_dest)
+                if not probe.may_transport:
+                    apply_error = str(
+                        _("Transport to %(dest)s is %(verdict)s -- refusing to sync + delete. %(detail)s")
+                        % {"dest": form_dest, "verdict": probe.verdict, "detail": probe.detail}
+                    )
+    if not apply_error:
+        try:
+            from scitex_storage import apply_archive as _apply
+        except ImportError:
+            _apply = None
+        if _apply is None:
+            apply_error = str(
+                _("Archive execution needs the scitex-storage package.")
+            )
+        else:
+            verify_content = request.POST.get("verify_content") == "yes"
+            ok, result = _run_bounded(
+                lambda: _apply(
+                    plan,
+                    checksum=True,
+                    verify_content_too=verify_content,
+                    runner=_APPLY_RUNNER,
+                ),
+                APPLY_TIMEOUT_S,
+            )
+            if ok:
+                applied = result
+            else:
+                err = result
+                if isinstance(err, TimeoutError):
+                    apply_error = str(
+                        _("Archive run timed out -- check the destination before retrying.")
+                    )
+                else:
+                    apply_error = str(
+                        _("Archive failed: %(err)s") % {"err": err}
+                    )
+    tiers: dict[str, list] = {}
+    statuses = volumes.measure_all(_user_volumes(request))
+    for st in statuses:
+        tiers.setdefault(_tier_of(st.volume), []).append(st)
+    context = {
+        **_base_context("move"),
+        **scope_ctx,
+        "tiers": sorted(tiers.items()),
+        "reachable": volumes.REACHABLE,
+        "destinations": destinations,
+        "form_volume": form_volume,
+        "form_dir": form_dir,
+        "form_dest": form_dest,
+        "user_volumes": user_volumes,
+        "plan": None,
+        "plan_error": "",
+        "applied": applied,
+        "apply_error": apply_error,
     }
     return render(request, "scitex_storage/organize.html", context)
 
