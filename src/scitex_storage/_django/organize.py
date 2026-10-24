@@ -560,6 +560,7 @@ def duplicates(request):
         "reclaimable": reclaimable,
         "scanned": scanned,
         "unavailable_reason": unavailable_reason,
+        "roots": [str(p) for p in roots],
     }
     return render(request, "scitex_storage/organize.html", context)
 

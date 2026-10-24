@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import shutil
 
 import pytest
 
@@ -265,6 +266,30 @@ def test_duplicates_tab_is_read_only_report(tmp_path):
     body = _get(tmp_path, {"tab": "duplicates"}).content.decode()
     # Assert
     assert "Read-only report." in body
+
+
+_HAVE_FCLONES = bool(shutil.which("fclones"))
+requires_no_fclones = pytest.mark.skipif(
+    _HAVE_FCLONES, reason="covers the fclones-absent unavailable app state"
+)
+
+
+@requires_no_fclones
+def test_duplicates_unavailable_lists_would_scan_roots(tmp_path):
+    # Arrange -- operator 2026-10-24: an app, not a command dump. Without
+    # the binary the tab still shows its scope and what the report holds.
+    _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
+    # Act
+    body = _get(tmp_path, {"tab": "duplicates"}).content.decode()
+    result = (
+        "Duplicates unavailable" in body,
+        "Would scan:" in body,
+        str(tmp_path) in body,
+        "find-duplicates" in body,
+    )
+    # Assert
+    assert result == (True, True, True, True)
 
 
 def test_index_declares_every_shell_pane_so_none_reserves_width(tmp_path):

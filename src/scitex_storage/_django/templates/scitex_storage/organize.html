@@ -132,7 +132,13 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
             <section class="stx-storage-card">
                 <h2 class="stx-storage-machine"><i class="fas fa-clone" aria-hidden="true"></i> {% translate "Duplicates unavailable" %}</h2>
                 <p>{{ unavailable_reason }}</p>
-                <p class="stx-storage-note">{% translate "On a host with the binary, run:" %}<code class="stx-cli">scitex-storage find-duplicates ~/proj --depth 4</code></p>
+                {% if roots %}
+                <p class="stx-storage-note">{% translate "Would scan:" %}</p>
+                <ul class="stx-dup-paths">
+                    {% for r in roots %}<li>{{ r }}</li>{% endfor %}
+                </ul>
+                {% endif %}
+                <p class="stx-storage-note">{% translate "When available, this tab lists every byte-identical group with its paths and the reclaimable total — resolving stays a deliberate manual step." %}</p>
             </section>
         {% else %}
             <section class="stx-storage-card">
