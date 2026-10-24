@@ -12,6 +12,8 @@ import scitex_storage as st
 
 plan = st.plan_archive(source, "scitex-nas-01")   # pure: measure + resolve
 manifest = st.apply_archive(plan, verify_content_too=True)  # mutates
+retired = st.apply_archive(plan, retire_source=True)  # mutates, keeps restorable
+st.sweep_restorable()  # dry-run default: report expired staging
 ```
 
 - Every transfer verb splits `plan_*` / `apply_*` (see `02` engines leaf
@@ -23,3 +25,6 @@ manifest = st.apply_archive(plan, verify_content_too=True)  # mutates
   execution engine.
 - Test seam: pass `runner=` to transfer calls to avoid real SSH; sandbox
   `$HOME` (manifest dir resolves fresh every call).
+- `retire_source=True` stages the verified source aside instead of
+  deleting it (`manifest.staged_path`); `sweep_restorable()` deletes
+  expired staging (see the safety contract).

@@ -81,6 +81,19 @@ def test_sweep_before_expiry_retains_everything(sandbox_home):
     assert result == ([], [staged], True)
 
 
+def test_sweep_defaults_to_dry_run(sandbox_home):
+    # Arrange -- the API, like the CLI, removes nothing unless asked.
+    src = _tree(sandbox_home / "work")
+    record = retention.stage_for_retention(src, retention_days=0)
+    # Act
+    report = retention.sweep_restorable()
+    # Assert
+    from pathlib import Path
+
+    result = (report.removed, Path(record.staged_path).is_dir())
+    assert result == ([record.staged_path], True)
+
+
 def test_sweep_after_expiry_removes_and_prunes_the_registry(sandbox_home):
     # Arrange
     src = _tree(sandbox_home / "work")

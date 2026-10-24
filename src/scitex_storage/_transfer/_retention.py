@@ -147,9 +147,12 @@ def _marker_matches(staged: Path, entry: dict) -> bool:
 
 
 def sweep_restorable(
-    *, dry_run: bool = False, now: float | None = None
+    *, dry_run: bool = True, now: float | None = None
 ) -> SweepReport:
-    """Delete staged trees whose retention expired; report everything.
+    """List staged trees whose retention expired; delete them unless dry-run.
+
+    Dry-run is the default (nothing is removed without an explicit
+    ``dry_run=False``). Every sighting is reported either way.
 
     ``dry_run`` reports without touching the disk. Registry entries whose
     tree is already gone are pruned; entries pointing outside a
