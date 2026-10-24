@@ -217,7 +217,10 @@ def _host_can_pick_project() -> bool:
     there. Library + provider URL are both required for the picker to
     appear (see ``_project_picker.html``).
     """
-    from django.conf import settings
+    try:
+        from django.conf import settings
+    except ImportError:  # pragma: no cover - gui extra absent
+        return False
 
     from . import views as _views
 

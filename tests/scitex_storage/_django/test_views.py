@@ -900,10 +900,13 @@ def test_usage_scope_notice_names_hub_mount_without_provider(tmp_path):
     _boot()
     # Act
     body = _get(tmp_path, {"tab": "usage", "scope": "project"}).content.decode()
+    result = (
+        "No project in scope" in body,
+        "Pick a project in the header" not in body,
+        "hub-mounted" in body,
+    )
     # Assert
-    assert "No project in scope" in body
-    assert "Pick a project in the header" not in body
-    assert "hub-mounted" in body
+    assert result == (True, True, True)
 
 
 def test_usage_scope_notice_points_at_header_picker_with_provider(tmp_path):
@@ -915,9 +918,12 @@ def test_usage_scope_notice_points_at_header_picker_with_provider(tmp_path):
     # Act
     with override_settings(SCITEX_PROJECT_PROVIDER_URL="/stub-projects/"):
         body = _get(tmp_path, {"tab": "usage", "scope": "project"}).content.decode()
+    result = (
+        "No project in scope" in body,
+        "Pick a project in the header" in body,
+    )
     # Assert
-    assert "No project in scope" in body
-    assert "Pick a project in the header" in body
+    assert result == (True, True)
 
 
 def test_usage_project_scope_scans_the_project_directory(tmp_path):
