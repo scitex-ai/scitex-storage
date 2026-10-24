@@ -11,10 +11,10 @@
      max-width here per its no-!important contract. Long-form text still
      caps itself (see .stx-storage-coming p). */
   margin: 0;
-  /* Symmetric pane gutters (operator 2026-10-22, supersedes the 12px/8px
-     split of CCT4926): top and left air identical so the main area reads
-     as one consistent frame. Dock reserve + 16px air at the bottom. */
-  padding: 12px 12px calc(var(--site-dock-live-height, 0px) + 16px);
+  /* Operator 2026-10-24: no margins on the largest div — the app content
+     fills the pane edge to edge. The live dock clearance stays (functional,
+     not a margin): without it the dock would cover the last row. */
+  padding: 0 0 var(--site-dock-live-height, 0px);
   color: var(--text-primary, inherit);
   font-size: 15px;
 }
