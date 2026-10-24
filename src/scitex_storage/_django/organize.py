@@ -834,6 +834,7 @@ def move_apply(request):
                     plan,
                     checksum=True,
                     verify_content_too=verify_content,
+                    retire_source=True,
                     runner=_APPLY_RUNNER,
                 ),
                 APPLY_TIMEOUT_S,

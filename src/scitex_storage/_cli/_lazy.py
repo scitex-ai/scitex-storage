@@ -59,6 +59,7 @@ VERB_REGISTRY: dict[str, str] = {
     "images": "._images_cmd:images_group",
     "sweep": "._sweep_cmd:sweep_cmd",
     "sweep-status": "._sweep_cmd:sweep_status_cmd",
+    "sweep-restorable": "._retention_cmd:sweep_restorable_cmd",
     "archive": "._archive_cmd:archive_cmd",
     "backup": "._backup_cmd:backup_cmd",
     "restore": "._archive_cmd:restore_cmd",

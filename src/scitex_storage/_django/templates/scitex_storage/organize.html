@@ -255,7 +255,7 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
                 <div class="stx-storage-ok">
                     <strong>{% translate "Move applied and verified." %}</strong>
                     {% blocktranslate with size=applied.size_bytes|filesizeformat count=applied.file_count src=applied.source dest=applied.destination remote=applied.remote_path method=applied.verification_method %}{{ size }} in {{ count }} files: {{ src }} → {{ dest }}:{{ remote }} ({{ method }}){% endblocktranslate %}
-                    <p class="stx-storage-note" style="margin: 4px 0 0">{% translate "The source was removed only after the destination read-back passed." %}</p>
+                    <p class="stx-storage-note" style="margin: 4px 0 0">{% translate "The original was moved to restorable staging after verification and deletes automatically once its retention expires." %}</p>
                 </div>
             {% endif %}
         </section>

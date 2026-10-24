@@ -1307,9 +1307,10 @@ class _ApplyFakeRunner:
 
 
 @pytest.mark.requires_fd
-def test_move_apply_moves_and_removes_source_after_verify(tmp_path):
+def test_move_apply_retires_source_after_verify(tmp_path):
     # Arrange -- real plan over a real tree; the transport is the fake
     # above, the delete and the manifest write are real.
+    import json
     import os
 
     from scitex_storage._django import organize
@@ -1337,14 +1338,19 @@ def test_move_apply_moves_and_removes_source_after_verify(tmp_path):
             os.environ["HOME"] = previous_home
         organize._APPLY_RUNNER = previous_runner
     manifests = list((home / ".scitex" / "scitex-storage" / "runtime" / "archive-manifests").glob("*.json"))
-    # Assert -- verified move: summary shown, source gone, manifest kept.
+    staged = json.loads(manifests[0].read_text()).get("staged_path", "") if len(manifests) == 1 else ""
+    # Assert -- verified move: summary shown, source retired (not deleted),
+    # staged tree restorable, manifest records where.
+    from pathlib import Path
+
     result = (
         response.status_code,
         "Move applied and verified" in body,
         (tmp_path / "old-exp").exists(),
+        (staged != "" and Path(staged).is_dir() and (Path(staged) / "a.bin").is_file()),
         len(manifests),
     )
-    assert result == (200, True, False, 1)
+    assert result == (200, True, False, True, 1)
 
 
 def test_move_project_scope_plans_dir_inside_project(tmp_path):

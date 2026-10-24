@@ -501,6 +501,44 @@ def test_apply_archive_removes_the_source_on_success(tmp_path, sandbox_home):
 
 
 @pytest.mark.requires_fd
+def test_apply_archive_retire_stages_source_instead_of_deleting(tmp_path, sandbox_home):
+    # Arrange -- operator 2026-10-24: verified moves restage, then delete.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(plan, retire_source=True, runner=_FakeRunner(returncode=0))
+    # Assert -- original moved aside with bytes intact, manifest says where.
+    from pathlib import Path
+
+    staged = Path(manifest.staged_path)
+    result = (
+        source.exists(),
+        (staged / "a.bin").is_file(),
+        manifest.retained_source,
+        staged.parent.name,
+    )
+    assert result == (False, True, True, ".stx-restorable")
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_retire_rejects_backup_mode_combination(tmp_path, sandbox_home):
+    # Arrange -- staging is a form of removal; backup keeps the source.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    raised = None
+    try:
+        apply_archive(plan, remove_source=False, retire_source=True,
+                      runner=_FakeRunner(returncode=0))
+    except ValueError as exc:
+        raised = exc
+    # Assert
+    assert raised is not None
+
+
+@pytest.mark.requires_fd
 def test_apply_archive_writes_a_manifest_file_on_success(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
