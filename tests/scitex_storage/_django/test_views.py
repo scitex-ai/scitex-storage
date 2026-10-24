@@ -189,14 +189,52 @@ def test_backup_tab_lists_recorded_manifests(tmp_path):
     assert str(source) in body
 
 
-def test_usage_tab_renders_donut(tmp_path):
-    # Arrange
+def test_usage_tab_renders_usage_section(tmp_path):
+    # Arrange -- the static doughnut is gone (operator 2026-10-24: dynamic
+    # sunburst instead); the section heading stays as the anchor.
     _boot()
     _touch(tmp_path / "alpha" / "a.bin", 100)
     # Act
     body = _get(tmp_path, {"tab": "usage"}).content.decode()
     # Assert
     assert "Where your bytes live" in body
+
+
+def test_usage_tab_links_interactive_sunburst(tmp_path):
+    # Arrange
+    _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
+    # Act
+    body = _get(tmp_path, {"tab": "usage"}).content.decode()
+    # Assert -- route name, never a hardcoded path.
+    assert "usage-sunburst" in body
+
+
+def test_usage_tab_has_no_static_donut(tmp_path):
+    # Arrange -- operator 2026-10-24: drop the round UI; the breakdown
+    # lives in the interactive sunburst now.
+    _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
+    # Act
+    body = _get(tmp_path, {"tab": "usage"}).content.decode()
+    # Assert
+    assert ("stx-donut" in body, "Storage usage donut" in body) == (False, False)
+
+
+def test_usage_project_scope_shows_only_project_bytes(tmp_path):
+    # Arrange -- operator "filtered disk": a selected project shows only
+    # that project's bytes, never the all-volumes cards.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+    # Act
+    body = _get_scoped(
+        tmp_path, {"tab": "usage", "scope": "project"}, username="u", project_path=str(proj)
+    ).content.decode()
+    # Assert
+    result = ("Showing only" in body, "Paper Project" in body, "stx-storage-grid" in body)
+    assert result == (True, True, False)
 
 
 def test_usage_tab_links_fleet_views(scitex_dir):
@@ -458,6 +496,87 @@ def test_sunburst_view_serves_a_gathered_snapshot(scitex_dir):
     body = sunburst(RequestFactory().get("/storage/sunburst/")).content.decode()
     # Assert
     assert "FLEET-SENTINEL" in body
+
+
+def _get_usage_sunburst(tmp_path, params, username=None, project_path=None, project_name="Paper Project"):
+    """GET through the usage-sunburst route with the test volumes provider."""
+    from django.test import RequestFactory, override_settings
+
+    from scitex_storage._django import organize, project_files
+
+    _VOLUME_ROOT["path"] = str(tmp_path)
+    dotted = f"{__name__}.provide_test_volumes"
+    request = RequestFactory().get("/storage/usage-sunburst/", params)
+    prev = project_files._GET_CURRENT_PROJECT
+    if username is not None:
+        request.user = _ScopeUser(username)
+
+        def seam(request, user=None):
+            return _ScopeProject(project_path, project_name)
+
+        project_files._GET_CURRENT_PROJECT = seam
+    try:
+        with override_settings(SCITEX_STORAGE_VOLUMES_PROVIDER=dotted):
+            return organize.usage_sunburst(request)
+    finally:
+        project_files._GET_CURRENT_PROJECT = prev
+
+
+@pytest.mark.requires_fd
+def test_usage_sunburst_serves_interactive_page(tmp_path):
+    # Arrange -- real scan of a real temp tree, served self-contained.
+    _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
+    # Act
+    response = _get_usage_sunburst(tmp_path, {})
+    body = response.content.decode()
+    # Assert -- dynamic UI: zoomable page, embedded data, no CDN.
+    result = (response.status_code, "Usage" in body, "alpha" in body, 'src="http' in body)
+    assert result == (200, True, True, False)
+
+
+def test_usage_sunburst_unknown_volume_is_403(tmp_path):
+    # Arrange
+    _boot()
+    # Act
+    response = _get_usage_sunburst(tmp_path, {"volume": "nope"})
+    # Assert -- fail closed, like the Usage tab itself.
+    assert response.status_code == 403
+
+
+def test_usage_sunburst_without_fd_names_the_missing_binary(tmp_path):
+    # Arrange -- an empty PATH hides fd and fdfind alike (sanctioned
+    # save/set/restore env pattern): the page still renders, naming the
+    # missing binary instead of 500ing.
+    _boot()
+    previous_path = os.environ.get("PATH")
+    os.environ["PATH"] = str(tmp_path)
+    try:
+        # Act
+        response = _get_usage_sunburst(tmp_path, {})
+        body = response.content.decode()
+    finally:
+        if previous_path is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = previous_path
+    # Assert
+    assert (response.status_code, "fd" in body) == (200, True)
+
+
+@pytest.mark.requires_fd
+def test_usage_sunburst_project_scope_scans_the_project_directory(tmp_path):
+    # Arrange -- project dir holds the only file; the volume root is empty.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+    # Act
+    body = _get_usage_sunburst(
+        tmp_path, {"scope": "project"}, username="u", project_path=str(proj)
+    ).content.decode()
+    # Assert -- the breakdown root is the project, not the volume.
+    assert ("Paper Project" in body, "paper.pdf" in body) == (True, True)
 
 
 def test_usage_tab_shows_fleet_links_once_a_snapshot_exists(scitex_dir):

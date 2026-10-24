@@ -69,11 +69,75 @@ def build_hierarchy(snapshot: FleetSnapshot) -> dict:
     }
 
 
+def build_dir_hierarchy(
+    root_name: str, root_path, *, max_depth: int = 2, top_n: int = 12
+) -> dict:
+    """Directory tree -> sunburst hierarchy for the Usage tab.
+
+    Same node shape as :func:`build_hierarchy` (``name`` / ``value`` /
+    ``usage`` / ``inode`` / ``children``) so the one drawing routine serves
+    both. Directories report no usage metric (``None`` -> grey, never a
+    misleading red): for folders the angle (size) is the signal, and the
+    tooltip names the byte count. Recursion is depth-capped and each level
+    keeps the ``top_n`` largest plus an ``Other`` rollup, so a huge tree
+    cannot blow up the page. Raises ``MissingSystemDependencyError`` when
+    ``fd`` is absent (from :func:`scan`) and lets ``OSError`` on an
+    unreadable subtree prune that branch, not the page.
+    """
+    from pathlib import Path
+
+    from .._measure._scan import scan
+
+    def _level(path: Path, depth: int) -> list[dict]:
+        kids = sorted(
+            scan(path).children,
+            key=lambda c: (c.size, c.file_count),
+            reverse=True,
+        )
+        nodes = []
+        for child in kids[:top_n]:
+            node = {
+                "name": child.name,
+                "value": child.size,
+                "usage": None,
+                "inode": None,
+                "children": [],
+            }
+            if child.is_dir and depth > 0:
+                try:
+                    node["children"] = _level(child.path, depth - 1)
+                except OSError:
+                    node["children"] = []
+            nodes.append(node)
+        rest = kids[top_n:]
+        if rest:
+            nodes.append(
+                {
+                    "name": "Other",
+                    "value": sum(c.size for c in rest),
+                    "usage": None,
+                    "inode": None,
+                    "children": [],
+                }
+            )
+        return nodes
+
+    root = Path(root_path)
+    children = _level(root, max_depth)
+    return {
+        "name": root_name,
+        "value": sum(c["value"] for c in children),
+        "usage": None,
+        "inode": None,
+        "children": children,
+    }
+
+
 _PAGE = """\
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fleet Capacity Sunburst</title>
+<title>{title}</title>
 <style>
 :root {{ --bg:#12151a; --panel:#1b2027; --text:#d7dde5; --muted:#8b95a3; --ring:#2c333d; }}
 * {{ box-sizing:border-box; }}
@@ -97,17 +161,13 @@ path.seg:hover {{ opacity:.82; }}
   border-radius:8px; padding:8px 10px; font-size:12px; opacity:0; transition:opacity .1s; z-index:9; text-align:left; }}
 footer {{ color:var(--muted); font-size:11px; margin-top:20px; }}
 </style></head><body>
-<h1>Fleet Capacity Sunburst</h1>
+<h1>{title}</h1>
 <p class="gen">{gen}</p>
-<div id="modes">
-  <button id="m-usage" class="on">Colour: Space&nbsp;%%</button>
-  <button id="m-inode">Colour: Inodes&nbsp;%%</button>
-</div>
+<div id="modes">{modes}</div>
 <div id="crumb"></div>
 <svg id="sb" width="560" height="560" viewBox="0 0 560 560"></svg>
 <div id="tip"></div>
-<footer>Angle = capacity &middot; colour = the selected metric (green&rarr;red, grey = unmeasured) &middot;
-click a host to zoom, the breadcrumb climbs back. Self-contained, opens offline.</footer>
+<footer>{footer}</footer>
 <script>
 const ROOT = {data};
 const CX=280, CY=280, R0=70, RW=95, TAU=Math.PI*2;
@@ -195,8 +255,9 @@ function setMetric(m){{
   document.getElementById('m-inode').classList.toggle('on', m==='inode');
   render();
 }}
-document.getElementById('m-usage').onclick=()=>setMetric('usage');
-document.getElementById('m-inode').onclick=()=>setMetric('inode');
+const _mu=document.getElementById('m-usage'), _mi=document.getElementById('m-inode');
+if(_mu) _mu.onclick=()=>setMetric('usage');
+if(_mi) _mi.onclick=()=>setMetric('inode');
 restoreFromHash();
 render();
 </script>
@@ -211,6 +272,40 @@ def build_sunburst_html(snapshot: FleetSnapshot) -> str:
     note = html.escape(snapshot.note or "")
     gen_line = f"Generated {gen}" + (f" &middot; {note}" if note else "")
     data = json.dumps(root).replace("</", "<\\/")
-    return _PAGE.format(gen=gen_line, data=data)
+    return _PAGE.format(
+        title="Fleet Capacity Sunburst",
+        gen=gen_line,
+        modes=(
+            '  <button id="m-usage" class="on">Colour: Space&nbsp;%%</button>\n'
+            '  <button id="m-inode">Colour: Inodes&nbsp;%%</button>\n'
+        ),
+        footer=(
+            "Angle = capacity &middot; colour = the selected metric "
+            "(green&rarr;red, grey = unmeasured) &middot; click a host to "
+            "zoom, the breadcrumb climbs back. Self-contained, opens offline."
+        ),
+        data=data,
+    )
+
+
+def build_dir_sunburst_html(root_name: str, hierarchy: dict, gen_line: str) -> str:
+    """Render a directory hierarchy as the interactive sunburst. Pure.
+
+    Same drawing routine as :func:`build_sunburst_html`; the colour-mode
+    buttons are omitted (folders carry no usage metric) and the title and
+    footer name folders instead of hosts. ``gen_line`` is already-escaped
+    HTML naming the scanned root and time.
+    """
+    data = json.dumps(hierarchy).replace("</", "<\\/")
+    return _PAGE.format(
+        title=f"{root_name} \u2014 Usage",
+        gen=gen_line,
+        modes="",
+        footer=(
+            "Angle = size &middot; click a folder to zoom, the breadcrumb "
+            "climbs back. Self-contained, opens offline."
+        ),
+        data=data,
+    )
 
 # EOF

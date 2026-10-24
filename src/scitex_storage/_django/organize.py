@@ -35,7 +35,7 @@ from typing import Any, Callable
 # PS-233/PS-148 so a GUI import without the extra names the remedy instead
 # of a bare ModuleNotFoundError.
 try:
-    from django.http import HttpResponseForbidden
+    from django.http import HttpResponse, HttpResponseForbidden
     from django.shortcuts import render
     from django.utils.translation import gettext_lazy as _
 except ImportError as exc:
@@ -378,9 +378,14 @@ def usage(request):
                         _("Per-folder scan failed: %(err)s") % {"err": err}
                     )
 
+    from urllib.parse import urlencode
+
+    keep = [(k, v) for k, v in request.GET.items() if k in ("volume", "scope")]
+    sunburst_qs = urlencode(keep)
     context = {
         **_base_context("usage"),
         **scope_ctx,
+        "sunburst_qs": sunburst_qs,
         "fleet_segments": donut_segments(fleet_items),
         "fleet_total": sum(v for _label, v in fleet_items),
         "statuses": statuses,
@@ -393,6 +398,73 @@ def usage(request):
         "fleet_available": _fleet_views_available(),
     }
     return render(request, "scitex_storage/organize.html", context)
+
+
+def usage_sunburst(request):
+    """Interactive folder sunburst for the Usage tab's breakdown root.
+
+    The same root the per-folder breakdown uses (the project directory
+    under project scope, else the selected volume path): the breakdown's
+    numbers live in this zoomable UI instead of a static donut. Served
+    live per request with the scan bounded; failures render a plain note
+    page -- never a blank page and never a 500, because "gather timed
+    out" is a real state a first-run user will hit.
+    """
+    import datetime
+    import html
+
+    from . import volumes
+
+    try:
+        from scitex_storage._render import (
+            build_dir_hierarchy,
+            build_dir_sunburst_html,
+        )
+    except ImportError:
+        return HttpResponse(
+            "<p>Usage sunburst needs the scitex-storage package.</p>",
+            content_type="text/html",
+        )
+    user_volumes = _user_volumes(request)
+    statuses = volumes.measure_all(user_volumes)
+    scope_ctx = _scope_context(request, "usage")
+    if request.GET.get("volume"):
+        folder_volume = _selected_volume(request, user_volumes, statuses)
+        if folder_volume is None:
+            return HttpResponseForbidden(str(_("That volume is not yours.")))
+    else:
+        folder_volume = _selected_volume(request, user_volumes, statuses)
+    root = None
+    label = ""
+    if scope_ctx["scope"] == "project" and scope_ctx["pscope"] is not None:
+        root = scope_ctx["pscope"].project_dir
+        label = scope_ctx["project_name"]
+    elif folder_volume is not None:
+        root = folder_volume.path
+        label = folder_volume.label
+    if root is None:
+        return HttpResponse(
+            "<p>No reachable volumes with measurable capacity yet.</p>",
+            content_type="text/html",
+        )
+    ok, result = _run_bounded(
+        lambda: build_dir_hierarchy(label or str(root), root), SCAN_TIMEOUT_S
+    )
+    if not ok:
+        err = result
+        if type(err).__name__ == "MissingSystemDependencyError":
+            note = _(
+                "Usage sunburst is unavailable here: "
+                "the `fd` binary is not installed on this host."
+            )
+        elif isinstance(err, TimeoutError):
+            note = _("Usage scan timed out; volume totals on the Usage tab are unaffected.")
+        else:
+            note = _("Could not scan that folder: %(err)s") % {"err": err}
+        return HttpResponse(f"<p>{html.escape(str(note))}</p>", content_type="text/html")
+    when = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    gen_line = f"Scanned {html.escape(str(root))} &middot; {html.escape(when)}"
+    return HttpResponse(build_dir_sunburst_html(label or str(root), result, gen_line))
 
 
 def duplicates(request):
