@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.13] - 2026-10-24
+
 ### Added
 
 - Interactive usage sunburst (`usage-sunburst/` route): zoomable,
