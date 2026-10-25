@@ -7,6 +7,27 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.14] - 2026-10-25
+
+### Added
+
+- restorable staging is dry-run by default (`sweep_restorable()` removes
+  nothing unless asked), matching the CLI and the safety contract.
+
+### Changed
+
+- Per-folder breakdown section removed from the Usage tab: the sunburst
+  resolves all of it; the volume picker stays as the sunburst-root picker.
+- Apply-form checkboxes use the shared SDK `.stx-checkbox-label` /
+  `.stx-checkbox` primitive (were unstyled natives).
+- Picker include requires a configured provider URL, not just the tag
+  library (the SDK tag fails loud without one).
+
+### Fixed
+
+- Docs drift (quick-start move-vs-backup definition, retire/sweep verbs,
+  Python API retire + sweep entries, GUI engine + shared-element notes).
+
 ## [0.6.13] - 2026-10-24
 
 ### Added
