@@ -7,6 +7,33 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.13] - 2026-10-24
+
+### Added
+
+- Interactive usage sunburst (`usage-sunburst/` route): zoomable,
+  bookmarkable folder breakdown replacing both static doughnuts; project
+  scope shows only the selected project's bytes and hides volume cards.
+- Browser move-apply (`move-apply/`): explicit confirm checkbox, optional
+  content re-hash, project scope enforces edit rights, transport
+  pre-flight, bounded run; result card names the verification.
+- Restorable safe move: `apply_archive(retire_source=True)` stages the
+  verified source aside (atomic same-filesystem rename) instead of
+  deleting; `sweep-restorable` CLI verb deletes expired staging after the
+  7-day retention; manifests record `staged_path`; `--retire-source` flag
+  on `archive`.
+- Duplicates tab as an app: unavailable state shows the would-scan roots
+  and what the report holds instead of only a command.
+
+### Changed
+
+- Zero margins on the largest div: app content fills the pane edge to
+  edge (live dock clearance kept).
+- No-project scope notice names the hub-mounted requirement where no
+  header picker exists.
+- Archive report names staged restorable sources instead of reading as a
+  backup retain or a delete.
+
 ### Fixed
 
 - Docs drift (7 fixes, all evidenced by the code): Backup named as the

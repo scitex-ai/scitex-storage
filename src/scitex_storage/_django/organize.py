@@ -35,9 +35,10 @@ from typing import Any, Callable
 # PS-233/PS-148 so a GUI import without the extra names the remedy instead
 # of a bare ModuleNotFoundError.
 try:
-    from django.http import HttpResponseForbidden
+    from django.http import HttpResponse, HttpResponseForbidden
     from django.shortcuts import render
     from django.utils.translation import gettext_lazy as _
+    from django.views.decorators.http import require_POST
 except ImportError as exc:
     raise ImportError(
         "scitex-storage organize views require Django: "
@@ -62,6 +63,16 @@ DUP_MAX_DEPTH = 4
 SCAN_TIMEOUT_S = 15.0
 DUPLICATES_TIMEOUT_S = 60.0
 PLAN_TIMEOUT_S = 20.0
+
+#: Seconds a browser-triggered archive may run before the tab reports a
+#: timeout instead. Longer than the planners: an apply moves real bytes.
+APPLY_TIMEOUT_S = 120.0
+
+#: Transport seam for the browser move-apply. Tests inject a fake runner
+#: (save/set/restore, the ``_GET_CURRENT_PROJECT`` precedent -- never a
+#: mock); production leaves ``None`` so :func:`apply_archive` shells out
+#: to rsync and the real pre-flight probe runs.
+_APPLY_RUNNER = None
 
 #: Donut geometry (r=70 in a 160x160 viewBox) + a fixed segment palette.
 DONUT_R = 70.0
@@ -208,6 +219,28 @@ def _scope_urls(request, tab):
     return f"?{base}", f"?{base}&scope=project"
 
 
+def _host_can_pick_project() -> bool:
+    """True when the header can actually offer a project picker.
+
+    The scope notice otherwise points at a control that does not exist:
+    without the host provider URL (standalone) the picker tag renders
+    nothing, so "pick a project in the header" is a dead-end instruction
+    there. Library + provider URL are both required for the picker to
+    appear (see ``_project_picker.html``).
+    """
+    try:
+        from django.conf import settings
+    except ImportError:  # pragma: no cover - gui extra absent
+        return False
+
+    from . import views as _views
+
+    return bool(
+        getattr(settings, "SCITEX_PROJECT_PROVIDER_URL", "")
+        and _views._project_picker_available()
+    )
+
+
 def _scope_context(request, tab):
     """Shared scope-control context for the organize tabs."""
     scope, pscope = _scope_selection(request)
@@ -216,10 +249,17 @@ def _scope_context(request, tab):
     name = ""
     if scope == "project":
         if pscope is None:
-            notice = str(
-                _("No project in scope -- showing user space. Pick a project "
-                  "in the header to filter these tabs to it.")
-            )
+            if _host_can_pick_project():
+                notice = str(
+                    _("No project in scope -- showing user space. Pick a project "
+                      "in the header to filter these tabs to it.")
+                )
+            else:
+                notice = str(
+                    _("No project in scope -- showing user space. Project "
+                      "filtering needs the hub-mounted app with a signed-in "
+                      "project.")
+                )
         else:
             name = pscope.name or pscope.slug or str(_("this project"))
     return {
@@ -349,9 +389,14 @@ def usage(request):
                         _("Per-folder scan failed: %(err)s") % {"err": err}
                     )
 
+    from urllib.parse import urlencode
+
+    keep = [(k, v) for k, v in request.GET.items() if k in ("volume", "scope")]
+    sunburst_qs = urlencode(keep)
     context = {
         **_base_context("usage"),
         **scope_ctx,
+        "sunburst_qs": sunburst_qs,
         "fleet_segments": donut_segments(fleet_items),
         "fleet_total": sum(v for _label, v in fleet_items),
         "statuses": statuses,
@@ -364,6 +409,73 @@ def usage(request):
         "fleet_available": _fleet_views_available(),
     }
     return render(request, "scitex_storage/organize.html", context)
+
+
+def usage_sunburst(request):
+    """Interactive folder sunburst for the Usage tab's breakdown root.
+
+    The same root the per-folder breakdown uses (the project directory
+    under project scope, else the selected volume path): the breakdown's
+    numbers live in this zoomable UI instead of a static donut. Served
+    live per request with the scan bounded; failures render a plain note
+    page -- never a blank page and never a 500, because "gather timed
+    out" is a real state a first-run user will hit.
+    """
+    import datetime
+    import html
+
+    from . import volumes
+
+    try:
+        from scitex_storage._render import (
+            build_dir_hierarchy,
+            build_dir_sunburst_html,
+        )
+    except ImportError:
+        return HttpResponse(
+            "<p>Usage sunburst needs the scitex-storage package.</p>",
+            content_type="text/html",
+        )
+    user_volumes = _user_volumes(request)
+    statuses = volumes.measure_all(user_volumes)
+    scope_ctx = _scope_context(request, "usage")
+    if request.GET.get("volume"):
+        folder_volume = _selected_volume(request, user_volumes, statuses)
+        if folder_volume is None:
+            return HttpResponseForbidden(str(_("That volume is not yours.")))
+    else:
+        folder_volume = _selected_volume(request, user_volumes, statuses)
+    root = None
+    label = ""
+    if scope_ctx["scope"] == "project" and scope_ctx["pscope"] is not None:
+        root = scope_ctx["pscope"].project_dir
+        label = scope_ctx["project_name"]
+    elif folder_volume is not None:
+        root = folder_volume.path
+        label = folder_volume.label
+    if root is None:
+        return HttpResponse(
+            "<p>No reachable volumes with measurable capacity yet.</p>",
+            content_type="text/html",
+        )
+    ok, result = _run_bounded(
+        lambda: build_dir_hierarchy(label or str(root), root), SCAN_TIMEOUT_S
+    )
+    if not ok:
+        err = result
+        if type(err).__name__ == "MissingSystemDependencyError":
+            note = _(
+                "Usage sunburst is unavailable here: "
+                "the `fd` binary is not installed on this host."
+            )
+        elif isinstance(err, TimeoutError):
+            note = _("Usage scan timed out; volume totals on the Usage tab are unaffected.")
+        else:
+            note = _("Could not scan that folder: %(err)s") % {"err": err}
+        return HttpResponse(f"<p>{html.escape(str(note))}</p>", content_type="text/html")
+    when = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    gen_line = f"Scanned {html.escape(str(root))} &middot; {html.escape(when)}"
+    return HttpResponse(build_dir_sunburst_html(label or str(root), result, gen_line))
 
 
 def duplicates(request):
@@ -459,6 +571,7 @@ def duplicates(request):
         "reclaimable": reclaimable,
         "scanned": scanned,
         "unavailable_reason": unavailable_reason,
+        "roots": [str(p) for p in roots],
     }
     return render(request, "scitex_storage/organize.html", context)
 
@@ -579,6 +692,183 @@ def move(request):
         "user_volumes": user_volumes,
         "plan": plan,
         "plan_error": plan_error,
+    }
+    return render(request, "scitex_storage/organize.html", context)
+
+
+def _apply_source(request, user_volumes):
+    """Resolve + authorize a browser move-apply source.
+
+    Returns ``(source, destination)`` or ``(None, HttpResponse)`` for
+    fail-closed refusals (unknown volume, escape, no edit rights) and
+    ``(None, str)`` for input errors rendered on the tab. Project scope
+    requires edit rights (apps-lead decision: a browser-applied move is a
+    real mutation, like rename/delete/mkdir); user-space volumes are the
+    requester's own, so no project permission applies there.
+    """
+    from . import project_files, volumes
+
+    form_volume = request.POST.get("volume", "")
+    form_dir = request.POST.get("dir", "")
+    form_dest = request.POST.get("destination", "")
+    volume = volumes.find_volume(user_volumes, form_volume)
+    if volume is None:
+        return None, HttpResponseForbidden(str(_("That volume is not yours.")))
+    try:
+        source = volumes.contained_dir(volume, (form_dir or "").strip().strip("/"))
+    except Exception:
+        return None, HttpResponseForbidden(str(_("That folder is outside the volume.")))
+    try:
+        editable = project_files.resolve_project_scope(request, require_edit=True)
+    except project_files.PermissionDenied as exc:
+        return None, HttpResponseForbidden(str(exc))
+    if editable is not None:
+        if not _within(source, editable.project_dir):
+            return None, HttpResponseForbidden(
+                str(_("That folder is outside the current project."))
+            )
+    elif request.POST.get("scope") == "project":
+        return None, HttpResponseForbidden(
+            str(_("No project in scope -- applying a move needs a project you may edit."))
+        )
+    return (source, form_dest), None
+
+
+@require_POST
+def move_apply(request):
+    """Execute a planned archive from the Move tab. A real mutation.
+
+    POST-only: ``volume`` + ``dir`` + ``destination`` identify the planned
+    move, ``confirm=yes`` is the explicit human confirm (no silent apply),
+    ``verify_content`` opts into the second content gate. Edit rights are
+    enforced for project-scoped sources; the transport is pre-flighted
+    before a byte moves; plan and apply each run bounded.
+    """
+    from . import volumes
+
+    user_volumes = _user_volumes(request)
+    destinations = _archive_destinations()
+    applied = None
+    apply_error = ""
+    form_volume = request.POST.get("volume", "")
+    form_dir = request.POST.get("dir", "")
+    form_dest = request.POST.get("destination", "")
+    scope_ctx = _scope_context(request, "move")
+    resolved, problem = _apply_source(request, user_volumes)
+    if problem is not None:
+        if not isinstance(problem, str):
+            return problem
+        apply_error = problem
+        source = None
+    else:
+        source, form_dest = resolved
+    if not apply_error:
+        if form_dest not in destinations:
+            apply_error = str(
+                _("Pick an archive tier: %(tiers)s.")
+                % {"tiers": ", ".join(destinations) if destinations else "—"}
+            )
+        elif request.POST.get("confirm") != "yes":
+            apply_error = str(
+                _("Applying a move needs an explicit confirm -- check the confirm box.")
+            )
+    plan = None
+    if not apply_error:
+        try:
+            from scitex_storage import plan_archive as _plan
+        except ImportError:
+            _plan = None
+        if _plan is None:
+            apply_error = str(
+                _("Archive planning needs the scitex-storage package.")
+            )
+        else:
+            ok, result = _run_bounded(
+                lambda: _plan(source, form_dest), PLAN_TIMEOUT_S
+            )
+            if ok:
+                plan = result
+            else:
+                err = result
+                if type(err).__name__ == "MissingSystemDependencyError":
+                    apply_error = str(
+                        _(
+                            "Archive planning is unavailable here: "
+                            "the `fd` binary is not installed on this host."
+                        )
+                    )
+                elif isinstance(err, TimeoutError):
+                    apply_error = str(_("Archive planning timed out."))
+                else:
+                    apply_error = str(
+                        _("Could not plan that move: %(err)s") % {"err": err}
+                    )
+    if not apply_error:
+        if _APPLY_RUNNER is None:
+            try:
+                from scitex_storage._transfer._archive_transport import (
+                    probe_transport as _probe,
+                )
+            except ImportError:
+                _probe = None
+            if _probe is not None:
+                probe = _probe(form_dest)
+                if not probe.may_transport:
+                    apply_error = str(
+                        _("Transport to %(dest)s is %(verdict)s -- refusing to sync + delete. %(detail)s")
+                        % {"dest": form_dest, "verdict": probe.verdict, "detail": probe.detail}
+                    )
+    if not apply_error:
+        try:
+            from scitex_storage import apply_archive as _apply
+        except ImportError:
+            _apply = None
+        if _apply is None:
+            apply_error = str(
+                _("Archive execution needs the scitex-storage package.")
+            )
+        else:
+            verify_content = request.POST.get("verify_content") == "yes"
+            ok, result = _run_bounded(
+                lambda: _apply(
+                    plan,
+                    checksum=True,
+                    verify_content_too=verify_content,
+                    retire_source=True,
+                    runner=_APPLY_RUNNER,
+                ),
+                APPLY_TIMEOUT_S,
+            )
+            if ok:
+                applied = result
+            else:
+                err = result
+                if isinstance(err, TimeoutError):
+                    apply_error = str(
+                        _("Archive run timed out -- check the destination before retrying.")
+                    )
+                else:
+                    apply_error = str(
+                        _("Archive failed: %(err)s") % {"err": err}
+                    )
+    tiers: dict[str, list] = {}
+    statuses = volumes.measure_all(_user_volumes(request))
+    for st in statuses:
+        tiers.setdefault(_tier_of(st.volume), []).append(st)
+    context = {
+        **_base_context("move"),
+        **scope_ctx,
+        "tiers": sorted(tiers.items()),
+        "reachable": volumes.REACHABLE,
+        "destinations": destinations,
+        "form_volume": form_volume,
+        "form_dir": form_dir,
+        "form_dest": form_dest,
+        "user_volumes": user_volumes,
+        "plan": None,
+        "plan_error": "",
+        "applied": applied,
+        "apply_error": apply_error,
     }
     return render(request, "scitex_storage/organize.html", context)
 

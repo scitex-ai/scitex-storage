@@ -90,16 +90,20 @@ def _leaf_identity() -> dict:
 
 
 def _project_picker_available() -> bool:
-    """True when the host registered the `scitex_project_picker` tag library.
+    """True when the header can actually offer a project picker.
 
-    Writer's `_project_picker_available` precedent, same reason: the picker
-    partial `{% load %}`s a library the host provides, and loading a missing
-    library is a hard TemplateSyntaxError — so the header renders the picker
-    include only when the tag resolves. Standalone `scitex-storage gui`
-    without the SDK UI (or any host without the library) gets no picker
-    markup at all rather than a 500.
+    Two gates, both required: the host registered the `scitex_project_picker`
+    tag library (loading a missing library is a hard TemplateSyntaxError),
+    AND a provider URL is configured. The SDK tag fails LOUDLY on a
+    project-scoped render with no provider (ImproperlyConfigured by
+    design), so library-presence alone is not enough -- standalone
+    `scitex-storage gui` (library present, no provider) must get no picker
+    markup at all rather than a 500. Writer's `_project_picker_available`
+    precedent for the library half; the provider half is the fail-loud
+    contract's mirror.
     """
     try:
+        from django.conf import settings
         from django.template import engines
     except ImportError as exc:
         raise ImportError(
@@ -107,6 +111,8 @@ def _project_picker_available() -> bool:
             "pip install scitex-storage[gui]"
         ) from exc
 
+    if not getattr(settings, "SCITEX_PROJECT_PROVIDER_URL", ""):
+        return False
     return "scitex_project_picker" in engines["django"].engine.template_libraries
 
 

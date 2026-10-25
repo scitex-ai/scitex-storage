@@ -123,6 +123,16 @@ def _require_rsync() -> None:
     help="Preview only (explicit spelling of the default -- no side effects either way).",
 )
 @click.option(
+    "--retire-source",
+    "retire_source",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help="After a verified sync, move the local source to restorable "
+    "staging instead of deleting it (swept after retention; see "
+    "sweep-restorable).",
+)
+@click.option(
     "--yes",
     "-y",
     "confirmed",
@@ -138,6 +148,7 @@ def archive_cmd(
     checksum: bool,
     verify_content_too: bool,
     dry_run: bool,
+    retire_source: bool,
     confirmed: bool,
     as_json: bool,
 ) -> None:
@@ -202,6 +213,7 @@ def archive_cmd(
             checksum=checksum,
             exclude=exclude_patterns,
             verify_content_too=verify_content_too,
+            retire_source=retire_source,
         )
         if do_apply
         else None

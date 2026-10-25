@@ -354,13 +354,15 @@ def format_archive_report(
         # only the flag let a tally-only verdict read as content-verified,
         # which is the same word standing for two different guarantees.
         fate = (
-            "source retained (backup)"
+            f"source staged restorable at {manifest.staged_path}"
+            if manifest.staged_path
+            else "source retained (backup)"
             if manifest.retained_source
             else "source removed"
         )
         gate = (
             "copy verified by"
-            if manifest.retained_source
+            if manifest.retained_source and not manifest.staged_path
             else "delete cleared by"
         )
         lines.append(
