@@ -862,6 +862,24 @@ def test_storage_header_stamps_no_provider_url_without_provider(tmp_path):
     assert all("data-provider-url" not in body for body in bodies)
 
 
+def test_picker_availability_requires_a_configured_provider(tmp_path):
+    # Arrange -- the SDK tag fails loudly (ImproperlyConfigured) on a
+    # project-scoped render with no provider, so library presence alone
+    # must not count as available: the include guard has to check both.
+    from django.test import override_settings
+
+    from scitex_storage._django.views import _project_picker_available
+
+    _boot()
+    # Act
+    with override_settings(SCITEX_PROJECT_PROVIDER_URL=""):
+        without = _project_picker_available()
+    with override_settings(SCITEX_PROJECT_PROVIDER_URL="/stub-projects/"):
+        with_provider = _project_picker_available()
+    # Assert
+    assert (without, with_provider) == (False, True)
+
+
 # EOF
 
 
