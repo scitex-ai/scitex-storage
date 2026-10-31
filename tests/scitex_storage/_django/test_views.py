@@ -265,6 +265,21 @@ def test_usage_scope_hides_the_root_picker(tmp_path):
     assert "Sunburst root:" not in body
 
 
+def test_usage_project_scope_renders_no_literal_template_comment(tmp_path):
+    # Arrange -- operator 2026-10-31: a two-line {# #} comment leaked as
+    # plain text under project scope (Django only strips single-line ones).
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+    # Act
+    body = _get_scoped(
+        tmp_path, {"tab": "usage", "scope": "project"}, username="u", project_path=str(proj)
+    ).content.decode()
+    # Assert
+    assert "{#" not in body
+
+
 def test_usage_tab_links_fleet_views(scitex_dir):
     # Arrange -- operator 2026-10-17: no empty promo. With no snapshot
     # gathered the Usage tab shows no Fleet-visualizations section
