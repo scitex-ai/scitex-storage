@@ -307,10 +307,16 @@ def test_filesystem_labels_remain_text_in_real_browser(tmp_path, sunburst_browse
     page = sunburst_browser.new_page()
     page.goto(chart.as_uri())
     # Act -- real pointer hover and zoom, not synthetic DOM callbacks.
-    page.locator("#sb").hover(position={"x": 390, "y": 280})
+    point = page.locator("#sb").evaluate(
+        """el => {
+          const p=new DOMPoint(390,280).matrixTransform(el.getScreenCTM());
+          return {x:p.x,y:p.y};
+        }"""
+    )
+    page.mouse.move(**point)
     page.wait_for_timeout(100)
     tooltip_literal = label in page.locator("#tip").inner_text()
-    page.locator("#sb").click(position={"x": 390, "y": 280})
+    page.mouse.click(**point)
     page.wait_for_timeout(100)
     result = (
         page.evaluate("window.__storage_xss_test || 0"),
@@ -321,6 +327,43 @@ def test_filesystem_labels_remain_text_in_real_browser(tmp_path, sunburst_browse
     page.screenshot(path=str(tmp_path / "sunburst-labels.png"))
     # Assert -- literal labels survive while executable markup never appears.
     assert result == (0, 0, True, True)
+
+
+@pytest.mark.parametrize("width,height", [(1280, 566), (390, 420), (900, 320)])
+def test_sunburst_fits_viewport_and_keeps_zoom(
+    tmp_path, sunburst_browser, width, height
+):
+    # Arrange -- render the real fleet chart at desktop, phone and short iframe sizes.
+    chart = tmp_path / "responsive.html"
+    chart.write_text(
+        build_sunburst_html(
+            _snap(
+                [_row("Host", "/data", 10, 50, 5), _row("Other", "/other", 10, 30, 2)]
+            )
+        )
+    )
+    page = sunburst_browser.new_page(viewport={"width": width, "height": height})
+    page.goto(chart.as_uri())
+    # Act -- native SVG coordinates remain usable after responsive scaling.
+    geometry = page.evaluate("""() => {
+      const root=document.documentElement, svg=document.querySelector('#sb');
+      const matrix=svg.getScreenCTM();
+      const top=new DOMPoint(280,20).matrixTransform(matrix);
+      const bottom=new DOMPoint(280,540).matrixTransform(matrix);
+      return [root.scrollWidth<=innerWidth,root.scrollHeight<=innerHeight,
+              top.y>=0,bottom.y<=innerHeight,bottom.y-top.y<=480];
+    }""")
+    point = page.locator("#sb").evaluate("""el => {
+      const p=new DOMPoint(390,280).matrixTransform(el.getScreenCTM());
+      return {x:p.x,y:p.y};
+    }""")
+    page.mouse.click(**point)
+    zoomed = "Host" in page.locator("#crumb").inner_text()
+    page.locator("#crumb a").first.click()
+    restored = page.locator("#crumb").inner_text() == "Fleet"
+    page.close()
+    # Assert -- the full chart fits without inner scrolling and retains navigation.
+    assert (geometry, zoomed, restored) == ([True] * 5, True, True)
 
 
 # EOF

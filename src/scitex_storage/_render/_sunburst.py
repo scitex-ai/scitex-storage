@@ -141,10 +141,14 @@ _PAGE = """\
 <style>
 :root {{ --bg:#12151a; --panel:#1b2027; --text:#d7dde5; --muted:#8b95a3; --ring:#2c333d; }}
 * {{ box-sizing:border-box; }}
-body {{ margin:0; padding:24px; background:var(--bg); color:var(--text);
+html {{ height:100%; }}
+body {{ height:100%; display:flex; flex-direction:column; margin:0; padding:16px;
+  background:var(--bg); color:var(--text);
   font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; text-align:center; }}
 svg text {{ user-select:none; -webkit-user-select:none; }}
-#sb {{ cursor:default; }}
+#sb {{ display:block; width:100%; height:100%; min-height:0; cursor:default; }}
+.chart {{ flex:1 1 480px; min-height:0; max-height:480px; }}
+h1, .gen, #modes, #crumb, footer {{ flex:none; overflow-wrap:anywhere; }}
 h1 {{ font-size:20px; margin:0 0 4px; }}
 .gen {{ color:var(--muted); font-size:12px; margin:0 0 10px; }}
 #modes {{ margin-bottom:8px; }}
@@ -153,19 +157,22 @@ h1 {{ font-size:20px; margin:0 0 4px; }}
 #modes button.on {{ color:var(--text); border-color:#4ea1ff; }}
 #crumb {{ font-size:14px; min-height:22px; margin-bottom:6px; }}
 #crumb a {{ color:#4ea1ff; cursor:pointer; }}
-svg {{ max-width:100%; height:auto; }}
+svg {{ max-width:100%; }}
 path.seg {{ cursor:pointer; stroke:#12151a; stroke-width:1; transition:opacity .1s; }}
 path.seg:hover {{ opacity:.82; }}
 #centre {{ font-size:13px; }}
 #tip {{ position:fixed; pointer-events:none; background:var(--panel); border:1px solid var(--ring);
   border-radius:8px; padding:8px 10px; font-size:12px; opacity:0; transition:opacity .1s; z-index:9; text-align:left; }}
-footer {{ color:var(--muted); font-size:11px; margin-top:20px; }}
+footer {{ color:var(--muted); font-size:11px; margin-top:8px; }}
 </style></head><body>
 <h1>{title}</h1>
 <p class="gen">{gen}</p>
 <div id="modes">{modes}</div>
 <div id="crumb"></div>
-<svg id="sb" width="560" height="560" viewBox="0 0 560 560"></svg>
+<div class="chart">
+  <svg id="sb" width="560" height="560" viewBox="0 0 560 560"
+       preserveAspectRatio="xMidYMid meet"></svg>
+</div>
 <div id="tip"></div>
 <footer>{footer}</footer>
 <script>

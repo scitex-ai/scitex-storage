@@ -240,7 +240,9 @@ scitex-sdk convention as scitex-writer/scitex-scholar/figrecipe.
 Usage embeds a read-only, zoomable sunburst of the selected project's bytes
 (or an assigned volume when no project is selected), with a separate full-page
 link. The chart uses the same authorized endpoint in both views and needs no
-external JavaScript service. Missing scan dependencies and scan timeouts are
+external JavaScript service. The chart fits the available viewport height,
+with a 480px maximum drawing area, so the embedded view needs no inner scrollbar.
+Missing scan dependencies and scan timeouts are
 reported inside the chart. The GUI is optional:
 
 ```bash
