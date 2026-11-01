@@ -32,6 +32,11 @@ tags: [scitex-storage-gui-shared-elements]
   `ProjectScope` (fail-closed `None` renders an explicit no-project
   notice, never a silent fallback); move planning additionally confines
   the source inside the project dir (double containment).
+- Usage embeds the existing `usage-sunburst/` authorized read-only endpoint
+  in a titled iframe, forwarding only `volume` and `scope`. The iframe permits
+  scripts for offline chart zooming but has no same-origin permission; retain
+  the full-page link. Do not add a second scanner or accept arbitrary paths
+  from chart URLs. Scan failures remain visible inside the chart.
 - The Move plan display names the delete gate (count-and-size read-back by
   default, `--verify-content` for the independent re-hash) — same honesty
   as the CLI "delete cleared by" line; the applied card names the

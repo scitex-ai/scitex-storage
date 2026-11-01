@@ -66,7 +66,7 @@
   margin-bottom: 14px;
   padding: 14px 16px;
   border: 1px solid var(--stx-storage-border);
-  border-radius: 12px;
+  border-radius: 0;
   background: var(--stx-storage-surface);
   min-width: 0; /* allow grid/flex children to shrink instead of overflowing */
 }
