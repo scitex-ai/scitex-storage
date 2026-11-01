@@ -169,7 +169,7 @@ started by these APIs.
 
 ## Local content versions (source preview)
 
-`VersionStore` adds immutable SHA256 file versions with bounded Gear-based
+`VersionStore` adds immutable SHA256 file versions with bounded native FastCDC
 content-defined chunks. The source stays in place, unchanged data reuses
 verified chunks, and checkout creates a new checksum-verified file without
 overwriting an occupant. Git tracks small ordinary pointers; Storage owns the

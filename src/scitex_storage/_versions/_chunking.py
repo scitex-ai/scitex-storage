@@ -1,30 +1,64 @@
-"""Bounded streaming Gear CDC; deliberately not a full FastCDC implementation."""
+"""Bounded streaming adapter around fastcdc-py's published native bytes API."""
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
-from typing import BinaryIO, Iterator
+from functools import lru_cache
+from importlib import import_module
+from importlib.machinery import EXTENSION_SUFFIXES, PathFinder
+from importlib.metadata import PackageNotFoundError, version
+from importlib.util import find_spec
+from typing import BinaryIO, Callable, Iterator
 
-ALGORITHM = "gear-cdc-v1"
-_MASK64 = (1 << 64) - 1
-# Fixed, reproducible table, independent of Python's randomized hash seed.
-_GEAR = tuple(
-    int.from_bytes(
-        hashlib.sha256(f"scitex-storage/{ALGORITHM}/{i}".encode()).digest()[:8],
-        "little",
+ENGINE_VERSION = "1.7.0"
+ALGORITHM = "fastcdc-py-1.7.0-cython-v1"
+
+
+class NativeChunkerUnavailable(RuntimeError):
+    """The declared native chunker is absent; no slow fallback is permitted."""
+
+
+@lru_cache(maxsize=1)
+def require_native() -> Callable:
+    """Preflight the normal declared package without triggering its slow fallback."""
+    try:
+        installed = version("fastcdc")
+    except PackageNotFoundError as exc:
+        raise NativeChunkerUnavailable(
+            "Install the declared fastcdc==1.7.0 dependency"
+        ) from exc
+    if installed != ENGINE_VERSION:
+        raise NativeChunkerUnavailable(
+            f"This format requires fastcdc=={ENGINE_VERSION}; found {installed}"
+        )
+    package = find_spec("fastcdc")
+    native = (
+        PathFinder.find_spec("fastcdc.fastcdc_cy", package.submodule_search_locations)
+        if package
+        else None
     )
-    for i in range(256)
-)
+    if native is None or not any(
+        (native.origin or "").endswith(suffix) for suffix in EXTENSION_SUFFIXES
+    ):
+        raise NativeChunkerUnavailable(
+            "fastcdc==1.7.0 has no compiled native backend. Use a supported wheel "
+            "or its normal Cython source build; no pure-Python fallback is used."
+        )
+    try:
+        return import_module("fastcdc.fastcdc_cy").fastcdc_cy
+    except ImportError as exc:
+        raise NativeChunkerUnavailable(
+            "The installed fastcdc native backend cannot load"
+        ) from exc
 
 
 @dataclass(frozen=True)
 class ChunkingConfig:
-    """Chunk bounds in bytes; average_size is the rolling-hash mask scale."""
+    """Chunk bounds in bytes; read_size changes I/O only, never boundaries."""
 
-    min_size: int = 64 * 1_024
-    average_size: int = 256 * 1_024
-    max_size: int = 1_024 * 1_024
+    min_size: int = 512 * 1_024
+    average_size: int = 2 * 1_024 * 1_024
+    max_size: int = 8 * 1_024 * 1_024
     read_size: int = 64 * 1_024
 
     def __post_init__(self):
@@ -35,9 +69,14 @@ class ChunkingConfig:
             raise ValueError("Require min_size <= average_size <= max_size")
         if self.average_size & (self.average_size - 1):
             raise ValueError("average_size must be a power of two")
+        if not (
+            64 <= self.min_size <= 67_108_864
+            and 256 <= self.average_size <= 268_435_456
+            and 1_024 <= self.max_size <= 1_073_741_824
+        ):
+            raise ValueError("Chunk bounds exceed fastcdc==1.7.0's supported ranges")
 
     def manifest_fields(self) -> dict:
-        # Buffer size does not affect boundaries or content/version identity.
         return {
             "algorithm": ALGORITHM,
             "min_size": self.min_size,
@@ -47,27 +86,39 @@ class ChunkingConfig:
 
 
 def iter_chunks(stream: BinaryIO, config: ChunkingConfig) -> Iterator[bytes]:
-    """Read at most read_size and buffer at most max_size bytes per chunk.
+    """Read bounded blocks/windows, delegating every cut point to native FastCDC.
 
-    File size is unrestricted. The final remainder may be below min_size.
-    Boundaries depend on content rather than read-block/file offsets.
+    Upstream paths/file objects mmap the entire file. Only bounded bytes are
+    passed here. A full max_size window determines the next chunk exactly;
+    shorter windows are passed only at EOF, preserving upstream boundaries.
     """
-    chunk = bytearray()
-    fingerprint = 0
-    mask = config.average_size - 1
+    native = require_native()
+    pending = bytearray()
+    exhausted = False
     while True:
-        block = stream.read(config.read_size)
-        if not block:
-            break
-        for byte in block:
-            chunk.append(byte)
-            fingerprint = ((fingerprint << 1) + _GEAR[byte]) & _MASK64
-            length = len(chunk)
-            if length >= config.max_size or (
-                length >= config.min_size and not fingerprint & mask
-            ):
-                yield bytes(chunk)
-                chunk.clear()
-                fingerprint = 0
-    if chunk:
-        yield bytes(chunk)
+        while len(pending) < config.max_size and not exhausted:
+            block = stream.read(min(config.read_size, config.max_size - len(pending)))
+            if not block:
+                exhausted = True
+                break
+            pending.extend(block)
+        if not pending:
+            return
+        window = bytes(pending)
+        iterator = native(
+            window,
+            min_size=config.min_size,
+            avg_size=config.average_size,
+            max_size=config.max_size,
+            fat=False,
+        )
+        try:
+            cut = next(iterator).length
+        finally:
+            iterator.close()
+        if not 0 < cut <= len(window):
+            raise RuntimeError("Native chunker returned an invalid boundary")
+        data = window[:cut]
+        del iterator, window
+        del pending[:cut]
+        yield data

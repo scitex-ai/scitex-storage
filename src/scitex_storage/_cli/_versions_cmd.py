@@ -70,13 +70,22 @@ def versions_group(ctx, store):
 )
 @click.argument("source", type=click.Path(path_type=Path, exists=True, dir_okay=False))
 @click.option(
-    "--min-size", type=click.IntRange(min=1), default=65_536, show_default=True
+    "--min-size",
+    type=click.IntRange(min=1),
+    default=ChunkingConfig().min_size,
+    show_default=True,
 )
 @click.option(
-    "--average-size", type=click.IntRange(min=1), default=262_144, show_default=True
+    "--average-size",
+    type=click.IntRange(min=1),
+    default=ChunkingConfig().average_size,
+    show_default=True,
 )
 @click.option(
-    "--max-size", type=click.IntRange(min=1), default=1_048_576, show_default=True
+    "--max-size",
+    type=click.IntRange(min=1),
+    default=ChunkingConfig().max_size,
+    show_default=True,
 )
 @click.option("--yes", is_flag=True, help="Apply this additive snapshot.")
 @click.option("--dry-run", is_flag=True, help="Preview, even when --yes is present.")

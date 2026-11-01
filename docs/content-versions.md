@@ -68,16 +68,28 @@ Checkout verifies each chunk and the reconstructed file before publishing.
 
 ## Format and boundaries
 
-The `gear-cdc-v1` algorithm uses a fixed SHA256-derived Gear table and rolling
-content fingerprint. Defaults are 64 KiB minimum, 256 KiB mask scale, and 1 MiB
-maximum, with 64 KiB read blocks. The final remainder can be smaller than the
-minimum. The average is a scale, not a promise of exact chunk sizes. I/O block
-size does not change chunk boundaries or version identity.
+The versioned algorithm `fastcdc-py-1.7.0-cython-v1` delegates cut points to
+[fastcdc-py's published native Cython engine](https://github.com/iscc/fastcdc-py),
+a FastCDC/ronomon variant. It does not claim exact equivalence to the original
+[USENIX paper's implementation or benchmarks](https://www.usenix.org/conference/atc16/technical-sessions/presentation/xia).
+The declared normal dependency is pinned to `fastcdc==1.7.0`; changing the engine
+requires an explicit format decision and boundary qualification.
 
-This is bounded Gear-based content-defined chunking, **not full FastCDC**.
-FastCDC combines additional cut-point and distribution-normalization techniques;
-this implementation does not claim those optimizations or the paper's benchmark
-results. See [the original USENIX FastCDC paper](https://www.usenix.org/conference/atc16/technical-sessions/presentation/xia).
+Defaults are **512 KiB minimum, 2 MiB average scale, and 8 MiB maximum**, with
+64 KiB read blocks. The final remainder may be smaller than the minimum; actual
+chunk sizes depend on content. I/O block size does not change boundaries or
+version identity. Only bounded byte windows reach the native engine: its
+path/file API, which maps the whole input, is deliberately not used. Working
+memory scales with the maximum chunk size, including bounded window copies.
+
+A compiled backend is required. Missing or unloadable native code raises
+`NativeChunkerUnavailable` before ingest creates the store; it never silently
+uses the provider's slow Python fallback. Normal CPython 3.12 Linux installation
+used the published wheel. Normal CPython 3.13 installation built and loaded the
+native extension from the package's source distribution. A platform without a
+compatible wheel needs the normal Cython/compiler build prerequisites; a
+successful pip exit alone does not prove native code was built. Metadata reads
+and verified checkout do not require the chunking engine.
 
 Objects are laid out under the supplied root:
 
@@ -125,25 +137,31 @@ is claimed.
 - The initial store requires a local POSIX filesystem with hard-link and fsync
   support. It has no remote transport, encryption, multi-user authorization,
   scientific-format parser, object packing, or directory snapshot protocol.
-  Each unique chunk consumes a file/inode; account for inode quotas as well
-  as bytes. A host integration
-  must authorize its local paths independently.
+  Each unique chunk consumes a file/inode and each version references every
+  chunk in its streaming manifest. At a nominal 2 MiB average, 1 TiB implies
+  roughly 524,288 chunk references; actual object counts depend on content and
+  deduplication. Smaller custom chunks increase inode, fsync and metadata costs.
+  Manifest processing is bounded-memory but linear in reference count; there
+  is no packed-object index or production million-object qualification.
+  Host integrations must authorize local paths independently.
 
-## Measured prototype cost
+## Measured local cost
 
 One local helper-container run (Linux 6.8, CPython 3.12.13) ingested a fresh
-32 MiB deterministic random-byte fixture in **12.10 seconds (2.65 MiB/s)**,
-including immutable-object fsyncs. All 32 MiB were new payload, in 102 chunks;
-verified checkout also passed. Whole-process peak RSS was **27.6 MiB**, about
-2.8 MiB above the process's prior high-water mark. RSS includes the interpreter
-and imports; that delta is not an exact measurement of algorithm-only memory.
-The [raw sample](benchmarks/content-versions-local-32mib.json) records source-file
-hashes and all measured fields.
+32 MiB deterministic random-byte fixture with the actual 2 MiB defaults in
+**0.218 seconds (146.8 MiB/s)**, including immutable-object fsyncs. All 32 MiB
+were new payload, in 18 chunks; verified checkout passed. CPU time was 0.142 s.
+Whole-process peak RSS was **52.9 MiB**, about 29.2 MiB above its prior high-water
+mark. RSS includes interpreter/imports; the delta is not an exact measurement
+of algorithm-only memory. The [raw sample](benchmarks/content-versions-local-32mib.json)
+records implementation hashes and measured fields.
 
-This per-byte Python Gear loop is a correctness-focused prototype. The sample
-does not qualify production terabyte throughput, concurrent workloads, remote
-filesystems, or every scientific format. A native CDC engine is not included.
-There is no claim of FastCDC-level performance.
+This is one short local sample, not a throughput guarantee or qualification for
+terabyte datasets, concurrent ingests, cold storage, remote filesystems or every
+scientific format. The pre-native bounded Gear prototype measured 2.65 MiB/s
+on its separate sample; that historical baseline is retained in
+[the prototype record](benchmarks/content-versions-gear-prototype-32mib.json).
+Its format was never shipped as a supported version-store format.
 
 Reproduce using only a fresh owned temporary fixture/store:
 

@@ -39,6 +39,7 @@ from __future__ import annotations
 # Public-name -> source-submodule map. ONE row per public symbol.
 _LAZY_ATTRS: dict[str, str] = {
     "ChunkingConfig": "_versions",
+    "NativeChunkerUnavailable": "_versions",
     "ChunkRef": "_versions",
     "VersionManifest": "_versions",
     "IntegrityError": "_versions",
@@ -49,7 +50,6 @@ _LAZY_ATTRS: dict[str, str] = {
     "write_git_pointer": "_versions",
     "IngestResult": "_versions",
     "VersionStore": "_versions",
-
     "MovePlan": "_transfer._move",
     "MoveManifest": "_transfer._move",
     "MoveRecoveryRequired": "_transfer._move",
@@ -153,6 +153,7 @@ def __dir__() -> list[str]:
 # sync with the _LAZY_ATTRS keys above.
 __all__ = [
     "ChunkingConfig",
+    "NativeChunkerUnavailable",
     "ChunkRef",
     "VersionManifest",
     "IntegrityError",
@@ -163,7 +164,6 @@ __all__ = [
     "write_git_pointer",
     "IngestResult",
     "VersionStore",
-
     "MovePlan",
     "MoveManifest",
     "MoveRecoveryRequired",

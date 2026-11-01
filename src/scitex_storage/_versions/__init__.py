@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._chunking import ChunkingConfig
+from ._chunking import ChunkingConfig, NativeChunkerUnavailable
 from ._manifest import ChunkRef, VersionManifest
 from ._objects import IntegrityError, SourceChangedError
 from ._pointer import (
@@ -15,6 +15,7 @@ from ._store import IngestResult, VersionStore
 
 __all__ = [
     "ChunkingConfig",
+    "NativeChunkerUnavailable",
     "ChunkRef",
     "VersionManifest",
     "IntegrityError",
