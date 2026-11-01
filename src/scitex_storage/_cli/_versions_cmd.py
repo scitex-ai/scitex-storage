@@ -57,7 +57,7 @@ def versions_group(ctx, store):
         summary="Snapshot a regular file without changing it.",
         description=(
             "Defaults to stat-only preview. --yes reads contents with bounded "
-            "Gear CDC and adds immutable SHA256 chunks plus a version "
+            "native FastCDC and adds immutable SHA256 chunks plus a version "
             "manifest. --dry-run overrides --yes."
         ),
         examples=(
