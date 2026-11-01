@@ -68,14 +68,17 @@ _GROUP_KWARGS = spec_group_kwargs(
             "grouped by role/tier, carrying the same three-state verdicts "
             "(measured / not-applicable / could-not-look) so a filesystem it "
             "could not read is never shown as a reassuring green 0%. Every "
-            "mutating command defaults to a dry-run.",
+            "mutating command defaults to a dry-run. `versions` adds local "
+            "content-addressed snapshots and ordinary Git pointers without "
+            "changing sources; it does not implement Git LFS or garbage collection.",
         ),
         config_resolution=(
             "scitex-storage has no configurable state yet — every command "
             "takes its options on the command line. Runtime state written: "
             "archive manifests under "
             "~/.scitex/scitex-storage/runtime/archive-manifests/, one JSON "
-            "file per archived directory, read back by `restore`.",
+            "file per archived directory, read back by `restore`. Content "
+            "versions live only under the explicitly supplied `versions --store` root.",
         ),
         version_of="scitex-storage",
         command_categories=(
@@ -86,6 +89,7 @@ _GROUP_KWARGS = spec_group_kwargs(
                     "validate-inodes",
                     "find-duplicates",
                     "images",
+                    "versions",
                     "sweep",
                     "sweep-status",
                     "archive",
