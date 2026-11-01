@@ -43,7 +43,8 @@ a browser absolute path or a process-global HOME substitution.
 
 The backend `plan_move` / `apply_move` transaction performs bounded rsync into a
 private sibling, SHA checks source/copy/source, publishes without overwriting,
-and stages the original for seven days. Timeouts cancel and reap the actual
+and stages the original for seven days. Source/destination paths may not overlap
+the transaction state directory, so a move cannot relocate or copy its own journal. Timeouts cancel and reap the actual
 rsync process group. Recorded intermediate phases are historical state, not proof
 that a worker is still running; interrupted moves require recovery.
 

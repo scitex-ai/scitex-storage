@@ -138,6 +138,12 @@ def plan_move(
         raise FileExistsError(str(destination))
     if source.is_relative_to(destination) or destination.is_relative_to(source):
         raise ValueError("Source and destination cannot contain one another")
+    record_root = _state_dir(state_dir)
+    if any(
+        path.is_relative_to(record_root) or record_root.is_relative_to(path)
+        for path in (source, destination)
+    ):
+        raise ValueError("Move paths cannot overlap the transaction state directory")
     if max_entries < 1:
         raise ValueError("Planning entry budget must be positive")
     size, count = _estimate(source, max_entries)
@@ -146,7 +152,7 @@ def plan_move(
         source,
         destination,
         identifier,
-        _state_dir(state_dir) / f"{identifier}.json",
+        record_root / f"{identifier}.json",
         size,
         count,
         _identity(source),

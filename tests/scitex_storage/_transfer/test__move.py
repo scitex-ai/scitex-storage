@@ -469,3 +469,31 @@ def test_destination_parent_symlink_is_not_silently_rebound(move_tree):
     # Assert
     with raised:
         plan_move(source, alias / destination.name, state_dir=state)
+
+
+@pytest.mark.parametrize(
+    "overlap",
+    ["state-in-source", "source-in-state", "state-in-target", "target-in-state"],
+)
+def test_transaction_state_cannot_move_with_the_data(tmp_path, overlap):
+    # Arrange
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "data.txt").write_text("preserve")
+    target = tmp_path / "target"
+    states = {
+        "state-in-source": source / "runtime",
+        "source-in-state": tmp_path,
+        "state-in-target": target / "runtime",
+        "target-in-state": target,
+    }
+    state = states[overlap]
+    before = sorted(str(p) for p in tmp_path.rglob("*"))
+    # Act
+    try:
+        plan_move(source, target, state_dir=state)
+        verdict = "allowed"
+    except ValueError:
+        verdict = "refused"
+    # Assert
+    assert (verdict, sorted(str(p) for p in tmp_path.rglob("*"))) == ("refused", before)
