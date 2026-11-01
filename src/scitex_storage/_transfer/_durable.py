@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
+import fcntl
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -27,3 +31,48 @@ def atomic_json(path: Path, value) -> None:
             os.close(directory)
     finally:
         Path(temporary).unlink(missing_ok=True)
+
+
+@contextmanager
+def file_lock(path: Path):
+    """Serialize state transitions across processes without following lock symlinks."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def rename_noreplace(source: Path, destination: Path):
+    """Atomic Linux rename which cannot overwrite a racing destination."""
+    library = ctypes.CDLL(None, use_errno=True)
+    rename = getattr(library, "renameat2", None)
+    if rename is None:
+        raise NotImplementedError(
+            "Safe retention requires renameat2 no-replace support"
+        )
+    rename.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    rename.restype = ctypes.c_int
+    if rename(-100, os.fsencode(source), -100, os.fsencode(destination), 1):
+        number = ctypes.get_errno()
+        if number == errno.EEXIST:
+            raise FileExistsError(number, os.strerror(number), str(destination))
+        raise OSError(number, os.strerror(number), str(destination))
+
+
+def sync_directory(path: Path):
+    """Persist a completed rename or unlink before retiring its intent record."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)

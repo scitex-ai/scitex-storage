@@ -40,3 +40,23 @@ tags: [scitex-storage-safety-contract]
    dry-run by default). The browser does not schedule the sweeper: expiry
    makes staging eligible, and removal still requires an explicitly applied
    sweep or a separately configured operator job.
+
+
+Retention writes a durable pending intent before the no-overwrite rename;
+process locks serialize registry updates. Sibling markers preserve the archived
+content tree. Failed/partial transitions remain recoverable and are never
+cleanup permission. `restore_staged(staged_path)` restores a registered,
+checksum-matching original without overwriting a new occupant of its old path.
+
+`sweep-restorable` defaults to a genuinely read-only preview, including when
+`--dry-run` accompanies `--yes`. Applied passes require matching committed
+marker, registry, and content checksum. Default limits are 32 records, 1 GiB,
+4096 filesystem entries per tree, and 30 seconds of cooperative work; use
+`--max-items`, `--max-bytes`, `--max-entries`, and `--max-seconds` explicitly to
+change these. Larger trees remain retained. Cancellation is checked during
+hash reads; blocking filesystem calls are an OS boundary. Old records without
+content baselines are refused rather than silently licensed for deletion.
+
+The safe rename currently requires Linux `renameat2(RENAME_NOREPLACE)`.
+Unsupported systems fail before replacing data; there is no unsafe
+exists-then-rename fallback.

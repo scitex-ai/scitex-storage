@@ -111,7 +111,11 @@ class ContentManifest:
         return not self.root_missing
 
 
-def digest_file(path: str) -> str:
+class DigestCancelled(RuntimeError):
+    """The caller cancelled a cooperative content-hash operation."""
+
+
+def digest_file(path: str, *, cancelled=None) -> str:
     """sha256 of a single entry, hex.
 
     A symlink digests its target STRING (see :data:`SYMLINK_PREFIX`).
@@ -119,6 +123,8 @@ def digest_file(path: str) -> str:
     that is fatal, because this function has no idea how many other files
     there are and therefore cannot judge severity.
     """
+    if cancelled is not None and cancelled():
+        raise DigestCancelled("Content verification cancelled")
     if os.path.islink(path):
         return hashlib.sha256(
             (SYMLINK_PREFIX + os.readlink(path)).encode("utf-8", "surrogateescape")
@@ -127,6 +133,8 @@ def digest_file(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as fh:
         while True:
+            if cancelled is not None and cancelled():
+                raise DigestCancelled("Content verification cancelled")
             block = fh.read(_CHUNK)
             if not block:
                 break
@@ -134,7 +142,7 @@ def digest_file(path: str) -> str:
     return h.hexdigest()
 
 
-def digest_tree(root: str) -> ContentManifest:
+def digest_tree(root: str, *, cancelled=None) -> ContentManifest:
     """Hash every non-directory entry under ``root``.
 
     The population is deliberately IDENTICAL to
@@ -154,9 +162,11 @@ def digest_tree(root: str) -> ContentManifest:
     unreadable: dict[str, str] = {}
 
     def record(full: str) -> None:
+        if cancelled is not None and cancelled():
+            raise DigestCancelled("Content verification cancelled")
         rel = os.path.relpath(full, root)
         try:
-            digests[rel] = digest_file(full)
+            digests[rel] = digest_file(full, cancelled=cancelled)
         except OSError as exc:
             unreadable[rel] = f"{type(exc).__name__}: {exc}"
 
@@ -220,7 +230,9 @@ def tree_digest(manifest: ContentManifest) -> str:
     return h.hexdigest()
 
 
-def verify_content(source: ContentManifest, destination: ContentManifest) -> TransferVerdict:
+def verify_content(
+    source: ContentManifest, destination: ContentManifest
+) -> TransferVerdict:
     """Compare two manifests and answer whether the SOURCE may be removed.
 
     Returns the same :class:`._verify.TransferVerdict` as the tally check, so
@@ -269,7 +281,10 @@ def verify_content(source: ContentManifest, destination: ContentManifest) -> Tra
 
     if source.unreadable or destination.unreadable:
         n_src, n_dst = len(source.unreadable), len(destination.unreadable)
-        sample = list(source.unreadable.items())[:3] + list(destination.unreadable.items())[:3]
+        sample = (
+            list(source.unreadable.items())[:3]
+            + list(destination.unreadable.items())[:3]
+        )
         shown = "; ".join(f"{p} ({why})" for p, why in sample)
         return TransferVerdict(
             verdict=COULD_NOT_LOOK,
@@ -315,7 +330,9 @@ def verify_content(source: ContentManifest, destination: ContentManifest) -> Tra
     if missing or surplus or differing:
         parts = []
         if missing:
-            parts.append(f"{len(missing)} MISSING at the destination (e.g. {missing[:3]})")
+            parts.append(
+                f"{len(missing)} MISSING at the destination (e.g. {missing[:3]})"
+            )
         if differing:
             parts.append(
                 f"{len(differing)} present with DIFFERENT CONTENT "
@@ -355,5 +372,6 @@ def verify_content(source: ContentManifest, destination: ContentManifest) -> Tra
             f"and hashed on both sides; nothing was skipped or estimated"
         ),
     )
+
 
 # EOF

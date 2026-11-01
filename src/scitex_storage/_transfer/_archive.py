@@ -508,7 +508,11 @@ def apply_archive(
         if retire_source:
             from ._retention import stage_for_retention
 
-            staged = stage_for_retention(plan.source, retention_days=retention_days)
+            staged = stage_for_retention(
+                plan.source,
+                retention_days=retention_days,
+                expected_digest=content_digest,
+            )
             manifest.retained_source = True
             manifest.staged_path = staged.staged_path
             atomic_json(plan.manifest_path, manifest.to_dict())

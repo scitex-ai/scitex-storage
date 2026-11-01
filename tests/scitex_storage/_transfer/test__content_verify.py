@@ -349,9 +349,11 @@ def unreadable_content_pair(tmp_path, request):
     for root in (source, destination):
         _write(str(root), "visible.txt", b"visible")
         _write(str(root), "blocked/hidden.txt", b"hidden")
-    roots = [source, destination] if unreadable_side == "both" else [
-        source if unreadable_side == "source" else destination
-    ]
+    roots = (
+        [source, destination]
+        if unreadable_side == "both"
+        else [source if unreadable_side == "source" else destination]
+    )
     blocked = [root / "blocked" for root in roots]
     previous_modes = [stat.S_IMODE(path.stat().st_mode) for path in blocked]
     try:
@@ -475,6 +477,7 @@ def test_remote_tally_none_is_not_zero_still_holds():
     # Assert
     assert verdict.may_remove_source is False
 
+
 # EOF
 
 
@@ -518,3 +521,20 @@ def test_tree_digest_agrees_across_local_and_remote_manifests(tmp_path):
     digest = tree_digest(local)
     # Assert
     assert digest == tree_digest(parse_remote_manifest(lines))
+
+
+def test_content_reader_checks_cancellation_between_chunks(tmp_path):
+    # Arrange
+    import pytest
+
+    from scitex_storage._transfer._content_verify import DigestCancelled, digest_file
+
+    path = tmp_path / "large.bin"
+    with path.open("wb") as stream:
+        stream.truncate(3 * 1024**2)
+    checkpoints = iter([False, False, True])
+    # Act
+    raised = pytest.raises(DigestCancelled)
+    # Assert
+    with raised:
+        digest_file(str(path), cancelled=lambda: next(checkpoints))
