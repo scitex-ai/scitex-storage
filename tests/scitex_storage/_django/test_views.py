@@ -11,6 +11,8 @@ from __future__ import annotations
 import importlib
 import os
 import shutil
+from html.parser import HTMLParser
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -209,6 +211,45 @@ def test_usage_tab_links_interactive_sunburst(tmp_path):
     body = _get(tmp_path, {"tab": "usage"}).content.decode()
     # Assert -- route name, never a hardcoded path.
     assert "usage-sunburst" in body
+
+
+def test_usage_embedded_chart_preserves_authorized_scope(tmp_path):
+    # Arrange -- arbitrary paths must not be forwarded into the embedded
+    # scan. The route resolves the selected project through its provider.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+
+    class Frames(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.items = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "iframe":
+                self.items.append(dict(attrs))
+
+    # Act -- real template rendering, including URL reversal and escaping.
+    body = _get_scoped(
+        tmp_path,
+        {"tab": "usage", "scope": "project", "dir": "/etc", "path": "/etc"},
+        username="u",
+        project_path=str(proj),
+    ).content.decode()
+    parser = Frames()
+    parser.feed(body)
+    chart = next(f for f in parser.items if "usage-sunburst" in f.get("src", ""))
+    query = parse_qs(urlsplit(chart["src"]).query)
+    result = (
+        query,
+        chart.get("sandbox"),
+        bool(chart.get("title")),
+        "Project bytes are shown" in body,
+    )
+    # Assert -- scripts may render/zoom but cannot access the parent origin;
+    # neither arbitrary filesystem paths nor private comments reach the UI.
+    assert result == ({"scope": ["project"]}, "allow-scripts", True, False)
 
 
 def test_usage_tab_has_no_static_donut(tmp_path):

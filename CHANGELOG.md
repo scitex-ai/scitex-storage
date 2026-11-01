@@ -7,6 +7,16 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.15] - 2026-11-01
+
+### Fixed
+
+- Embed the existing authorized, read-only usage sunburst in the Usage tab;
+  retain the full-page link and sandbox its inline JavaScript.
+- Prevent a multiline project-scope template comment from appearing on screen.
+- Use square storage panels and document the implemented GUI instead of the
+  obsolete first-scaffold description.
+
 ## [0.6.14] - 2026-10-25
 
 ### Added

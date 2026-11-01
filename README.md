@@ -232,13 +232,16 @@ python -m scitex_storage._system_deps
 
 ### GUI plugin (optional)
 
-scitex-storage ships a minimal Django-based GUI plugin
-(`src/scitex_storage/_django/`) — a browsable view of `scan()` results,
+scitex-storage ships a Django-based GUI plugin
+(`src/scitex_storage/_django/`) with Usage, Duplicates, Move, and Backup tabs,
 installable standalone (`scitex-storage start-gui`) or as a
 scitex-hub plugin mounted at `/storage/`, following the same
-scitex-app/scitex-ui convention as scitex-writer/scitex-scholar/
-scitex-todo/figrecipe. It is a **first scaffold** (proves the mounting
-contract; not the full disk-treemap UI yet) and is entirely optional:
+scitex-sdk convention as scitex-writer/scitex-scholar/figrecipe.
+Usage embeds a read-only, zoomable sunburst of the selected project's bytes
+(or an assigned volume when no project is selected), with a separate full-page
+link. The chart uses the same authorized endpoint in both views and needs no
+external JavaScript service. Missing scan dependencies and scan timeouts are
+reported inside the chart. The GUI is optional:
 
 ```bash
 pip install scitex-storage[gui]
