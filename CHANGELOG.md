@@ -9,6 +9,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [0.6.15] - 2026-11-01
 
+### Security
+
+- Treat filesystem/volume names as text in sunburst tooltips and breadcrumbs;
+  opening the chart directly must not execute HTML from a crafted filename.
+
 ### Fixed
 
 - Embed the existing authorized, read-only usage sunburst in the Usage tab;

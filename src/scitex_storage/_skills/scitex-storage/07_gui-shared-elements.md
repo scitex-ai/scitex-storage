@@ -41,3 +41,6 @@ tags: [scitex-storage-gui-shared-elements]
   default, `--verify-content` for the independent re-hash) — same honesty
   as the CLI "delete cleared by" line; the applied card names the
   restorable staging instead of a delete.
+- Filesystem and volume labels are untrusted text. Build sunburst tooltips and
+  breadcrumbs with DOM text nodes; never interpolate those labels into HTML.
+  Preserve original names in data and bookmark hashes.

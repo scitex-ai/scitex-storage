@@ -184,12 +184,19 @@ function arcPath(r0,r1,a0,a1){{
   return `M${{x0}} ${{y0}} L${{x1}} ${{y1}} A${{r1}} ${{r1}} 0 ${{large}} 1 ${{x2}} ${{y2}} `+
          `L${{x3}} ${{y3}} A${{r0}} ${{r0}} 0 ${{large}} 0 ${{x0}} ${{y0}} Z`;
 }}
-function showTip(e,h){{tip.innerHTML=h; tip.style.opacity=1;
+function showTip(e,lines){{
+  tip.replaceChildren();
+  lines.forEach((line,i)=>{{
+    if(i) tip.appendChild(document.createElement('br'));
+    const label=document.createElement(i===0?'b':'span');
+    label.textContent=line; tip.appendChild(label);
+  }});
+  tip.style.opacity=1;
   tip.style.left=Math.min(e.clientX+14,innerWidth-260)+'px'; tip.style.top=(e.clientY+14)+'px';}}
-function seg(d,fill,tipHtml,onClick){{
+function seg(d,fill,tipLines,onClick){{
   const p=document.createElementNS('http://www.w3.org/2000/svg','path');
   p.setAttribute('d',d); p.setAttribute('fill',fill); p.setAttribute('class','seg');
-  p.onmousemove=e=>showTip(e,tipHtml); p.onmouseleave=()=>tip.style.opacity=0;
+  p.onmousemove=e=>showTip(e,tipLines); p.onmouseleave=()=>tip.style.opacity=0;
   if(onClick){{p.onclick=onClick;}} svg.appendChild(p);
 }}
 function ring(node, ringIdx, a0, a1, depth){{
@@ -199,10 +206,10 @@ function ring(node, ringIdx, a0, a1, depth){{
   for(const k of kids){{
     const span=(a1-a0)*k.value/tot, ka1=a+span;
     const r0=R0+ringIdx*RW, r1=r0+RW-6;
-    const tipHtml=`<b>${{k.name}}</b><br>capacity ${{human(k.value)}}<br>`+
-      `space ${{k.usage==null?'unknown':k.usage+'%'}}<br>`+
-      `inodes ${{k.inode==null?'n/a':k.inode+'%'}}`;
-    seg(arcPath(r0,r1,a,ka1), colour(pct(k)), tipHtml,
+    const tipLines=[k.name,`capacity ${{human(k.value)}}`,
+      `space ${{k.usage==null?'unknown':k.usage+'%'}}`,
+      `inodes ${{k.inode==null?'n/a':k.inode+'%'}}`];
+    seg(arcPath(r0,r1,a,ka1), colour(pct(k)), tipLines,
         (k.children&&k.children.length)?()=>zoom(k):null);
     if(depth>0 && k.children && k.children.length){{ ring(k, ringIdx+1, a, ka1, depth-1); }}
     a=ka1;
@@ -226,10 +233,14 @@ function render(){{
   t2.setAttribute('fill','#8b95a3'); t2.setAttribute('font-size','11');
   t2.textContent=human(focus.value); svg.appendChild(t2);
   ring(focus, 0, -Math.PI/2, -Math.PI/2+TAU, 1);
-  crumb.innerHTML = path.map((n,i)=>
-    i===path.length-1?`<b>${{n.name}}</b>`:`<a data-i="${{i}}">${{n.name}}</a>`).join(' / ');
-  crumb.querySelectorAll('a').forEach(a=>a.onclick=()=>{{
-    const i=+a.dataset.i; path=path.slice(0,i+1); focus=path[i]; render();}});
+  crumb.replaceChildren();
+  path.forEach((n,i)=>{{
+    if(i) crumb.appendChild(document.createTextNode(' / '));
+    const label=document.createElement(i===path.length-1?'b':'a');
+    label.textContent=n.name;
+    if(i<path.length-1) label.onclick=()=>{{path=path.slice(0,i+1);focus=path[i];render();}};
+    crumb.appendChild(label);
+  }});
   // Reflect the location in the URL so a refresh or a shared link lands
   // where the user was -- they can see WHERE they are, and bookmark it.
   const want='#'+path.slice(1).map(n=>encodeURIComponent(n.name)).join('>');
@@ -307,5 +318,6 @@ def build_dir_sunburst_html(root_name: str, hierarchy: dict, gen_line: str) -> s
         ),
         data=data,
     )
+
 
 # EOF

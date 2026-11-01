@@ -20,3 +20,17 @@ tags: [scitex-storage-test-conventions]
 - Audit (`audit-all`, exit 0) is part of green, alongside the suite.
 - When the venv's editable install points at another worktree, run with
   `PYTHONPATH=<worktree>/src` so tests import the tree under test.
+
+The sunburst label security regression uses real Chromium, temporary files,
+pointer hover, and zoom. Install the dev extra and a Playwright Chromium binary,
+then run:
+
+```bash
+python -m playwright install chromium
+pytest tests/scitex_storage/_render/test__sunburst.py -k filesystem_labels
+```
+
+An existing Chromium binary can be selected with the test-only
+`SCITEX_STORAGE_TEST_CHROMIUM` environment variable. Without a browser this
+integration test reports a skip; that is not browser coverage. Its temporary
+directory retains `sunburst-labels.png` for visual inspection.

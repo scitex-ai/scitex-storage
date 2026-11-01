@@ -91,6 +91,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "playwright>=1.40",  # real-browser sunburst label security regression
     "pytest-cov",
     "scitex-dev>=0.30.0",  # gui_runtime lives here since 0.30.0
     # Mirror the `gui` runtime extra so `pip install -e .[dev]` runs the

@@ -1,6 +1,6 @@
 """Unit tests for scitex_storage._render (Codecov-style sunburst).
 
-Pure renderer over dataclasses -- no mocks, no I/O. The hierarchy shape
+Native renderer/tree tests plus an optional real Chromium security regression. The hierarchy shape
 and the two colour metrics (space% and inode%) are the substance, plus
 the self-contained / no-tag-breakout guarantees shared with the bubble
 view.
@@ -21,8 +21,15 @@ def _snap(rows):
 
 
 def _row(host, mount, size_gb, space, inode):
-    return HostStorage(host=host, role="r", mount=mount, verdict=MEASURED,
-                       size_bytes=size_gb * GB, used_pct=space, inode_used_pct=inode)
+    return HostStorage(
+        host=host,
+        role="r",
+        mount=mount,
+        verdict=MEASURED,
+        size_bytes=size_gb * GB,
+        used_pct=space,
+        inode_used_pct=inode,
+    )
 
 
 def test_hierarchy_root_is_the_fleet():
@@ -61,7 +68,9 @@ def test_a_node_carries_both_colour_metrics():
     # The operator wants to switch colour between space and inodes.
     # Arrange
     # Act
-    fs = build_hierarchy(_snap([_row("h", "/", 10, 63.0, 12.0)]))["children"][0]["children"][0]
+    fs = build_hierarchy(_snap([_row("h", "/", 10, 63.0, 12.0)]))["children"][0][
+        "children"
+    ][0]
     # Assert
     assert (fs["usage"], fs["inode"]) == (63.0, 12.0)
 
@@ -203,7 +212,10 @@ def test_dir_page_has_no_colour_mode_buttons(tmp_path):
     page = build_dir_sunburst_html("Paper", hierarchy, "gen")
     # Assert -- the JS guards reference the ids as strings; the dead
     # controls are the buttons themselves.
-    assert ('<button id="m-usage"' in page, '<button id="m-inode"' in page) == (False, False)
+    assert ('<button id="m-usage"' in page, '<button id="m-inode"' in page) == (
+        False,
+        False,
+    )
 
 
 @pytest.mark.requires_fd
@@ -228,7 +240,7 @@ def test_a_folder_name_cannot_break_out_of_the_embedded_json_script():
 
     from scitex_storage._render import build_dir_sunburst_html
 
-    evil = 'x</script><script>alert(1)</script>'
+    evil = "x</script><script>alert(1)</script>"
     hierarchy = {
         "name": "Paper",
         "value": 1,
@@ -241,11 +253,69 @@ def test_a_folder_name_cannot_break_out_of_the_embedded_json_script():
     # Act
     page = build_dir_sunburst_html("Paper", hierarchy, "gen")
     result = (
-        json.loads(re.search(r"const ROOT = (\{.*?\});", page, re.S).group(1))["children"][0]["name"],
+        json.loads(re.search(r"const ROOT = (\{.*?\});", page, re.S).group(1))[
+            "children"
+        ][0]["name"],
         "<\\/script>" in page,
     )
     # Assert -- the name round-trips exactly, and the slash is escaped,
     # proving the guard fired (the page's own </script> close tag aside).
     assert result == (evil, True)
+
+
+@pytest.mark.requires_fd
+def test_filesystem_labels_remain_text_in_real_browser(tmp_path):
+    # Arrange -- two real directories ensure the dangerous label has a visible
+    # sector. This also tests the exported, self-contained chart offline.
+    import os
+    from pathlib import Path
+
+    api = pytest.importorskip("playwright.sync_api")
+    label = "<img src=x onerror=window.__storage_xss_test=1>"
+    (tmp_path / label).mkdir()
+    (tmp_path / label / "data.bin").write_bytes(b"x" * 8192)
+    (tmp_path / "safe").mkdir()
+    (tmp_path / "safe" / "data.bin").write_bytes(b"x" * 4096)
+    from scitex_storage._render import build_dir_hierarchy, build_dir_sunburst_html
+
+    chart = tmp_path / "chart.html"
+    chart.write_text(
+        build_dir_sunburst_html(
+            "Audit", build_dir_hierarchy("Audit", tmp_path), "audit"
+        )
+    )
+    with api.sync_playwright() as runtime:
+        explicit = os.environ.get("SCITEX_STORAGE_TEST_CHROMIUM")
+        executable = Path(explicit or runtime.chromium.executable_path)
+        if not executable.is_file():
+            if explicit:
+                raise RuntimeError("Explicit test Chromium executable is missing")
+            pytest.skip(
+                "Browser regression requires: python -m playwright install chromium"
+            )
+        browser = runtime.chromium.launch(
+            executable_path=str(executable), args=["--no-sandbox"]
+        )
+        try:
+            page = browser.new_page()
+            page.goto(chart.as_uri())
+            # Act -- real pointer hover and zoom, not synthetic DOM callbacks.
+            page.locator("#sb").hover(position={"x": 390, "y": 280})
+            page.wait_for_timeout(100)
+            tooltip_literal = label in page.locator("#tip").inner_text()
+            page.locator("#sb").click(position={"x": 390, "y": 280})
+            page.wait_for_timeout(100)
+            result = (
+                page.evaluate("window.__storage_xss_test || 0"),
+                page.locator("#tip img,#crumb img").count(),
+                tooltip_literal,
+                label in page.locator("#crumb").inner_text(),
+            )
+            page.screenshot(path=str(tmp_path / "sunburst-labels.png"))
+        finally:
+            browser.close()
+    # Assert -- literal labels survive while executable markup never appears.
+    assert result == (0, 0, True, True)
+
 
 # EOF
