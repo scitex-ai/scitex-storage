@@ -43,4 +43,6 @@ tags: [scitex-storage-safety-contract]
    in the manifest (`staged_path`) and a central registry. Only a sweeper
    deletes it, only after its 7-day retention, only with a matching marker,
    and never outside a `.stx-restorable` directory (`sweep-restorable`,
-   dry-run by default).
+   dry-run by default). The browser does not schedule the sweeper: expiry
+   makes staging eligible, and removal still requires an explicitly applied
+   sweep or a separately configured operator job.

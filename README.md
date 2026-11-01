@@ -511,7 +511,7 @@ scitex-storage
 ├── Policy          where it should live                     <- planned
 ├── Migration       safe copy/move (archive --to nas|nas2)     <- archive, restore (done)
 ├── Verification    checksum + count verify after move         <- rsync --checksum (done)
-└── Retention       keep/quarantine/delete rules                 <- planned
+└── Retention       restorable staging + explicit guarded sweep
 ```
 
 Backends beyond ssh/rsync (S3-compatible, Gitea/GitHub) are planned but not

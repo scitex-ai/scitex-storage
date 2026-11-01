@@ -15,21 +15,21 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
     .stx-storage-sunburst { display: block; width: 100%; height: clamp(420px, 60vh, 700px);
         border: 0; background: transparent; }
     .stx-storage-warn { border: 1px solid var(--stx-storage-border); border-left: 4px solid #d29922;
-        border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+        border-radius: 0; padding: 10px 12px; margin-bottom: 14px; }
     .stx-storage-ok { border: 1px solid var(--stx-storage-border); border-left: 4px solid #3fb950;
-        border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+        border-radius: 0; padding: 10px 12px; margin-bottom: 14px; }
     .stx-tier-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
     .stx-form-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 10px 0; }
     .stx-field { display: flex; flex-direction: column; gap: 4px; }
     .stx-field label { font-size: 0.82rem; color: var(--stx-storage-muted); }
-    .stx-field input, .stx-field select { min-height: 40px; padding: 6px 10px; border-radius: 8px;
+    .stx-field input, .stx-field select { min-height: 40px; padding: 6px 10px; border-radius: 0;
         border: 1px solid var(--stx-storage-border); background: transparent; color: inherit; }
     .stx-dup-paths { margin: 6px 0 0; padding-left: 18px; font-size: 0.85rem; word-break: break-all; }
     .stx-vol-pick { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
     .stx-vol-pick a { padding: 4px 10px; border: 1px solid var(--stx-storage-border);
         border-radius: 999px; text-decoration: none; color: inherit; font-size: 0.85rem; }
     .stx-vol-pick a.is-active { border-color: var(--stx-storage-accent); font-weight: 600; }
-    code.stx-cli { display: block; margin-top: 6px; padding: 8px 10px; border-radius: 8px;
+    code.stx-cli { display: block; margin-top: 6px; padding: 8px 10px; border-radius: 0;
         background: rgba(127,127,127,0.12); white-space: pre-wrap; word-break: break-all; }
     </style>
 {% endblock %}
@@ -252,7 +252,7 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
                 <div class="stx-storage-ok">
                     <strong>{% translate "Move applied and verified." %}</strong>
                     {% blocktranslate with size=applied.size_bytes|filesizeformat count=applied.file_count src=applied.source dest=applied.destination remote=applied.remote_path method=applied.verification_method %}{{ size }} in {{ count }} files: {{ src }} → {{ dest }}:{{ remote }} ({{ method }}){% endblocktranslate %}
-                    <p class="stx-storage-note" style="margin: 4px 0 0">{% translate "The original was moved to restorable staging after verification and deletes automatically once its retention expires." %}</p>
+                    <p class="stx-storage-note" style="margin: 4px 0 0">{% translate "The original was moved to restorable staging after verification. Expired staging is removed only when the retention sweeper is explicitly applied; this page does not schedule deletion." %}</p>
                 </div>
             {% endif %}
         </section>
