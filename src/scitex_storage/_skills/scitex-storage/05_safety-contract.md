@@ -12,21 +12,15 @@ tags: [scitex-storage-safety-contract]
 2. Copy → independent read-back → manifest → retire or delete source ONLY
    on a positive verdict. "Could not check" blocks the delete as firmly as
    "check failed" (`ArchiveNotVerifiedError` leaves the source intact).
-   The post-verify fate is staged restorable where the caller asked for it
-   (browser move-apply, `archive --retire-source`) and a verified delete
-   otherwise; both are recorded on the manifest.
-3. Two delete gates, honestly named in the manifest (`verification_method`)
-   and the CLI report ("delete cleared by: …"):
-   - `tally` (default): entry count + total bytes read back. Cheap;
-     catches transport errors, not same-size corruption.
-   - `content` (opt-in via `--verify-content`): independent per-file
-     sha256 of BOTH trees (`_remote_digest` over ssh, BusyBox-safe),
-     replacing the tally verdict. Costs a full re-read of both sides —
-     that is why it is opt-in, and the manifest records which gate ran.
-   When the content gate runs, the manifest also keeps the source's
-   canonical tree digest (`content_digest`, zero marginal cost) as the
-   baseline for cold scrub; tally-cleared manifests carry none, and a
-   scrub reports content as unknown rather than manufacturing one.
+   A move stages its original for seven days by default. Copy-only mode
+   (`remove_source=False`) keeps it at its original path. Explicit low-level
+   `retire_source=False` remains a destructive API choice after verification.
+3. Count/size read-back gates progress; independent SHA256 of both source
+   and destination gates every move, even if an older caller passes
+   `verify_content_too=False`. The source must still match its pre-copy
+   baseline before retirement. Manifests record `verification_method=content`
+   and the canonical content digest. Copy-only mode may retain the cheaper
+   tally verification; that does not authorize removing the original.
 4. `checksum` defaults on (rsync `--checksum` reads every byte in flight);
    destination free-space preflight before a byte moves.
 5. Manifests live at `~/.scitex/scitex-storage/runtime/archive-manifests`

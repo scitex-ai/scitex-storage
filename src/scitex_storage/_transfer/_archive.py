@@ -63,7 +63,6 @@ from __future__ import annotations
 
 import json
 import posixpath
-import shlex
 import shutil
 import time
 from dataclasses import asdict, dataclass
@@ -71,13 +70,15 @@ from pathlib import Path
 
 from scitex_ssh import SSHResult, exec_remote, sync_dir
 
-from ._content_verify import digest_tree, tree_digest, verify_content
-from ._remote_digest import REMOTE_DIGEST_CMD, parse_remote_manifest
-
+from .._measure._scan import (
+    MissingSystemDependencyError as MissingSystemDependencyError,
+)
+from .._measure._scan import _measure_dir
+from .._measure._space import remote_free_bytes
+from .._tiers import tier_of_destination
 from ._archive_transport import (
-    DEFAULT_REMOTE_ROOT,
-    DESTINATIONS,
     _UNSAFE_REMOTE_PATHS,
+    DESTINATIONS,
     _as_dir_contents,
     _default_remote_path,
     _manifest_dir,
@@ -88,10 +89,13 @@ from ._archive_transport import (
     resolve_destination,
     write_manifest_sidecar,
 )
-from ._restore import RestorePlan, apply_restore, plan_restore
-from .._measure._scan import MissingSystemDependencyError, _measure_dir
-from .._tiers import tier_of_destination
-from .._measure._space import remote_free_bytes
+from ._archive_transport import DEFAULT_REMOTE_ROOT as DEFAULT_REMOTE_ROOT
+from ._content_verify import digest_tree, tree_digest, verify_content
+from ._durable import atomic_json
+from ._remote_digest import REMOTE_DIGEST_CMD, parse_remote_manifest
+from ._restore import RestorePlan as RestorePlan
+from ._restore import apply_restore as apply_restore
+from ._restore import plan_restore as plan_restore
 from ._sweep import InsufficientSpaceError, check_space
 from ._verify import (
     REMOTE_TALLY_CMD,
@@ -110,7 +114,6 @@ class ArchiveNotVerifiedError(RuntimeError):
     failure mid-push. Both leave the source intact; only one means the data
     already reached the destination.
     """
-
 
 
 @dataclass
@@ -132,8 +135,8 @@ def plan_archive(
 ) -> ArchivePlan:
     """Compute (never execute) an archive plan for ``source`` -> ``destination``.
 
-    Read-only: stats ``source`` via the same walk :func:`~scitex_storage._measure._scan.scan`
-    uses, never touches the network. Fail-loud on a missing / non-directory
+    Read-only: measures ``source`` with the same walk as ``scan``;
+    never touches the network. Fail-loud on a missing / non-directory
     ``source`` or an unrecognised ``destination``.
 
     Deliberately does NOT require ``rsync``: planning is genuinely
@@ -193,35 +196,9 @@ class ArchiveManifest:
     #: earlier versions still load via from_dict.
     verified: str = "could-not-look"
     verification_evidence: str = "written by a version that did not verify"
-    #: HOW the destination was checked, as DATA rather than as prose buried in
-    #: the evidence string.
-    #:
-    #: WHY THIS FIELD EXISTS. `verified: "verified"` says a check passed and
-    #: says NOTHING about what the check could see. This one is a TALLY:
-    #: entry count plus byte total. It is the right cheap check to watch a
-    #: transfer with, and `_content_verify`'s discriminating test asserts in
-    #: CI that it returns may_remove_source=True for a destination file with
-    #: the right name, the right LENGTH and the WRONG BYTES. A reader of this
-    #: manifest was given no way to know that, and `apply_archive` deletes the
-    #: source on this verdict -- so the manifest recorded a stronger claim
-    #: than the code had earned.
-    #:
-    #: The defect is prose-versus-data, which this project has now hit three
-    #: times: a docstring that asserted verification the body did not perform
-    #: (fixed 2026-07-28), a module docstring naming a dependency the data
-    #: correctly excluded (a grep "confirmed" the bug was still present), and
-    #: this. THE FIX IS ALWAYS THE SAME -- put the claim in a field a consumer
-    #: reads, not in a sentence a human might.
-    #:
-    #: "tally"   entry count + byte total. Cannot see same-length corruption.
-    #: "content" sha256 per entry, via the opt-in second gate in
-    #: apply_archive (REMOTE_DIGEST_CMD + verify_content).
-    #:
-    #: Defaulted to "unknown" rather than "tally" ON PURPOSE. Manifests written
-    #: before this field existed were ALSO tally-verified, but that is my
-    #: inference about old artefacts rather than something they recorded, and
-    #: back-filling it would manufacture evidence. An old manifest genuinely
-    #: does not say, and "unknown" is what it does not say.
+    #: Actual verification instrument. Moves require independent SHA256
+    #: ("content"); copy-only operations may use count and byte total ("tally").
+    #: Older manifests retain "unknown" rather than inventing past evidence.
     verification_method: str = "unknown"
     #: Remote path of the manifest SIDECAR replica written next to the
     #: archived tree (see ``manifest_sidecar_remote_path``). Recorded even
@@ -235,15 +212,11 @@ class ArchiveManifest:
     #: Tier of the destination host (canonical :mod:`.._tiers` facts).
     #: Defaulted so older manifests still load via from_dict.
     destination_tier: str = "unknown"
-    #: Canonical tree digest of the SOURCE at archive time, recorded ONLY
-    #: when the content gate ran (--verify-content: the source was hashed
-    #: anyway, so keeping its digest costs nothing). Empty when the delete
-    #: was cleared by tally -- a scrub then falls back to tally compare and
-    #: reports content as unknown rather than manufacturing a baseline.
+    #: Canonical pre-copy tree digest. Always recorded for verified moves;
+    #: a tally-only copy has no content baseline and must not claim one.
     content_digest: str = ""
-    #: True when this run was a BACKUP: the destination verified but the
-    #: source was deliberately retained. Defaulted so older manifests
-    #: (always deletes) still load via from_dict.
+    #: True for copy-only backups and restorable staged originals.
+    #: Older manifests retain their existing interpretation.
     retained_source: bool = False
     #: Where the source was staged when this run retired it instead of
     #: deleting it (restorable retention). Empty when the source was deleted
@@ -290,7 +263,7 @@ def apply_archive(
     exclude: tuple[str, ...] = (),
     verify_content_too: bool = False,
     remove_source: bool = True,
-    retire_source: bool = False,
+    retire_source: bool = True,
     retention_days: float = 7.0,
     runner=None,
 ) -> ArchiveManifest:
@@ -309,39 +282,40 @@ def apply_archive(
     being deleted, and a sweeper deletes it once ``retention_days``
     (default 7) expire. The manifest records ``staged_path``.
 
-    Until 2026-07-28 this docstring already said "verify" and the body did
-    not do it — the source was removed on rsync's exit code alone. A
-    docstring asserting a safety step the code does not perform is its own
-    defect, because the next reader budgets trust against it; that is how
-    the gap survived. The verification is now real:
-
-    * the destination is tallied independently (entry count + total bytes)
-      and compared against the source measured the SAME way;
-    * a mismatch OR an unanswerable probe raises
-      :class:`ArchiveNotVerifiedError` and leaves the source intact — "I
-      could not check" blocks the delete exactly as firmly as "the check
-      failed", because for a destructive action they have the same
-      consequence;
-    * the verdict and its evidence are written into the manifest either
-      way, so a refusal is auditable rather than living only in whoever's
-      terminal saw the exception.
-
-    ``checksum`` (default on, since this precedes an irreversible local
-    delete) adds rsync's ``--checksum`` flag — reads every byte on both
-    sides instead of rsync's fast mtime+size quick-check. That verifies the
-    bytes rsync transferred; the read-back answers the different question of
-    whether the destination now holds what the source held. A non-zero rsync
-    exit raises immediately; the source is left completely untouched and no
-    manifest is written. ``runner`` is passed straight through to both
-    ``exec_remote`` (the mkdir) and ``sync_dir`` (a ``subprocess.run``-
-    shaped invoker) — the same real-transport-free test seam scitex-ssh
-    itself exposes.
+    Every move requires independent SHA256 manifests for source and remote
+    destination in addition to rsync's checksum and the count/size read-back.
+    The source must still match its pre-copy baseline immediately before it
+    is retired. Unreadable, changed, or mismatching content refuses the move.
+    ``verify_content_too`` controls optional copy-only verification; setting it
+    False cannot disable the mandatory move gate. Copy-only callers use
+    ``remove_source=False`` and leave the original untouched.
 
     Requires ``rsync`` ONLY when ``runner is None`` — i.e. only when this
     call will really shell out. An injected ``runner`` IS the transport, so
     demanding a binary it will never invoke would make the seam
     environment-dependent and fail honest callers for no reason.
     """
+    # A move always uses an independent content baseline, even when an older
+    # caller explicitly passes the former opt-in flag as False.
+    baseline = (
+        digest_tree(str(plan.source)) if remove_source or verify_content_too else None
+    )
+    if baseline is not None and (not baseline.usable or baseline.unreadable):
+        refusal = ArchiveManifest(
+            source=str(plan.source),
+            destination=plan.destination,
+            remote_path=plan.remote_path,
+            size_bytes=plan.size_bytes,
+            file_count=plan.file_count,
+            checksummed=checksum,
+            archived_at=time.time(),
+            verified="could-not-look",
+            verification_method="content",
+            verification_evidence="Source cannot be fully hashed; left intact.",
+        )
+        atomic_json(plan.manifest_path, refusal.to_dict())
+        raise ArchiveNotVerifiedError(refusal.verification_evidence)
+    source_identity = plan.source.stat().st_dev, plan.source.stat().st_ino
     if runner is None:
         _rsync_binary()
     remote_parent = posixpath.dirname(plan.remote_path)
@@ -369,7 +343,8 @@ def apply_archive(
     # "The NAS is roomy" is a capability claim, and a capability claim is
     # a measurement -- so it is asked, not assumed.
     available = remote_free_bytes(
-        plan.destination, _quote_remote_path(remote_parent or plan.remote_path),
+        plan.destination,
+        _quote_remote_path(remote_parent or plan.remote_path),
         runner=runner,
     )
     space = check_space(plan.size_bytes, available)
@@ -438,39 +413,15 @@ def apply_archive(
     method = "tally"
     content_digest = ""
 
-    # OPTIONAL SECOND GATE: compare CONTENT, not a tally of it.
-    #
-    # Only reached when the tally already passed. Running it after a MISMATCH
-    # would spend hours hashing a destination we already know is wrong, and
-    # running it after a COULD_NOT_LOOK would be hashing something we could
-    # not even count.
-    #
-    # WHY THIS IS OPT-IN AND NOT THE DEFAULT, stated because "the strongest
-    # gate before an irreversible delete" is the obvious-sounding argument for
-    # the opposite and I made it before measuring:
-    #
-    # `checksum=True` (the default) already passes rsync `--checksum`, which
-    # reads every byte on BOTH SIDES. Transfer-time corruption is therefore
-    # already covered. Hashing both trees again would roughly DOUBLE the cost
-    # of a multi-terabyte archive to close a NARROWER residual window:
-    #
-    #   * bit rot at the destination AFTER rsync finished, before the delete;
-    #   * a destination mutated by something other than this transfer;
-    #   * a destination left half-populated by an earlier failed run whose
-    #     files happen to agree on count and size;
-    #   * any call made with checksum=False, where the in-flight class returns.
-    #
-    # A default nobody can afford to leave on gets turned off, and then the
-    # honest `tally` stamp becomes the normal case anyway. What makes opt-in
-    # acceptable rather than a hiding place is that the manifest records which
-    # gate actually ran -- see ArchiveManifest.verification_method.
-    if verify_content_too and verdict.may_remove_source:
+    # The second instrument is mandatory whenever the original will move or
+    # be removed. Count-and-size remains a progress check, never a move gate.
+    if (remove_source or verify_content_too) and verdict.may_remove_source:
         digest_probe = exec_remote(
             plan.destination,
             REMOTE_DIGEST_CMD.format(path=_quote_remote_path(plan.remote_path)),
             runner=runner,
         )
-        source_manifest = digest_tree(str(plan.source))
+        source_manifest = baseline
         content_verdict = verify_content(
             source_manifest,
             parse_remote_manifest(
@@ -485,13 +436,9 @@ def apply_archive(
         # The source was hashed anyway: keep its canonical digest as the
         # scrub baseline at zero marginal cost.
         content_digest = tree_digest(source_manifest)
-
-    if retire_source and not remove_source:
-        raise ValueError(
-            "retire_source=True stages the source aside instead of deleting "
-            "it; combine it with the default remove_source=True, or use "
-            "remove_source=False alone for backup mode."
-        )
+        unchanged = verify_content(source_manifest, digest_tree(str(plan.source)))
+        if not unchanged.may_remove_source:
+            verdict = unchanged
 
     manifest = ArchiveManifest(
         source=str(plan.source),
@@ -516,7 +463,7 @@ def apply_archive(
         retained_source=not remove_source,
     )
     plan.manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    plan.manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))
+    atomic_json(plan.manifest_path, manifest.to_dict())
 
     if verdict.may_remove_source:
         # Manifest REPLICA next to the archived tree, so the map travels
@@ -531,7 +478,7 @@ def apply_archive(
         )
         manifest.sidecar_written = sidecar.written
         manifest.sidecar_detail = sidecar.detail
-        plan.manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))
+        atomic_json(plan.manifest_path, manifest.to_dict())
 
     if not verdict.may_remove_source:
         raise ArchiveNotVerifiedError(
@@ -546,18 +493,28 @@ def apply_archive(
         )
 
     if remove_source:
+        current = digest_tree(str(plan.source))
+        identity = plan.source.stat().st_dev, plan.source.stat().st_ino
+        if (
+            identity != source_identity
+            or not verify_content(baseline, current).may_remove_source
+        ):
+            manifest.verified = "mismatch"
+            manifest.verification_evidence = (
+                "Source changed during archive; source left intact."
+            )
+            atomic_json(plan.manifest_path, manifest.to_dict())
+            raise ArchiveNotVerifiedError(manifest.verification_evidence)
         if retire_source:
             from ._retention import stage_for_retention
 
             staged = stage_for_retention(plan.source, retention_days=retention_days)
             manifest.retained_source = True
             manifest.staged_path = staged.staged_path
-            plan.manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))
+            atomic_json(plan.manifest_path, manifest.to_dict())
         else:
             shutil.rmtree(plan.source)
     return manifest
-
-
 
 
 # EOF
