@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scitex-storage"
-version = "0.6.15"
+version = "0.6.16"
 description = "Research-data storage triage: read-only stat-only scan + referenced-file-aware rotation of versioned build artifacts (e.g. SIF images)"
 readme = "README.md"
 license = "AGPL-3.0-only"
@@ -97,7 +97,7 @@ dev = [
     # Mirror the `gui` runtime extra so `pip install -e .[dev]` runs the
     # full suite. Tests import these unguarded; PS-210 audit invariant.
     "django>=5.0",
-    "scitex-sdk[gui]>=0.3.12",  # .stx-layout-fill utility (utils/layout.css)
+    "scitex-sdk[gui]>=0.3.17",  # request-local project picker view + read-only resolution
 ]
 docs = [
     "sphinx>=7.0",
@@ -111,7 +111,7 @@ docs = [
 # The adapter uses the public scitex_sdk.app.embed API available in SDK 0.3.1.
 gui = [
     "django>=5.0",
-    "scitex-sdk[gui]>=0.3.12",  # .stx-layout-fill utility (utils/layout.css)
+    "scitex-sdk[gui]>=0.3.17",  # request-local project picker view + read-only resolution
     "scitex-dev>=0.30.0",  # gui_runtime, used by the gui {open,serve,status,stop} group at runtime
 ]
 all = [

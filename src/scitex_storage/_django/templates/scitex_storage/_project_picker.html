@@ -18,4 +18,4 @@ Included only when `project_picker_available` (views/organize set it by
 probing the template engines, Writer's `_project_picker_available`
 precedent): `{% load %}`ing a library that is not installed is a hard
 TemplateSyntaxError, so the guard lives in the caller, not here.
-{% endcomment %}{% scitex_project_picker scope="project" %}
+{% endcomment %}{% scitex_project_picker scope="project" navigate="" view_scope=storage_view_scope view_project=storage_view_project %}

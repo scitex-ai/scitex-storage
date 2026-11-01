@@ -1,0 +1,55 @@
+{% extends "scitex_storage/organize.html" %}
+{% load i18n %}
+{% block scitex_app_content %}
+<div id="stx-storage-app" class="stx-storage stx-layout-fill">
+  {% include "scitex_storage/_app_header.html" %}
+  <nav class="stx-content-tabs" role="tablist" aria-label="Storage views">
+    {% for t in tabs %}<a class="stx-content-tabs__tab" role="tab" aria-selected="{% if t.active %}true{% else %}false{% endif %}" href="?tab={{ t.key }}{{ scope_qs }}">{{ t.label }}</a>{% endfor %}
+  </nav>
+  <section class="stx-storage-card">
+    <h2>{% translate "Storage tiers" %}</h2>
+    <div class="stx-tier-grid">
+      {% for tier in logical_tiers %}<article>
+        <h3>{{ tier.name|capfirst }}</h3>
+        {% if not tier.available %}<p class="stx-storage-note">{{ tier.unavailable_reason }}</p>{% endif %}
+        {% if tier.rate_per_gb_month != None %}
+          <p>{{ tier.currency }} {{ tier.rate_per_gb_month }} / GB / 30 days</p>
+          {% for estimate in tier.estimates %}<p>{{ estimate.label }}: {{ estimate.currency }} {{ estimate.amount|floatformat:4 }}</p>{% endfor %}
+        {% else %}<p class="stx-storage-note">{% translate "Rate not configured" %}</p>{% endif %}
+      </article>{% endfor %}
+    </div>
+    <p class="stx-storage-note">{% translate "Estimates use decimal GB and a 30-day month. They exclude transfer and other service charges." %}</p>
+  </section>
+  <section class="stx-storage-card">
+    <h2>{% translate "Plan a move" %}</h2>
+    <p>{% translate "Choose both locations. Planning changes no files. A confirmed move uses rsync, independently verifies content, and keeps the original recoverable for at least seven days." %}</p>
+    <form method="get" class="stx-form-row">
+      <input type="hidden" name="tab" value="move">
+      <input type="hidden" name="scope" value="{{ scope }}">
+      {% if pscope %}<input type="hidden" name="project" value="{{ pscope.project_id }}">{% endif %}
+      <div class="stx-field"><label for="move-source-tier">{% translate "From tier" %}</label><select class="stx-select" id="move-source-tier" name="source_tier" required>
+        <option value="">{% translate "Choose tier" %}</option>{% for tier in logical_tiers %}<option value="{{ tier.name }}"{% if move_form.source_tier == tier.name %} selected{% endif %}{% if not tier.available %} disabled{% endif %}>{{ tier.name|capfirst }}</option>{% endfor %}
+      </select></div>
+      <div class="stx-field"><label for="move-source-path">{% translate "Source folder within tier" %}</label><input class="stx-input" id="move-source-path" name="source_path" value="{{ move_form.source_path }}" placeholder="experiments/run-01" required></div>
+      <div class="stx-field"><label for="move-destination-tier">{% translate "To tier" %}</label><select class="stx-select" id="move-destination-tier" name="destination_tier" required>
+        <option value="">{% translate "Choose tier" %}</option>{% for tier in logical_tiers %}<option value="{{ tier.name }}"{% if move_form.destination_tier == tier.name %} selected{% endif %}{% if not tier.available %} disabled{% endif %}>{{ tier.name|capfirst }}</option>{% endfor %}
+      </select></div>
+      <div class="stx-field"><label for="move-destination-path">{% translate "Destination folder within tier" %}</label><input class="stx-input" id="move-destination-path" name="destination_path" value="{{ move_form.destination_path }}" placeholder="experiments/run-01" required></div>
+      <button class="stx-button stx-button--primary" name="plan" value="1" type="submit">{% translate "Plan move" %}</button>
+    </form>
+    {% if move_error %}<p class="stx-storage-warn" role="alert">{{ move_error }}</p>{% endif %}
+    {% if move_plan %}
+      <div class="stx-storage-ok"><strong>{% translate "Move plan (not executed)." %}</strong><p>{{ move_plan.size_bytes|filesizeformat }} · {{ move_plan.entry_count }} {% translate "entries" %}</p><p>{{ source_display }} → {{ destination_display }}</p></div>
+      <form method="post" action="{% url 'scitex_storage:move_apply' %}">
+        {% csrf_token %}<input type="hidden" name="scope" value="{{ scope }}">{% if pscope %}<input type="hidden" name="project" value="{{ pscope.project_id }}">{% endif %}
+        {% for key, value in move_form.items %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+        <label class="stx-checkbox-label"><input class="stx-checkbox" type="checkbox" name="confirm" value="yes" required> {% translate "Move this folder after verification and retain its original for recovery." %}</label>
+        <button type="submit" class="stx-button stx-button--primary">{% translate "Apply verified move" %}</button>
+      </form>
+    {% endif %}
+    {% if move_result %}<div class="stx-storage-ok"><strong>{% translate "Move applied and verified." %}</strong><p>{{ source_display }} → {{ destination_display }}</p><p>{% translate "Recovery retention: seven days minimum. Expiry alone does not delete anything; cleanup re-verifies the destination before removing an expired original." %}</p><p>{% translate "Transaction:" %} <a href="{% url 'scitex_storage:move_status' %}?transaction={{ move_result.transaction_id }}">{{ move_result.transaction_id }}</a></p></div>{% endif %}
+    {% if move_status %}<div class="stx-storage-card"><h2>{% translate "Move status" %}</h2><p>{{ source_display }} → {{ destination_display }}</p><p>{% translate "Recorded phase:" %} {{ move_status.phase }}</p><p>{% translate "A saved phase is a historical record; it does not confirm a worker is still running. Incomplete transactions need recovery before another attempt." %}</p></div>{% endif %}
+    {% if move_transaction %}<p>{% translate "Transaction:" %} <a href="{% url 'scitex_storage:move_status' %}?transaction={{ move_transaction }}">{{ move_transaction }}</a></p>{% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -139,7 +139,8 @@ _PAGE = """\
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <style>
-:root {{ --bg:#12151a; --panel:#1b2027; --text:#d7dde5; --muted:#8b95a3; --ring:#2c333d; }}
+:root {{ --bg:#f5f4f2; --panel:#efeeed; --text:#333333; --muted:#57606a; --ring:#c0bfbd; --link:#1a2a40; }}
+:root[data-theme="dark"] {{ --bg:#12151a; --panel:#1b2027; --text:#d7dde5; --muted:#8b95a3; --ring:#2c333d; --link:#d4a87a; }}
 * {{ box-sizing:border-box; }}
 html {{ height:100%; }}
 body {{ height:100%; display:flex; flex-direction:column; margin:0; padding:16px;
@@ -154,11 +155,11 @@ h1 {{ font-size:20px; margin:0 0 4px; }}
 #modes {{ margin-bottom:8px; }}
 #modes button {{ background:var(--panel); color:var(--muted); border:1px solid var(--ring);
   border-radius:6px; padding:5px 12px; margin:0 3px; font-size:12px; cursor:pointer; }}
-#modes button.on {{ color:var(--text); border-color:#4ea1ff; }}
+#modes button.on {{ color:var(--text); border-color:var(--link); }}
 #crumb {{ font-size:14px; min-height:22px; margin-bottom:6px; }}
-#crumb a {{ color:#4ea1ff; cursor:pointer; }}
+#crumb a {{ color:var(--link); cursor:pointer; }}
 svg {{ max-width:100%; }}
-path.seg {{ cursor:pointer; stroke:#12151a; stroke-width:1; transition:opacity .1s; }}
+path.seg {{ cursor:pointer; stroke:var(--bg); stroke-width:1; transition:opacity .1s; }}
 path.seg:hover {{ opacity:.82; }}
 #centre {{ font-size:13px; }}
 #tip {{ position:fixed; pointer-events:none; background:var(--panel); border:1px solid var(--ring);
@@ -179,11 +180,27 @@ footer {{ color:var(--muted); font-size:11px; margin-top:8px; }}
 const ROOT = {data};
 const CX=280, CY=280, R0=70, RW=95, TAU=Math.PI*2;
 const svg=document.getElementById('sb'), tip=document.getElementById('tip'), crumb=document.getElementById('crumb');
+document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+window.addEventListener('message',event=>{{
+  const message=event.data;
+  if(event.source!==parent||!message||message.type!=='scitex-storage-theme')return;
+  if(message.theme==='light'||message.theme==='dark')document.documentElement.dataset.theme=message.theme;
+  for(const key of ['--bg','--panel','--text','--muted','--ring','--link']){{
+    const value=message.colors?.[key];
+    if(typeof value==='string'&&CSS.supports('color',value))document.documentElement.style.setProperty(key,value);
+  }}
+}});
 let focus=ROOT, path=[ROOT], metric='usage';  // 'usage' (space%) or 'inode'
 function human(b){{const u=['B','KB','MB','GB','TB','PB'];let i=0,n=b||0;
   while(n>=1024&&i<u.length-1){{n/=1024;i++;}}return n.toFixed(n<10?1:0)+u[i];}}
 function pct(node){{return node[metric];}}
-function colour(p){{if(p==null)return '#5a6472';return p>=85?'#f85149':p>=70?'#d29922':p>=40?'#3fb950':'#2ea043';}}
+function colour(p,name){{
+  if(p==null){{
+    let hash=0; for(const char of String(name)) hash=(Math.imul(hash,31)+char.codePointAt(0))>>>0;
+    return `hsl(${{hash%360}} 58% 53%)`;
+  }}
+  return p>=85?'#f85149':p>=70?'#d29922':p>=40?'#3fb950':'#2ea043';
+}}
 function polar(r,a){{return [CX+r*Math.cos(a), CY+r*Math.sin(a)];}}
 function arcPath(r0,r1,a0,a1){{
   const large=(a1-a0)>Math.PI?1:0;
@@ -216,7 +233,7 @@ function ring(node, ringIdx, a0, a1, depth){{
     const tipLines=[k.name,`capacity ${{human(k.value)}}`,
       `space ${{k.usage==null?'unknown':k.usage+'%'}}`,
       `inodes ${{k.inode==null?'n/a':k.inode+'%'}}`];
-    seg(arcPath(r0,r1,a,ka1), colour(pct(k)), tipLines,
+    seg(arcPath(r0,r1,a,ka1), colour(pct(k),k.name), tipLines,
         (k.children&&k.children.length)?()=>zoom(k):null);
     if(depth>0 && k.children && k.children.length){{ ring(k, ringIdx+1, a, ka1, depth-1); }}
     a=ka1;
@@ -227,17 +244,17 @@ function render(){{
   // centre label = current focus, click to go up
   const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
   c.setAttribute('cx',CX); c.setAttribute('cy',CY); c.setAttribute('r',R0-6);
-  c.setAttribute('fill','#1b2027'); c.setAttribute('stroke','#2c333d');
+  c.setAttribute('fill','var(--panel)'); c.setAttribute('stroke','var(--ring)');
   c.style.cursor = path.length>1?'pointer':'default';
   if(path.length>1) c.onclick=()=>{{path.pop(); focus=path[path.length-1]; render();}};
   svg.appendChild(c);
   const t=document.createElementNS('http://www.w3.org/2000/svg','text');
   t.setAttribute('x',CX); t.setAttribute('y',CY-2); t.setAttribute('text-anchor','middle');
-  t.setAttribute('fill','#d7dde5'); t.setAttribute('font-size','14'); t.setAttribute('font-weight','700');
+  t.setAttribute('fill','var(--text)'); t.setAttribute('font-size','14'); t.setAttribute('font-weight','700');
   t.textContent=focus.name; svg.appendChild(t);
   const t2=document.createElementNS('http://www.w3.org/2000/svg','text');
   t2.setAttribute('x',CX); t2.setAttribute('y',CY+16); t2.setAttribute('text-anchor','middle');
-  t2.setAttribute('fill','#8b95a3'); t2.setAttribute('font-size','11');
+  t2.setAttribute('fill','var(--muted)'); t2.setAttribute('font-size','11');
   t2.textContent=human(focus.value); svg.appendChild(t2);
   ring(focus, 0, -Math.PI/2, -Math.PI/2+TAU, 1);
   crumb.replaceChildren();
@@ -314,9 +331,11 @@ def build_dir_sunburst_html(root_name: str, hierarchy: dict, gen_line: str) -> s
     footer name folders instead of hosts. ``gen_line`` is already-escaped
     HTML naming the scanned root and time.
     """
+    import html
+
     data = json.dumps(hierarchy).replace("</", "<\\/")
     return _PAGE.format(
-        title=f"{root_name} \u2014 Usage",
+        title=html.escape(f"{root_name} \u2014 Usage"),
         gen=gen_line,
         modes="",
         footer=(

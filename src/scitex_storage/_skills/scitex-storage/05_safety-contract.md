@@ -26,9 +26,10 @@ tags: [scitex-storage-safety-contract]
 5. Manifests live at `~/.scitex/scitex-storage/runtime/archive-manifests`
    (per-machine local); refusals are written into the manifest (auditable).
 6. Destinations are host aliases (`scitex-nas-01/02/03`; retired `nas*`
-   aliases still accepted with rewrite notice). There is no hot/warm/cold
-   tier type yet — do not invent one in passing.
-7. Backup (`apply_archive(remove_source=False)`, `backup` verb/tab) copies
+   aliases still accepted with rewrite notice) for the archive CLI. The GUI
+   maps logical hot/warm/cool/cold tiers through `_logical_tiers.py`; never infer
+   an archive host’s speed tier from its number.
+7. Backup (`apply_archive(remove_source=False)`, `backup` CLI verb) copies
    and verifies exactly like archive but retains the source, recorded as
    `retained_source`. Verification is NOT relaxed: an unverified copy
    raises either way.

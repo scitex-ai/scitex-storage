@@ -30,8 +30,7 @@ try:
     from django.utils.module_loading import import_string
 except ImportError as exc:
     raise ImportError(
-        "scitex-storage volumes require Django: "
-        "pip install scitex-storage[gui]"
+        "scitex-storage volumes require Django: pip install scitex-storage[gui]"
     ) from exc
 
 PROBE_TIMEOUT_S = 2.0
@@ -50,6 +49,7 @@ class Volume:
     machine: str
     tier: str = ""
     connection: str = ""
+    display_root: str = ""
 
 
 @dataclass
@@ -120,6 +120,7 @@ def _coerce(item) -> Volume:
         machine=str(item.get("machine") or ""),
         tier=str(item.get("tier") or ""),
         connection=str(item.get("connection") or ""),
+        display_root=str(item.get("display_root") or ""),
     )
 
 
@@ -138,6 +139,33 @@ def resolve_user_volumes(request) -> list:
     return [
         Volume(key="home", label="Home", path=Path.home(), machine=os.uname().nodename)
     ]
+
+
+def display_path(volume: Volume, request, path: Path | None = None) -> str:
+    """Logical user-facing path; never changes the authorized physical root."""
+    if volume.display_root:
+        base = volume.display_root.rstrip("/")
+    else:
+        user = getattr(request, "user", None)
+        username = getattr(user, "username", "")
+        if (
+            isinstance(username, str)
+            and username
+            and not any(c in username for c in "/\\\0")
+            and username not in {".", ".."}
+        ):
+            base = "/home/" + username
+            if volume.key not in {"workspace", "home"}:
+                base += "/" + (volume.tier or volume.key)
+        else:
+            base = volume.label
+    if path is None:
+        return base
+    try:
+        relative = Path(path).resolve().relative_to(volume.path.resolve())
+    except ValueError:
+        return volume.label
+    return base if str(relative) == "." else base + "/" + relative.as_posix()
 
 
 def find_volume(volumes: Iterable[Volume], key: str) -> Optional[Volume]:
@@ -171,7 +199,10 @@ def measure_all(volumes: Iterable[Volume]) -> list:
     def work(i, v):
         results[i] = measure(v)
 
-    threads = [threading.Thread(target=work, args=(i, v), daemon=True) for i, v in enumerate(volumes)]
+    threads = [
+        threading.Thread(target=work, args=(i, v), daemon=True)
+        for i, v in enumerate(volumes)
+    ]
     for t in threads:
         t.start()
     for t in threads:
@@ -200,7 +231,9 @@ def contained_dir(volume: Volume, rel: str) -> Path:
     return candidate
 
 
-def list_dir(volume: Volume, rel: str = "", timeout: float = PROBE_TIMEOUT_S) -> Listing:
+def list_dir(
+    volume: Volume, rel: str = "", timeout: float = PROBE_TIMEOUT_S
+) -> Listing:
     rel = (rel or "").strip().strip("/")
     target = contained_dir(volume, rel)
     listing = Listing(volume=volume, rel=rel)

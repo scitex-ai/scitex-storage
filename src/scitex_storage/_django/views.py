@@ -3,8 +3,7 @@
 # File: src/scitex_storage/_django/views.py
 """Views for the scitex-storage GUI plugin.
 
-``index`` serves the organize tabs (Usage / Duplicates / Move, plus the
-Backup placeholder) with a shared tab nav. There is deliberately no
+``index`` serves Usage, Move, and Duplicates with shared tab navigation. There is deliberately no
 machine/volume browser: per-project storage is the workspace's business,
 and this app only reports usage, duplicates, and move plans.
 """
@@ -116,12 +115,10 @@ def _project_picker_available() -> bool:
     return "scitex_project_picker" in engines["django"].engine.template_libraries
 
 
-#: Tabs of the storage app. All four are real views (see :mod:`.organize`),
-#: including Backup (plan form + recorded-manifest list, read-only).
+#: Active organize tabs; Move supersedes the retired Backup page.
 TABS = (
     ("usage", gettext_lazy("Usage"), False),
     ("move", gettext_lazy("Move"), False),
-    ("backup", gettext_lazy("Backup"), False),
     ("duplicates", gettext_lazy("Duplicates"), False),
 )
 

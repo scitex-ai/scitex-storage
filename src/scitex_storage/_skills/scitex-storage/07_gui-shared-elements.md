@@ -17,30 +17,22 @@ tags: [scitex-storage-gui-shared-elements]
   width/max-width rule (the SDK's no-`!important` contract forbids
   competing rules on the same element); SDK `AppHeader`; header project
   picker (rendered only when the host provides the tag library).
-- Organize tabs (Usage / Duplicates / Move / Backup) are server-rendered
-  links on the shared SDK `stx-content-tabs` primitive
-  (scitex-sdk>=0.3.9, underline-only selected via `aria-selected`): a
-  click loads a new page, no JS pane producer, plus one anchor adapter
-  resetting UA underline. The old `.stx-storage-tabs` variant is deleted.
-  All four tabs are real views in `organize.py` (`HANDLED_TABS`); Backup
-  is plan-form plus recorded-manifest list (plan-only — the CLI
-  `backup --yes` gate stays its only mutator). Move adds an explicit-confirm
-  apply form posting to `move-apply/` (bounded run, edit rights enforced
-  for project scope, staged restorable instead of deleted).
-- Organize tabs are scope-aware through the shared app header (no in-tab
-  scope toggle by design): project scope scans/resolves within the active
-  `ProjectScope` (fail-closed `None` renders an explicit no-project
-  notice, never a silent fallback); move planning additionally confines
-  the source inside the project dir (double containment).
-- Usage embeds the existing `usage-sunburst/` authorized read-only endpoint
-  in a titled iframe, forwarding only `volume` and `scope`. The iframe permits
-  scripts for offline chart zooming but has no same-origin permission; retain
-  the full-page link. Do not add a second scanner or accept arbitrary paths
-  from chart URLs. Scan failures remain visible inside the chart.
-- The Move plan display names the delete gate (count-and-size read-back by
-  default, `--verify-content` for the independent re-hash) — same honesty
-  as the CLI "delete cleared by" line; the applied card names the
-  restorable staging instead of a delete.
-- Filesystem and volume labels are untrusted text. Build sunburst tooltips and
-  breadcrumbs with DOM text nodes; never interpolate those labels into HTML.
-  Preserve original names in data and bookmark hashes.
+- Organize tabs are Usage / Move / Duplicates on SDK content tabs. Backup's
+  GUI is removed; the independent CLI copy operation remains.
+- Default All Projects is a request-local SDK view, not a global preference
+  write. Explicit projects are authorized and constrain scans; invalid explicit
+  projects return 403 rather than widen to user storage.
+- Usage's opaque-origin sandbox permits chart scripts only. Its project query
+  is preserved. Theme relay carries semantic colors, never user data.
+- Logical hot/warm/cool/cold tiers resolve authorized provider volumes. Missing
+  mappings remain disabled; physical archive aliases are not user tier names.
+- Optional configured rates produce day/week/30-day decimal-GB estimates. Never
+  invent prices. See `_logical_tiers.py` and `docs/gui-storage.md`.
+- Both move endpoints are contained and authorized; project roots cannot be
+  silently relocated. Confirmed moves always SHA-verify and retain originals
+  for at least seven days; execution deadlines cancel actual rsync workers.
+- Host-provided per-user state, no process HOME changes. A saved transaction
+  phase alone does not prove worker liveness. Retention cleanup must verify the
+  current destination before deleting an expired original.
+- Paths are displayed through `volumes.display_path`, without altering physical
+  I/O authorization. Build chart labels with text nodes, never raw HTML.

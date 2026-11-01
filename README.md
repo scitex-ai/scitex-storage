@@ -257,7 +257,7 @@ python -m scitex_storage._system_deps
 ### GUI plugin (optional)
 
 scitex-storage ships a Django-based GUI plugin
-(`src/scitex_storage/_django/`) with Usage, Duplicates, Move, and Backup tabs,
+(`src/scitex_storage/_django/`) with Usage, Move, and Duplicates tabs,
 installable standalone (`scitex-storage start-gui`) or as a
 scitex-hub plugin mounted at `/storage/`, following the same
 scitex-sdk convention as scitex-writer/scitex-scholar/figrecipe.
@@ -267,7 +267,28 @@ link. The chart uses the same authorized endpoint in both views and needs no
 external JavaScript service. The chart fits the available viewport height,
 with a 480px maximum drawing area, so the embedded view needs no inner scrollbar.
 Missing scan dependencies and scan timeouts are
-reported inside the chart. The GUI is optional:
+reported inside the chart.
+
+Storage starts in **All Projects** without changing the host's remembered project.
+An explicit authorized project constrains the chart and duplicate scan; an invalid
+project is refused rather than widening the scope. Paths shown in the GUI use a
+logical home label, while filesystem operations retain their authorized mount roots.
+
+The Move view offers hot/warm/cool/cold locations through the host's authorized
+volume provider. Missing or ambiguous tiers stay unavailable. Optional Django
+settings `SCITEX_STORAGE_TIER_BINDINGS` map a tier to `{"volume": "provider-key"}`;
+`SCITEX_STORAGE_TIER_RATES` supplies `{"currency": "USD", "per_gb_month": "…"}`
+per tier (replace the ellipsis with an actual nonnegative decimal rate). Rates
+are not inferred. Plans show day/week/30-day estimates using decimal GB.
+
+Confirmed GUI moves require both authorized locations to be mounted, refuse
+registered project-root relocation, verify with SHA after rsync, and retain the
+original for at least seven days. The host must supply `SCITEX_USER_HOME_PROVIDER`
+for private transaction receipts. Expiry does not itself delete anything: the
+bounded retention cleanup also verifies the current destination before deleting
+an expired original. Backup's old GUI was removed; its independent Python/CLI
+copy operation remains available. See [the GUI contract](docs/gui-storage.md).
+ The GUI is optional:
 
 ```bash
 pip install scitex-storage[gui]
