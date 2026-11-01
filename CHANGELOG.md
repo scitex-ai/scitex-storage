@@ -16,6 +16,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 - Prevent a multiline project-scope template comment from appearing on screen.
 - Use square storage panels and document the implemented GUI instead of the
   obsolete first-scaffold description.
+- Describe retention expiry accurately: the browser does not schedule deletion;
+  removal requires an explicitly applied sweeper. Keep notice/form panels square.
 
 ## [0.6.14] - 2026-10-25
 
