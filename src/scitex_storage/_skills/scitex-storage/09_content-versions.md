@@ -1,7 +1,7 @@
 ---
 description: |
   [TOPIC] Local content-addressed scientific-file versions
-  [DETAILS] Bounded Gear CDC snapshots, verified no-overwrite checkout,
+  [DETAILS] Bounded native FastCDC snapshots, verified no-overwrite checkout,
   and small ordinary Git pointers; not a Git LFS/server implementation.
 tags: [scitex-storage-content-versions]
 ---
@@ -27,8 +27,13 @@ symlinks are refused. Do not work around that refusal by deleting or replacing
 the destination. `read_manifest`/CLI `inspect` validate manifest metadata only;
 they do not prove that the payload chunks are intact.
 
-The algorithm is `gear-cdc-v1`, not full FastCDC. Source changes refuse a new
-version; unreferenced chunks can remain. No GC or source-removal command exists.
+The algorithm is `fastcdc-py-1.7.0-cython-v1`, using the pinned native
+fastcdc-py/ronomon variant. Defaults are 512 KiB / 2 MiB / 8 MiB bounds. Only
+bounded bytes reach the engine, never whole-file mmap. Missing native code
+refuses ingest before store writes; do not enable a slow fallback. One local
+32 MiB sample is not terabyte-throughput qualification. Account for per-chunk
+inodes, fsyncs and linear manifest traversal; no packing exists. Source changes
+refuse a new version; unreferenced chunks can remain. No GC or source-removal command exists.
 A local snapshot does not authorize deleting the original or count as an
 independent backup. Host integrations still own path authorization.
 

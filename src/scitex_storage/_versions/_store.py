@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 from .._transfer._durable import sync_directory
-from ._chunking import ChunkingConfig, iter_chunks
+from ._chunking import ChunkingConfig, iter_chunks, require_native
 from ._manifest import ChunkRef, VersionManifest, encode_record, header, walk_manifest
 from ._objects import (
     IntegrityError,
@@ -95,6 +95,7 @@ class VersionStore:
         chunks may remain. No cleanup pass ever deletes existing objects.
         """
         requested, source_path, before = self._source_info(source)
+        require_native()
         directory = ensure_directory(self.root, "versions")
         descriptor, name = tempfile.mkstemp(prefix=".pending-", dir=directory)
         temporary = Path(name)

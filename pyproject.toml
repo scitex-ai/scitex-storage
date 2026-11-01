@@ -28,6 +28,8 @@ classifiers = [
 ]
 
 dependencies = [
+    # Versioned native CDC engine; bounded adapter never mmaps a whole input.
+    "fastcdc==1.7.0",
     "click",
     "pydantic>=2.0,<3",
     "scitex-ssh>=1.2.0",
