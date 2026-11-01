@@ -385,3 +385,22 @@ def test_all_scope_without_complete_project_roots_refuses_transfer(
         (source / "data.txt").read_text(),
         list(storage["cold"].iterdir()),
     ) == (403, "keep", [])
+
+
+@pytest.mark.skipif(not shutil.which("fclones"), reason="real fclones required")
+def test_duplicate_report_preserves_total_and_labels_display_subset(storage):
+    # Arrange
+    for index in range(52):
+        payload = (f"scientific-series-{index:03d}\n" * 20).encode()
+        for copy in ("a", "b"):
+            (storage["hot"] / f"series-{index}-{copy}.dat").write_bytes(payload)
+    # Act
+    response = organize.duplicates(request())
+    body = response.content.decode()
+    # Assert
+    assert (
+        response.status_code,
+        "52 duplicate groups" in body,
+        "Showing the first 50 of 52 groups" in body,
+        str(storage["hot"]) not in body,
+    ) == (200, True, True, True)

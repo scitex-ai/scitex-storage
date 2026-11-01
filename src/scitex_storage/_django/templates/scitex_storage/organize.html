@@ -148,6 +148,7 @@ Reuses the upstream .stx-storage-* classes so the tabs feel like one app.
                 {% if not groups %}
                 <p class="stx-storage-empty">{% translate "No byte-identical duplicates found in the scanned volumes." %}</p>
                 {% endif %}
+                {% if truncated %}<p class="stx-storage-note">{% blocktranslate with total=group_total %}Showing the first 50 of {{ total }} groups.{% endblocktranslate %}</p>{% endif %}
                 <ul class="stx-storage-list">
                     {% for g in groups %}
                     <li class="stx-storage-row" style="display: block">

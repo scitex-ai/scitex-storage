@@ -18,7 +18,10 @@ The host supplies authorized volume roots. Displayed paths use a separate
 Usage's sunburst scans the selected authorized root or exact project root.
 Capacity cards are filesystem capacity, not claimed personal usage/quota.
 Duplicates calls the real read-only content matcher, with a depth bound; missing
-fclones is shown as unavailable rather than an empty successful report.
+fclones is shown as unavailable rather than an empty successful report. The GUI
+passes a 60-second deadline to the hashing subprocess itself; expiry kills and
+reaps it instead of leaving it behind after a request timeout. A report with
+more than 50 groups displays its actual total and labels the displayed subset.
 
 ## Logical tiers and estimates
 

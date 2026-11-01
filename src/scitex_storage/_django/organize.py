@@ -533,6 +533,8 @@ def duplicates(request):
         return "Storage item"
 
     groups: list[dict] = []
+    group_total = 0
+    truncated = False
     reclaimable: int | None = None
     unavailable_reason = ""
     scanned = False
@@ -553,10 +555,15 @@ def duplicates(request):
             )
         else:
             ok, result = _run_bounded(
-                lambda: _find(roots, max_depth=DUP_MAX_DEPTH), DUPLICATES_TIMEOUT_S
+                lambda: _find(
+                    roots, max_depth=DUP_MAX_DEPTH, timeout_s=DUPLICATES_TIMEOUT_S
+                ),
+                DUPLICATES_TIMEOUT_S + 2,
             )
             if ok:
                 scanned = True
+                group_total = len(result)
+                truncated = group_total > 50
                 import os
 
                 for group in result[:50]:
@@ -603,8 +610,8 @@ def duplicates(request):
         **_base_context("duplicates"),
         **scope_ctx,
         "groups": groups,
-        "group_total": len(groups),
-        "truncated": False,
+        "group_total": group_total,
+        "truncated": truncated,
         "reclaimable": reclaimable,
         "scanned": scanned,
         "unavailable_reason": unavailable_reason,
