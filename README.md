@@ -167,6 +167,18 @@ remain an OS boundary; an unacknowledged termination stays `cancelling` with its
 PID and temporary path recorded. No periodic sweeper or detached worker is
 started by these APIs.
 
+## Local content versions (source preview)
+
+`VersionStore` adds immutable SHA256 file versions with bounded Gear-based
+content-defined chunks. The source stays in place, unchanged data reuses
+verified chunks, and checkout creates a new checksum-verified file without
+overwriting an occupant. Git tracks small ordinary pointers; Storage owns the
+payload objects. This is not Git LFS and does not deploy or configure Gitea.
+
+See [content versions](docs/content-versions.md) for the executable temporary-file
+example, CLI previews, format, and limits. No garbage collection or automatic
+source deletion is enabled.
+
 ## Installation
 
 ```bash

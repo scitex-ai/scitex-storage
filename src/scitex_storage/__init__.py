@@ -2,6 +2,11 @@
 # -*- coding: utf-8 -*-
 """scitex-storage: research-data storage triage.
 
+Local ``VersionStore`` snapshots regular files using immutable content chunks
+and streaming manifests, with Git-owned small pointers. Ingest retains its
+source; verified checkout never overwrites an occupant. No version-store
+cleanup, source deletion, Git LFS protocol, or remote server is enabled.
+
 Current scope (see README for the full roadmap): a read-only, stat-only
 directory-tree ``scan`` (delegates its walk to ``fd``) that inventories
 the biggest space and inode (file-count) consumers per top-level child of
@@ -33,6 +38,18 @@ from __future__ import annotations
 
 # Public-name -> source-submodule map. ONE row per public symbol.
 _LAZY_ATTRS: dict[str, str] = {
+    "ChunkingConfig": "_versions",
+    "ChunkRef": "_versions",
+    "VersionManifest": "_versions",
+    "IntegrityError": "_versions",
+    "SourceChangedError": "_versions",
+    "GitPointer": "_versions",
+    "read_git_pointer": "_versions",
+    "render_git_pointer": "_versions",
+    "write_git_pointer": "_versions",
+    "IngestResult": "_versions",
+    "VersionStore": "_versions",
+
     "MovePlan": "_transfer._move",
     "MoveManifest": "_transfer._move",
     "MoveRecoveryRequired": "_transfer._move",
@@ -135,6 +152,18 @@ def __dir__() -> list[str]:
 # Literal (not computed) so PA-101's static AST check can see it. Keep in
 # sync with the _LAZY_ATTRS keys above.
 __all__ = [
+    "ChunkingConfig",
+    "ChunkRef",
+    "VersionManifest",
+    "IntegrityError",
+    "SourceChangedError",
+    "GitPointer",
+    "read_git_pointer",
+    "render_git_pointer",
+    "write_git_pointer",
+    "IngestResult",
+    "VersionStore",
+
     "MovePlan",
     "MoveManifest",
     "MoveRecoveryRequired",
