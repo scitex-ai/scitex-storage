@@ -24,7 +24,8 @@ fclones is shown as unavailable rather than an empty successful report.
 
 `SCITEX_STORAGE_TIER_BINDINGS` maps a logical hot/warm/cool/cold name to one
 volume provider key. Without a mapping, exactly one authorized volume declaring
-that tier can be used. Missing or ambiguous tiers stay disabled. Physical
+that tier can be used. Missing or ambiguous tiers stay disabled. Malformed host mappings return a typed
+503 response rather than a partial or misleading move view. Physical
 archive host names are not an end-user tier selector. Remote archive transports
 remain a separate CLI/Python operation; the browser requires mounted endpoints.
 
@@ -36,10 +37,14 @@ invented; unconfigured rates say so. Transfer/service charges are excluded.
 ## Moves and recovery
 
 Planning performs no writes. Applying is POST-only with an explicit confirmation,
-both endpoint containment checks, and project write authorization. Registered
+both endpoint containment checks, and project write authorization. Hosted moves
+refuse missing storage capabilities or incomplete project-root catalogs; a
+read-only project produces 403. Registered
 project roots cannot be relocated until a host project-location update port
 exists. User-specific manifests come from the trusted host home provider, never
-a browser absolute path or a process-global HOME substitution.
+a browser absolute path or a process-global HOME substitution. The provider home
+must be canonical and the resolved receipt path must stay inside it, including
+when child directories are symbolic links.
 
 The backend `plan_move` / `apply_move` transaction performs bounded rsync into a
 private sibling, SHA checks source/copy/source, publishes without overwriting,

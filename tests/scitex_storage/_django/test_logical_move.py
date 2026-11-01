@@ -244,3 +244,144 @@ def test_chart_declares_opaque_origin_even_for_failure(storage):
     )
     # Assert
     assert all(observed), observed
+
+
+@pytest.mark.parametrize("view", ["plan", "apply", "status"])
+def test_receipt_symlink_cannot_escape_user_home(storage, tmp_path, view):
+    # Arrange
+    outside = tmp_path / "other-account"
+    outside.mkdir()
+    (storage["home"] / ".scitex").symlink_to(outside, target_is_directory=True)
+    call = {
+        "plan": logical_move.move,
+        "apply": logical_move.move_apply,
+        "status": logical_move.move_status,
+    }[view]
+    # Act
+    response = call(
+        request(
+            {"plan": "1", "confirm": "yes", "transaction": "0" * 32},
+            post=view == "apply",
+        )
+    )
+    # Assert
+    assert (
+        response.status_code,
+        list(outside.iterdir()),
+        (storage["hot"] / "experiment/data.txt").read_text(),
+    ) == (403, [], "scientific data\n")
+
+
+@pytest.mark.parametrize(
+    "setting,value",
+    [
+        ("SCITEX_STORAGE_TIER_RATES", ["hot"]),
+        ("SCITEX_STORAGE_TIER_RATES", {"hot": []}),
+        ("SCITEX_STORAGE_TIER_BINDINGS", 1),
+        ("SCITEX_STORAGE_TIER_BINDINGS", {"hot": {"volume": []}}),
+    ],
+)
+def test_malformed_tier_config_has_typed_unavailable_response(storage, setting, value):
+    # Arrange
+    # Act
+    with override_settings(**{setting: value}):
+        result = [
+            logical_move.move(request()),
+            logical_move.move_apply(request({"confirm": "yes"}, post=True)),
+            logical_move.move_status(request()),
+        ]
+    # Assert
+    assert ([r.status_code for r in result], list(storage["cold"].iterdir())) == (
+        [503, 503, 503],
+        [],
+    )
+
+
+class ReviewProjectProvider:
+    def list_projects(self, request):
+        from scitex_sdk.ui.project_scope import ProjectEntry
+
+        return [ProjectEntry("scientist/paper", "Paper")]
+
+    def get_current_project(self, request):
+        return None
+
+    def remember_project(self, request, project_id):
+        raise AssertionError("Read-only resolution must not remember a project")
+
+
+class ReviewProjectStorage:
+    def project_path(self, project_id, request=None):
+        return _ROOTS["hot"] / "registered-project"
+
+    def can_write(self, project_id, request=None):
+        return False
+
+
+class MissingProjectRootStorage(ReviewProjectStorage):
+    def project_path(self, project_id, request=None):
+        return None
+
+
+@pytest.mark.parametrize("post", [False, True])
+def test_actual_sdk_view_only_project_is_403(storage, post):
+    # Arrange
+    source = storage["hot"] / "registered-project/section"
+    source.mkdir(parents=True)
+    (source / "data.txt").write_text("keep")
+    # Act
+    with override_settings(
+        SCITEX_PROJECT_PROVIDER=__name__ + ".ReviewProjectProvider",
+        SCITEX_PROJECT_STORAGE=__name__ + ".ReviewProjectStorage",
+    ):
+        response = (logical_move.move_apply if post else logical_move.move)(
+            request(
+                {
+                    "plan": "1",
+                    "confirm": "yes",
+                    "scope": "project",
+                    "project": "scientist/paper",
+                    "source_path": "registered-project/section",
+                },
+                post=post,
+            )
+        )
+    # Assert
+    assert (
+        response.status_code,
+        b"Editing this project is not permitted" in response.content,
+        (source / "data.txt").read_text(),
+        list(storage["cold"].iterdir()),
+    ) == (403, True, "keep", [])
+
+
+@pytest.mark.parametrize("storage_path", ["", __name__ + ".MissingProjectRootStorage"])
+@pytest.mark.parametrize("post", [False, True])
+def test_all_scope_without_complete_project_roots_refuses_transfer(
+    storage, storage_path, post
+):
+    # Arrange
+    source = storage["hot"] / "registered-project"
+    source.mkdir()
+    (source / "data.txt").write_text("keep")
+    # Act
+    with override_settings(
+        SCITEX_PROJECT_PROVIDER=__name__ + ".ReviewProjectProvider",
+        SCITEX_PROJECT_STORAGE=storage_path,
+    ):
+        response = (logical_move.move_apply if post else logical_move.move)(
+            request(
+                {
+                    "plan": "1",
+                    "confirm": "yes",
+                    "source_path": "registered-project",
+                },
+                post=post,
+            )
+        )
+    # Assert
+    assert (
+        response.status_code,
+        (source / "data.txt").read_text(),
+        list(storage["cold"].iterdir()),
+    ) == (403, "keep", [])

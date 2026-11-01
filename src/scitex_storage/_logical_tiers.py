@@ -70,10 +70,12 @@ class LogicalTier:
 
 
 def _price(value: Mapping[str, Any] | None) -> tuple[Decimal | None, str | None]:
-    if not value:
+    if value is None:
         return None, None
     if not isinstance(value, Mapping):
         raise ValueError("A tier rate must contain currency and per_gb_month")
+    if not value:
+        return None, None
     currency = value.get("currency")
     if not isinstance(currency, str) or re.fullmatch(r"[A-Z]{3}", currency) is None:
         raise ValueError("A configured rate needs a three-letter uppercase currency")
@@ -99,8 +101,18 @@ def logical_tiers(
     a speed tier. Rates are optional operator configuration, not invented prices.
     """
     volumes = tuple(volumes)
+    if any(
+        not isinstance(getattr(volume, "key", None), str)
+        or not volume.key
+        or not isinstance(getattr(volume, "tier", None), str)
+        for volume in volumes
+    ):
+        raise ValueError("Authorized volumes need string keys and tiers")
     by_key = {volume.key: volume for volume in volumes}
-    bindings, rates = bindings or {}, rates or {}
+    bindings = {} if bindings is None else bindings
+    rates = {} if rates is None else rates
+    if not isinstance(bindings, Mapping) or not isinstance(rates, Mapping):
+        raise ValueError("Tier bindings and rates must be mappings")
     if set(bindings) - set(TIER_NAMES) or set(rates) - set(TIER_NAMES):
         raise ValueError("Only hot, warm, cool, and cold tiers are supported")
     tiers = []
@@ -112,11 +124,13 @@ def logical_tiers(
             None,
             "This tier is not configured for your account.",
         )
-        if binding:
+        if binding is not None:
             if not isinstance(binding, Mapping) or len(binding) != 1:
                 raise ValueError(
                     "A tier binding names exactly one volume or archive destination"
                 )
+            if not all(isinstance(v, str) and v for v in binding.values()):
+                raise ValueError("A tier binding needs one nonempty string target")
             if "volume" in binding:
                 if binding["volume"] in by_key:
                     kind, target, reason = "volume", binding["volume"], ""

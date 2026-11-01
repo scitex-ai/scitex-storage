@@ -7,7 +7,7 @@ from pathlib import Path
 
 try:
     from django.conf import settings
-    from django.http import HttpResponseForbidden
+    from django.http import HttpResponse, HttpResponseForbidden
     from django.shortcuts import render
     from django.utils.module_loading import import_string
     from django.views.decorators.http import require_POST
@@ -19,7 +19,30 @@ from scitex_storage._logical_tiers import logical_tiers
 from . import volumes
 
 
+class StorageConfigurationError(ValueError):
+    """A malformed host mapping cannot produce an authorized storage view."""
+
+
 def _tiers(request):
+    try:
+        return _resolve_tiers(request)
+    except PermissionError:
+        raise
+    except (
+        ValueError,
+        TypeError,
+        AttributeError,
+        KeyError,
+        ImportError,
+        OSError,
+        RuntimeError,
+    ) as exc:
+        raise StorageConfigurationError(
+            "Storage configuration is unavailable."
+        ) from exc
+
+
+def _resolve_tiers(request):
     owned = volumes.resolve_user_volumes(request)
     tiers = logical_tiers(
         owned,
@@ -53,26 +76,42 @@ def _tiers(request):
 
 
 def _state_dir(request):
-    """Host-chosen private persistence root; never accept a browser path."""
+    """Canonical, jailed host persistence; no browser path or HOME mutation."""
     provider = getattr(settings, "SCITEX_USER_HOME_PROVIDER", "")
-    if provider:
-        try:
+    try:
+        if provider:
             resolver = (
                 import_string(provider) if isinstance(provider, str) else provider
             )
-            home = resolver(request)
-        except Exception as exc:
-            raise PermissionError(
-                "Your persistent storage could not be resolved."
-            ) from exc
-        if home is None:
-            raise PermissionError("Your persistent storage is unavailable.")
-        home = Path(home).resolve(strict=True)
-    elif getattr(settings, "SCITEX_APP_MODE", "standalone") == "standalone":
-        home = Path.home().resolve()
-    else:
-        raise PermissionError("Your persistent storage is not configured.")
-    return home / ".scitex/scitex-storage/runtime/move-manifests"
+            value = resolver(request)
+            if value is None:
+                raise PermissionError("Your persistent storage is unavailable.")
+            home = Path(value)
+            if (
+                not home.is_absolute()
+                or home.resolve(strict=True) != home
+                or not home.is_dir()
+            ):
+                raise PermissionError("Your persistent storage needs a canonical home.")
+        elif getattr(settings, "SCITEX_APP_MODE", "standalone") == "standalone":
+            home = Path.home().resolve(strict=True)
+        else:
+            raise PermissionError("Your persistent storage is not configured.")
+        state = (home / ".scitex/scitex-storage/runtime/move-manifests").resolve()
+        if not state.is_relative_to(home):
+            raise PermissionError("Move receipts must stay inside your home.")
+        return state
+    except PermissionError:
+        raise
+    except (
+        ValueError,
+        TypeError,
+        OSError,
+        RuntimeError,
+        ImportError,
+        AttributeError,
+    ) as exc:
+        raise PermissionError("Your persistent storage could not be resolved.") from exc
 
 
 def _relative(value):
@@ -116,7 +155,10 @@ def _resolve(request, form, owned, tiers):
     if scope == "project":
         if pscope is None:
             raise PermissionError("Select a project you may edit.")
-        editable = project_files.resolve_project_scope(request, require_edit=True)
+        try:
+            editable = project_files.resolve_project_scope(request, require_edit=True)
+        except project_files.PermissionDenied as exc:
+            raise PermissionError("Editing this project is not permitted.") from exc
         if editable is None or editable.project_dir != pscope.project_dir:
             raise PermissionError("Editing this project is not permitted.")
         root = pscope.project_dir.resolve()
@@ -140,8 +182,12 @@ def _resolve(request, form, owned, tiers):
             raise PermissionError("Project permissions are unavailable on this host.")
         entries = provider.list_projects(request) if provider is not None else []
         store = project_files._storage_capability()
+        if provider is not None and isinstance(store, project_files._ClosedStorage):
+            raise PermissionError("Project permissions are unavailable on this host.")
         for entry in entries:
             location = store.project_path(entry.id, request)
+            if not location or not Path(location).is_absolute():
+                raise PermissionError("Project locations could not be verified.")
             if location:
                 root = Path(location).resolve()
                 if root == source or root.is_relative_to(source):
@@ -205,6 +251,8 @@ def move(request):
                 destination_display=volumes.display_path(dst_vol, request, target),
             )
             context["move_form"]["transaction_id"] = plan.transaction_id
+    except StorageConfigurationError:
+        return HttpResponse("Storage configuration is unavailable.", status=503)
     except PermissionError as exc:
         return HttpResponseForbidden(str(exc))
     except (ValueError, OSError):
@@ -242,6 +290,8 @@ def move_apply(request):
             source_display=volumes.display_path(src_vol, request, source),
             destination_display=volumes.display_path(dst_vol, request, target),
         )
+    except StorageConfigurationError:
+        return HttpResponse("Storage configuration is unavailable.", status=503)
     except PermissionError as exc:
         return HttpResponseForbidden(str(exc))
     except MoveRecoveryRequired as exc:
@@ -283,6 +333,8 @@ def move_status(request):
             source_display=matched[0],
             destination_display=matched[1],
         )
+    except StorageConfigurationError:
+        return HttpResponse("Storage configuration is unavailable.", status=503)
     except PermissionError as exc:
         return HttpResponseForbidden(str(exc))
     except (ValueError, OSError, TypeError):
