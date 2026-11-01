@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Add an optional keyword-only `find_duplicates(..., timeout_s=...)` process
+  deadline that kills and reaps fclones before reporting a timeout; the default
+  CLI/library behavior remains unbounded.
+
 - Remove the leaf header-border override and version SDK header assets through the shared app_static helper.
 
 ## [0.6.15] - 2026-11-01

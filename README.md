@@ -352,6 +352,13 @@ deliberately separate pipelines, not a shared one: `scan` must stay
 stat-only (safe to point at a 100%-full disk), and finding exact
 duplicates fundamentally requires reading bytes, which `scan` never does.
 
+Library callers can bound the actual hashing process with
+`find_duplicates(roots, timeout_s=60)`. A finite positive deadline kills and
+reaps `fclones` before raising `TimeoutError`; partial output is not treated as
+an empty or completed report. Omitting the keyword preserves the existing
+unbounded CLI/library behavior. A GUI thread deadline alone does not stop the
+hashing process: its adapter must pass the process deadline explicitly.
+
 ```
 scitex_storage/
 ├── _transfer/      ← plan/apply for sweep, archive, restore, backup
