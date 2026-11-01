@@ -512,6 +512,13 @@ def apply_archive(
                 plan.source,
                 retention_days=retention_days,
                 expected_digest=content_digest,
+                verification_target={
+                    "kind": "remote",
+                    "host": plan.destination,
+                    "path": plan.remote_path,
+                    "manifest_path": str(plan.manifest_path),
+                    "content_digest": content_digest,
+                },
             )
             manifest.retained_source = True
             manifest.staged_path = staged.staged_path

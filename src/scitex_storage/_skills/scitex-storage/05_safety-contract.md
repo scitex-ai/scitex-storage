@@ -60,3 +60,38 @@ content baselines are refused rather than silently licensed for deletion.
 The safe rename currently requires Linux `renameat2(RENAME_NOREPLACE)`.
 Unsupported systems fail before replacing data; there is no unsafe
 exists-then-rename fallback.
+
+
+`plan_move(source, destination, state_dir=..., transaction_id=...)` and
+`apply_move(plan, timeout_s=120, deadline=None, cancel_event=None)` provide
+local authorized-volume moves without hostnames. The host must authorize both
+roots and the owner-specific state directory. Job records live at
+`<state_dir>/<transaction_id>.json`; that runtime directory's parent holds
+`restorable-registry.json`. No process-global HOME changes are needed.
+
+The engine publishes a private verified copy with no-replace rename, then
+stages the original. `get_move_status(id, state_dir=...)` reads the receipt;
+completed replay is historical/idempotent, while other existing phases require
+explicit recovery. Exceptions carry `.manifest`; `destination_published=True`
+means the verified destination survives cancellation/failure. Do not report a
+failed, cancelled, or still-cancelling transaction as a successful move. The
+rsync process group is killed/reaped on cancellation; hashing cooperates
+between reads. Nothing automatically resumes, schedules cleanup, or rewrites
+project location metadata.
+
+
+A MOVE-created record carries `verification_target` and
+`deletion_policy=verified-copy`. Before expired source cleanup, the completed
+move receipt must still match and the destination must independently re-hash to
+the original baseline. A missing, altered, unreachable, or unverified copy
+retains the original (`SweepReport.deferred`). Cleanup bytes/entries/time limits
+apply to both copies. The host may provide a bounded remote
+`target_verifier(target, *, deadline, cancelled, max_bytes, max_entries)`; only
+literal True before the deadline admits deletion. No provider means defer;
+never substitute an old successful receipt for current destination evidence.
+
+Direct `stage_for_retention` without a target is manual quarantine, not proof of
+a backup. Its deletion additionally requires `allow_manual_delete=True` or
+`--allow-manual-quarantine`; ordinary `--yes` and TTL alone are insufficient.
+Older records without this policy/copy proof remain deferred for explicit
+investigation, even when the manual opt-in is supplied.

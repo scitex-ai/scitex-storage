@@ -12,6 +12,7 @@ import json
 import math
 import os
 import shutil
+import subprocess
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -34,6 +35,8 @@ class StagedRecord:
     content_digest: str = ""
     size_bytes: int = 0
     state: str = "staged"
+    deletion_policy: str = "manual"
+    verification_target: dict | None = None
 
 
 @dataclass
@@ -43,16 +46,22 @@ class SweepReport:
     pruned: list[str] = field(default_factory=list)
     refused: list[str] = field(default_factory=list)
     errors: dict[str, str] = field(default_factory=dict)
+    deferred: dict[str, str] = field(default_factory=dict)
 
 
-def _registry_path() -> Path:
+def _registry_path(registry_path=None) -> Path:
+    if registry_path is not None:
+        path = Path(registry_path).expanduser()
+        if not path.is_absolute():
+            raise ValueError("Retention registry path must be absolute")
+        return path
     return Path(
         "~/.scitex/scitex-storage/runtime/restorable-registry.json"
     ).expanduser()
 
 
-def _read_registry() -> list[dict]:
-    path = _registry_path()
+def _read_registry(registry_path=None) -> list[dict]:
+    path = _registry_path(registry_path=registry_path)
     if not path.exists():
         return []
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -61,12 +70,12 @@ def _read_registry() -> list[dict]:
     return data
 
 
-def _write_registry(entries: list[dict]) -> None:
-    atomic_json(_registry_path(), entries)
+def _write_registry(entries: list[dict], registry_path=None) -> None:
+    atomic_json(_registry_path(registry_path=registry_path), entries)
 
 
-def _lock_path() -> Path:
-    return _registry_path().with_suffix(".lock")
+def _lock_path(registry_path=None) -> Path:
+    return _registry_path(registry_path=registry_path).with_suffix(".lock")
 
 
 def _snapshot(path: Path, *, cancelled=None) -> tuple[str, int]:
@@ -150,6 +159,8 @@ def stage_for_retention(
     *,
     retention_days: float = DEFAULT_RETENTION_DAYS,
     expected_digest: str | None = None,
+    verification_target=None,
+    registry_path=None,
     cancelled=None,
 ) -> StagedRecord:
     """Write a durable intent, rename without overwrite, and commit the record.
@@ -161,8 +172,8 @@ def stage_for_retention(
     if not math.isfinite(retention_days) or retention_days < 0:
         raise ValueError("Retention days must be finite and nonnegative")
     source = Path(source).absolute()
-    with file_lock(_lock_path()):
-        entries = _read_registry()
+    with file_lock(_lock_path(registry_path=registry_path)):
+        entries = _read_registry(registry_path=registry_path)
         if not source.exists() and not source.is_symlink():
             raise FileNotFoundError(f"Nothing to stage: {source}")
         checksum, size = _snapshot(source, cancelled=cancelled)
@@ -185,12 +196,14 @@ def stage_for_retention(
             checksum,
             size,
             "pending",
+            "verified-copy" if verification_target is not None else "manual",
+            verification_target,
         )
         intent = asdict(record)
         marker = _marker_path_for(target)
         atomic_json(marker, intent)
         try:
-            _write_registry([*entries, intent])
+            _write_registry([*entries, intent], registry_path=registry_path)
         except BaseException:
             marker.unlink(missing_ok=True)
             raise
@@ -210,7 +223,7 @@ def stage_for_retention(
                 delete_after=committed_at + retention_days * 86400,
             )
             atomic_json(marker, committed)
-            _write_registry([*entries, committed])
+            _write_registry([*entries, committed], registry_path=registry_path)
             return StagedRecord(**committed)
         except BaseException:
             # Do not overwrite a newly created original when rolling back.
@@ -218,12 +231,12 @@ def stage_for_retention(
                 rename_noreplace(target, source)
                 sync_directory(source.parent)
                 sync_directory(target.parent)
-            _write_registry(entries)
+            _write_registry(entries, registry_path=registry_path)
             marker.unlink(missing_ok=True)
             raise
 
 
-def restore_staged(staged_path: str | Path) -> Path:
+def restore_staged(staged_path: str | Path, *, registry_path=None) -> Path:
     """Restore only a registered, checksum-matching staged tree without overwrite.
 
     Pending crash intents are eligible for recovery, never for cleanup. A
@@ -231,8 +244,8 @@ def restore_staged(staged_path: str | Path) -> Path:
     rename leaves the restored original and a recoverable intent on disk.
     """
     wanted = str(Path(staged_path).absolute())
-    with file_lock(_lock_path()):
-        entries = _read_registry()
+    with file_lock(_lock_path(registry_path=registry_path)):
+        entries = _read_registry(registry_path=registry_path)
         matches = [entry for entry in entries if entry.get("staged_path") == wanted]
         if len(matches) != 1:
             raise ValueError("Staged path is not uniquely registered")
@@ -246,11 +259,16 @@ def restore_staged(staged_path: str | Path) -> Path:
             raise FileExistsError(str(original))
         intent = dict(entry, state="restoring")
         atomic_json(_marker_path_for(staged), intent)
-        _write_registry([intent if row is entry else row for row in entries])
+        _write_registry(
+            [intent if row is entry else row for row in entries],
+            registry_path=registry_path,
+        )
         rename_noreplace(staged, original)
         sync_directory(original.parent)
         sync_directory(staged.parent)
-        _write_registry([row for row in entries if row is not entry])
+        _write_registry(
+            [row for row in entries if row is not entry], registry_path=registry_path
+        )
         _marker_path_for(staged).unlink(missing_ok=True)
         return original
 
@@ -263,6 +281,9 @@ def sweep_restorable(
     max_bytes: int = 1024**3,
     max_seconds: float = 30.0,
     max_entries: int = 4096,
+    allow_manual_delete: bool = False,
+    target_verifier=None,
+    registry_path=None,
     cancelled=None,
 ) -> SweepReport:
     """Delete only expired committed records with matching markers and hashes.
@@ -272,8 +293,11 @@ def sweep_restorable(
     Hash cancellation is
     cooperative between directory entries and 1MiB reads; blocking filesystem
     syscalls remain an OS boundary. A dry run does not write records or locks.
-    Legacy records without content baselines are refused, never upgraded into
-    deletion permission. No periodic job is enabled by this API.
+    Move cleanup also verifies the destination copy against its completed
+    receipt and current content. Remote targets require a caller-supplied bounded
+    verifier; an old receipt alone never proves the copy still exists. Manual
+    quarantine deletion requires a separate explicit opt-in. Legacy records are
+    never upgraded into deletion permission. No periodic job is enabled here.
     """
     if (
         max_items < 1
@@ -293,7 +317,7 @@ def sweep_restorable(
     # A true dry run must not create a lock or registry, even on first use.
     if dry_run:
         return _sweep(
-            _read_registry(),
+            _read_registry(registry_path=registry_path),
             report,
             moment,
             max_items,
@@ -301,10 +325,14 @@ def sweep_restorable(
             max_entries,
             stopped,
             True,
+            registry_path=registry_path,
+            allow_manual_delete=allow_manual_delete,
+            target_verifier=target_verifier,
+            deadline=deadline,
         )
-    with file_lock(_lock_path()):
+    with file_lock(_lock_path(registry_path=registry_path)):
         return _sweep(
-            _read_registry(),
+            _read_registry(registry_path=registry_path),
             report,
             moment,
             max_items,
@@ -312,11 +340,26 @@ def sweep_restorable(
             max_entries,
             stopped,
             False,
+            registry_path=registry_path,
+            allow_manual_delete=allow_manual_delete,
+            target_verifier=target_verifier,
+            deadline=deadline,
         )
 
 
 def _sweep(
-    entries, report, moment, max_items, max_bytes, max_entries, stopped, dry_run
+    entries,
+    report,
+    moment,
+    max_items,
+    max_bytes,
+    max_entries,
+    stopped,
+    dry_run,
+    registry_path=None,
+    allow_manual_delete=False,
+    target_verifier=None,
+    deadline=None,
 ):
     kept = []
     consumed = 0
@@ -332,30 +375,56 @@ def _sweep(
             if not staged.exists() and not staged.is_symlink():
                 report.pruned.append(str(staged))
                 continue
+            policy = entry.get("deletion_policy")
+            target = entry.get("verification_target")
+            work_cost = entry["size_bytes"] * (2 if target else 1)
             if entry.get("state") != "staged" or not _marker_matches(staged, entry):
                 report.refused.append(str(staged))
             elif (
                 moment < float(entry["delete_after"])
-                or consumed + entry["size_bytes"] > max_bytes
+                or consumed + work_cost > max_bytes
             ):
                 report.retained.append(str(staged))
-            elif _bounded_snapshot(staged, max_entries, stopped) != (
-                entry["content_digest"],
-                entry["size_bytes"],
-            ):
-                report.refused.append(str(staged))
+            elif policy == "manual" and not allow_manual_delete:
+                report.retained.append(str(staged))
+                report.deferred[str(staged)] = (
+                    "Manual quarantine requires explicit deletion opt-in"
+                )
+            elif policy not in {"manual", "verified-copy"}:
+                report.retained.append(str(staged))
+                report.deferred[str(staged)] = (
+                    "Legacy record needs explicit verification/migration"
+                )
             else:
-                consumed += entry["size_bytes"]
-                if not dry_run:
-                    if staged.is_symlink() or staged.is_file():
-                        staged.unlink()
-                    else:
-                        shutil.rmtree(staged)
-                    _marker_path_for(staged).unlink(missing_ok=True)
-                    sync_directory(staged.parent)
-                report.removed.append(str(staged))
-                if not dry_run:
-                    continue
+                consumed += work_cost
+                expected = (entry["content_digest"], entry["size_bytes"])
+                if (
+                    _bounded_snapshot(
+                        staged, max_entries, stopped, max_bytes=entry["size_bytes"]
+                    )
+                    != expected
+                ):
+                    report.refused.append(str(staged))
+                elif policy == "verified-copy" and not _target_matches(
+                    entry, max_entries, stopped, target_verifier, deadline
+                ):
+                    report.retained.append(str(staged))
+                    report.deferred[str(staged)] = (
+                        "Destination copy is unavailable or no longer verified"
+                    )
+                else:
+                    if stopped():
+                        raise DigestCancelled("Retention cleanup cancelled")
+                    if not dry_run:
+                        if staged.is_symlink() or staged.is_file():
+                            staged.unlink()
+                        else:
+                            shutil.rmtree(staged)
+                        _marker_path_for(staged).unlink(missing_ok=True)
+                        sync_directory(staged.parent)
+                    report.removed.append(str(staged))
+                    if not dry_run:
+                        continue
         except _EntryBudgetExceeded:
             report.retained.append(str(staged))
         except DigestCancelled:
@@ -370,7 +439,7 @@ def _sweep(
             report.errors[str(entry.get("staged_path", ""))] = str(exc)
         kept.append(entry)
     if not dry_run and kept != entries:
-        _write_registry(kept)
+        _write_registry(kept, registry_path=registry_path)
     return report
 
 
@@ -378,23 +447,105 @@ class _EntryBudgetExceeded(RuntimeError):
     """The bounded pass cannot safely start a whole-tree removal."""
 
 
-def _check_delete_budget(path, limit, stopped):
+def _check_delete_budget(path, limit, stopped, max_bytes=None):
     count = 1
+    total = 0
     if path.is_dir() and not path.is_symlink():
 
         def failed(error):
             raise error
 
-        for _, directories, files in os.walk(path, followlinks=False, onerror=failed):
+        for directory, directories, files in os.walk(
+            path, followlinks=False, onerror=failed
+        ):
             if stopped():
                 raise DigestCancelled("Retention cleanup cancelled")
             count += len(directories) + len(files)
             if count > limit:
                 raise _EntryBudgetExceeded("Too many entries for one cleanup pass")
+            for name in [
+                *files,
+                *(
+                    name
+                    for name in directories
+                    if (Path(directory) / name).is_symlink()
+                ),
+            ]:
+                if stopped():
+                    raise DigestCancelled("Retention verification cancelled")
+                total += (Path(directory) / name).lstat().st_size
+            if max_bytes is not None and total > max_bytes:
+                raise _EntryBudgetExceeded("Content byte budget exceeded")
+            if count > limit:
+                raise _EntryBudgetExceeded("Too many entries for one cleanup pass")
+    else:
+        total = path.lstat().st_size
+    if max_bytes is not None and total > max_bytes:
+        raise _EntryBudgetExceeded("Content byte budget exceeded")
     if stopped():
         raise DigestCancelled("Retention cleanup cancelled")
 
 
-def _bounded_snapshot(path, max_entries, stopped):
-    _check_delete_budget(path, max_entries, stopped)
+def _bounded_snapshot(path, max_entries, stopped, max_bytes=None):
+    _check_delete_budget(path, max_entries, stopped, max_bytes=max_bytes)
     return _snapshot(path, cancelled=stopped)
+
+
+def _target_matches(entry, max_entries, stopped, verifier, deadline):
+    target = entry.get("verification_target")
+    if (
+        not isinstance(target, dict)
+        or target.get("content_digest") != entry["content_digest"]
+    ):
+        return False
+    receipt_path = Path(target.get("manifest_path", ""))
+    if not receipt_path.is_absolute() or receipt_path.is_symlink():
+        return False
+    try:
+        if receipt_path.stat().st_size > 65536:
+            return False
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if (
+            receipt.get("staged_path") != entry["staged_path"]
+            or receipt.get("content_digest") != entry["content_digest"]
+        ):
+            return False
+        if target.get("kind") == "local":
+            path = Path(target.get("path", ""))
+            if (
+                receipt.get("phase") != "retired"
+                or receipt.get("destination") != str(path)
+                or receipt.get("verification_method") != "content"
+                or receipt.get("destination_published") is not True
+            ):
+                return False
+            if not path.is_absolute() or path.is_symlink() or not path.exists():
+                return False
+            return _bounded_snapshot(
+                path, max_entries, stopped, max_bytes=entry["size_bytes"]
+            ) == (entry["content_digest"], entry["size_bytes"])
+        if target.get("kind") == "remote":
+            if (
+                receipt.get("verified") != "verified"
+                or receipt.get("verification_method") != "content"
+                or receipt.get("destination") != target.get("host")
+                or receipt.get("remote_path") != target.get("path")
+            ):
+                return False
+            # An old successful receipt is not evidence the remote copy exists
+            # today. A host may supply a bounded, independently hashing verifier.
+            return (
+                verifier is not None
+                and verifier(
+                    target,
+                    deadline=deadline,
+                    cancelled=stopped,
+                    max_bytes=entry["size_bytes"],
+                    max_entries=max_entries,
+                )
+                is True
+                and not stopped()
+            )
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+        return False
+    return False

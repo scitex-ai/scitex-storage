@@ -143,6 +143,30 @@ scitex-storage reclaim ./node_modules ./build --yes
 scitex-storage reclaim-restore 2026-0717-154500-123456   # undo a run
 ```
 
+## Verified local moves
+
+`plan_move(source, destination, state_dir=...)` is read-only metadata planning.
+`apply_move(plan, timeout_s=..., deadline=..., cancel_event=...)` runs local
+rsync into a private temporary destination, independently verifies source and
+copy, publishes without overwrite, and retains the original in seven-day
+restorable staging. Files and directories are supported. A GUI host must
+authorize both filesystem roots and supply a trusted per-user state directory;
+physical paths and storage prices are not inferred from tier labels.
+
+The returned `MoveManifest` includes `transaction_id`, `phase`, and
+`manifest_path`. `get_move_status(transaction_id, state_dir=...)` reads it.
+Completed transaction replay returns the existing receipt; incomplete/failed
+transactions require explicit recovery rather than another blind copy.
+`MoveInProgress`, `MoveCancelled`, and `MoveRecoveryRequired` carry `.manifest`.
+A cancelled job may already have published a verified destination: check
+`destination_published`; that copy is retained, never rolled back by deletion.
+
+Rsync runs in its own process group, which cancellation terminates and reaps.
+Content hashing checks cancellation between reads. Blocking filesystem calls
+remain an OS boundary; an unacknowledged termination stays `cancelling` with its
+PID and temporary path recorded. No periodic sweeper or detached worker is
+started by these APIs.
+
 ## Installation
 
 ```bash
@@ -541,3 +565,11 @@ AGPL-3.0 — see [LICENSE](LICENSE) for details.
 <p align="center">
   <a href="https://scitex.ai" target="_blank"><img src="docs/scitex-icon-navy-inverted.png" alt="SciTeX" width="40"/></a>
 </p>
+
+
+Move quarantine is never deleted merely because seven days elapsed. Cleanup
+requires the original checksum, a matching completed move receipt, and a fresh
+independent destination checksum. Missing/corrupt/unreachable copies retain the
+original. Remote archive cleanup requires a bounded target verifier supplied by
+the host; without one it defers. Manual quarantine has a separate explicit
+`--allow-manual-quarantine` deletion opt-in, in addition to `--yes`.

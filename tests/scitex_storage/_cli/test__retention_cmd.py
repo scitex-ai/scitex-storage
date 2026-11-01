@@ -36,7 +36,7 @@ def test_cli_sweep_restorable_defaults_to_dry_run(sandbox_home, tmp_path):
     record = _staged(tmp_path)
     runner = CliRunner()
     # Act
-    result = runner.invoke(main, ["sweep-restorable"])
+    result = runner.invoke(main, ["sweep-restorable", "--allow-manual-quarantine"])
     # Assert -- reported, not removed.
     from pathlib import Path
 
@@ -53,7 +53,9 @@ def test_cli_sweep_restorable_yes_deletes_expired(sandbox_home, tmp_path):
     record = _staged(tmp_path)
     runner = CliRunner()
     # Act
-    result = runner.invoke(main, ["sweep-restorable", "--yes"])
+    result = runner.invoke(
+        main, ["sweep-restorable", "--allow-manual-quarantine", "--yes"]
+    )
     # Assert
     from pathlib import Path
 
@@ -70,7 +72,9 @@ def test_cli_sweep_restorable_retains_unexpired(sandbox_home, tmp_path):
     record = _staged(tmp_path, retention_days=7.0)
     runner = CliRunner()
     # Act
-    result = runner.invoke(main, ["sweep-restorable", "--yes"])
+    result = runner.invoke(
+        main, ["sweep-restorable", "--allow-manual-quarantine", "--yes"]
+    )
     # Assert
     from pathlib import Path
 
@@ -88,7 +92,9 @@ def test_cli_sweep_restorable_json_reports_counts(sandbox_home, tmp_path):
     _staged(tmp_path, name="new", retention_days=7.0)
     runner = CliRunner()
     # Act
-    result = runner.invoke(main, ["sweep-restorable", "--json"])
+    result = runner.invoke(
+        main, ["sweep-restorable", "--allow-manual-quarantine", "--json"]
+    )
     payload = json.loads(result.output)
     # Assert
     outcome = (result.exit_code, len(payload["removed"]), len(payload["retained"]))
@@ -102,7 +108,9 @@ def test_explicit_dry_run_wins_over_yes_flag(sandbox_home, tmp_path):
     record = _staged(tmp_path)
     runner = CliRunner()
     # Act
-    result = runner.invoke(main, ["sweep-restorable", "--yes", "--dry-run"])
+    result = runner.invoke(
+        main, ["sweep-restorable", "--allow-manual-quarantine", "--yes", "--dry-run"]
+    )
     # Assert
     assert (
         result.exit_code,
@@ -119,8 +127,35 @@ def test_cli_byte_budget_keeps_expired_staging(sandbox_home, tmp_path):
     runner = CliRunner()
     # Act
     result = runner.invoke(
-        main, ["sweep-restorable", "--yes", "--max-bytes", "1", "--json"]
+        main,
+        [
+            "sweep-restorable",
+            "--allow-manual-quarantine",
+            "--yes",
+            "--max-bytes",
+            "1",
+            "--json",
+        ],
     )
+    payload = json.loads(result.output)
+    # Assert
+    assert (
+        result.exit_code,
+        payload["removed"],
+        payload["retained"],
+        Path(record.staged_path).exists(),
+    ) == (0, [], [record.staged_path], True)
+
+
+def test_cli_apply_alone_does_not_authorize_last_copy_manual_deletion(
+    sandbox_home, tmp_path
+):
+    # Arrange
+    from pathlib import Path
+
+    record = _staged(tmp_path)
+    # Act
+    result = CliRunner().invoke(main, ["sweep-restorable", "--yes", "--json"])
     payload = json.loads(result.output)
     # Assert
     assert (

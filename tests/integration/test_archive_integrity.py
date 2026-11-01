@@ -142,3 +142,47 @@ def test_copy_only_archive_keeps_original_at_its_path(archive_tree):
         manifest.staged_path,
         (plan.source / "paper.bin").read_bytes(),
     ) == (True, "", b"original bytes")
+
+
+def test_remote_move_cleanup_defers_without_fresh_bounded_target_verifier(archive_tree):
+    # Arrange
+    from scitex_storage._transfer._retention import sweep_restorable
+
+    root, plan = archive_tree
+    manifest = apply_archive(plan, runner=LocalTransport(root))
+    # Act
+    report = sweep_restorable(dry_run=False, now=manifest.archived_at + 8 * 86400)
+    # Assert
+    assert (report.removed, report.retained, Path(manifest.staged_path).exists()) == (
+        [],
+        [manifest.staged_path],
+        True,
+    )
+
+
+def test_remote_callback_checks_real_destination_before_expired_cleanup(archive_tree):
+    # Arrange
+    import time
+
+    from scitex_storage._transfer._retention import _bounded_snapshot, sweep_restorable
+
+    root, plan = archive_tree
+    manifest = apply_archive(plan, runner=LocalTransport(root))
+
+    def verify(target, *, deadline, cancelled, max_bytes, max_entries):
+        if time.monotonic() >= deadline or cancelled():
+            return False
+        return _bounded_snapshot(
+            Path(target["path"]), max_entries, cancelled, max_bytes=max_bytes
+        ) == (target["content_digest"], plan.size_bytes)
+
+    # Act
+    report = sweep_restorable(
+        dry_run=False, now=manifest.archived_at + 8 * 86400, target_verifier=verify
+    )
+    # Assert
+    assert (
+        report.removed,
+        Path(manifest.staged_path).exists(),
+        (Path(plan.remote_path) / "paper.bin").read_bytes(),
+    ) == ([manifest.staged_path], False, b"original bytes")

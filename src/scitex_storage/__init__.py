@@ -33,6 +33,14 @@ from __future__ import annotations
 
 # Public-name -> source-submodule map. ONE row per public symbol.
 _LAZY_ATTRS: dict[str, str] = {
+    "MovePlan": "_transfer._move",
+    "MoveManifest": "_transfer._move",
+    "MoveRecoveryRequired": "_transfer._move",
+    "MoveInProgress": "_transfer._move",
+    "MoveCancelled": "_transfer._move",
+    "plan_move": "_transfer._move",
+    "apply_move": "_transfer._move",
+    "get_move_status": "_transfer._move",
     "ChildUsage": "_measure._scan",
     "MissingSystemDependencyError": "_measure._scan",
     "RootScan": "_measure._scan",
@@ -127,6 +135,14 @@ def __dir__() -> list[str]:
 # Literal (not computed) so PA-101's static AST check can see it. Keep in
 # sync with the _LAZY_ATTRS keys above.
 __all__ = [
+    "MovePlan",
+    "MoveManifest",
+    "MoveRecoveryRequired",
+    "MoveInProgress",
+    "MoveCancelled",
+    "plan_move",
+    "apply_move",
+    "get_move_status",
     "ChildUsage",
     "MissingSystemDependencyError",
     "RootScan",

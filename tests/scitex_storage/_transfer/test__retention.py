@@ -72,7 +72,7 @@ def test_sweep_before_expiry_retains_everything(sandbox_home):
     src = _tree(sandbox_home / "work")
     staged = retention.stage_for_retention(src).staged_path
     # Act
-    report = retention.sweep_restorable(dry_run=False)
+    report = retention.sweep_restorable(dry_run=False, allow_manual_delete=True)
     # Assert
     from pathlib import Path
 
@@ -85,7 +85,7 @@ def test_sweep_defaults_to_dry_run(sandbox_home):
     src = _tree(sandbox_home / "work")
     record = retention.stage_for_retention(src, retention_days=0)
     # Act
-    report = retention.sweep_restorable()
+    report = retention.sweep_restorable(allow_manual_delete=True)
     # Assert
     from pathlib import Path
 
@@ -98,7 +98,7 @@ def test_sweep_after_expiry_removes_and_prunes_the_registry(sandbox_home):
     src = _tree(sandbox_home / "work")
     record = retention.stage_for_retention(src, retention_days=0)
     # Act
-    report = retention.sweep_restorable(dry_run=False)
+    report = retention.sweep_restorable(dry_run=False, allow_manual_delete=True)
     # Assert
     from pathlib import Path
 
@@ -115,7 +115,7 @@ def test_sweep_dry_run_reports_without_touching(sandbox_home):
     src = _tree(sandbox_home / "work")
     record = retention.stage_for_retention(src, retention_days=0)
     # Act
-    report = retention.sweep_restorable(dry_run=True)
+    report = retention.sweep_restorable(dry_run=True, allow_manual_delete=True)
     # Assert
     from pathlib import Path
 
@@ -142,7 +142,7 @@ def test_sweep_refuses_a_path_outside_staging(sandbox_home):
         ]
     )
     # Act
-    report = retention.sweep_restorable(dry_run=False)
+    report = retention.sweep_restorable(dry_run=False, allow_manual_delete=True)
     # Assert -- refused, kept, and the file is untouched.
     result = (report.refused, report.removed, victim.read_text())
     assert result == ([str(victim)], [], "keep me")
@@ -160,7 +160,7 @@ def test_sweep_refuses_a_tree_whose_marker_is_gone(sandbox_home):
     retention._marker_path_for(staged).unlink()
     (staged / "intruder.txt").write_text("mine now")
     # Act
-    report = retention.sweep_restorable(dry_run=False)
+    report = retention.sweep_restorable(dry_run=False, allow_manual_delete=True)
     # Assert
     result = (report.refused, staged.is_dir(), retention._read_registry() != [])
     assert result == ([record.staged_path], True, True)
@@ -176,7 +176,7 @@ def test_sweep_prunes_an_already_gone_tree(sandbox_home):
 
     shutil.rmtree(record.staged_path)
     # Act
-    report = retention.sweep_restorable(dry_run=False)
+    report = retention.sweep_restorable(dry_run=False, allow_manual_delete=True)
     # Assert
     result = (report.pruned, retention._read_registry())
     assert result == ([record.staged_path], [])
@@ -188,7 +188,7 @@ def test_stage_and_sweep_a_single_file(sandbox_home):
     src.write_text("hello")
     # Act
     record = retention.stage_for_retention(src, retention_days=0)
-    report = retention.sweep_restorable(dry_run=False)
+    report = retention.sweep_restorable(dry_run=False, allow_manual_delete=True)
     # Assert -- staged aside with a sibling marker, then both removed.
     from pathlib import Path
 
@@ -248,7 +248,7 @@ def test_changed_staged_content_is_not_deleted(sandbox_home):
     staged = Path(record.staged_path)
     (staged / "top.bin").write_bytes(b"z" * 32)
     # Act
-    report = retention.sweep_restorable(dry_run=False)
+    report = retention.sweep_restorable(dry_run=False, allow_manual_delete=True)
     # Assert
     assert (report.removed, report.refused, (staged / "top.bin").read_bytes()) == (
         [],
@@ -271,7 +271,7 @@ def test_dry_run_keeps_registry_marker_and_lock_bytes_unchanged(sandbox_home):
     ]
     before = [(p.read_bytes(), p.stat().st_mtime_ns) for p in paths]
     # Act
-    report = retention.sweep_restorable()
+    report = retention.sweep_restorable(allow_manual_delete=True)
     after = [(p.read_bytes(), p.stat().st_mtime_ns) for p in paths]
     # Assert
     assert (after, report.removed, Path(record.staged_path).exists()) == (
@@ -285,7 +285,7 @@ def test_first_dry_run_creates_no_state_directory(sandbox_home):
     # Arrange
     state = sandbox_home / ".scitex"
     # Act
-    report = retention.sweep_restorable()
+    report = retention.sweep_restorable(allow_manual_delete=True)
     # Assert
     assert (state.exists(), report.removed) == (False, [])
 
@@ -299,7 +299,9 @@ def test_sweep_obeys_item_budget(sandbox_home):
         _tree(sandbox_home / "second"), retention_days=0
     )
     # Act
-    report = retention.sweep_restorable(dry_run=False, max_items=1)
+    report = retention.sweep_restorable(
+        dry_run=False, max_items=1, allow_manual_delete=True
+    )
     # Assert
     assert (report.removed, report.retained) == (
         [first.staged_path],
@@ -313,7 +315,9 @@ def test_sweep_obeys_byte_budget(sandbox_home):
         _tree(sandbox_home / "work"), retention_days=0
     )
     # Act
-    report = retention.sweep_restorable(dry_run=False, max_bytes=1)
+    report = retention.sweep_restorable(
+        dry_run=False, max_bytes=1, allow_manual_delete=True
+    )
     # Assert
     assert (report.removed, report.retained) == ([], [record.staged_path])
 
@@ -328,7 +332,9 @@ def test_cancelled_sweep_keeps_expired_tree(sandbox_home):
         _tree(sandbox_home / "work"), retention_days=0
     )
     # Act
-    report = retention.sweep_restorable(dry_run=False, cancelled=event.is_set)
+    report = retention.sweep_restorable(
+        dry_run=False, cancelled=event.is_set, allow_manual_delete=True
+    )
     # Assert
     assert (report.removed, report.retained) == ([], [record.staged_path])
 
@@ -346,7 +352,7 @@ def test_pending_crash_intent_is_recoverable_but_not_deletable(sandbox_home):
     entries[0]["delete_after"] -= 1
     retention._write_registry(entries)
     # Act
-    report = retention.sweep_restorable(dry_run=False)
+    report = retention.sweep_restorable(dry_run=False, allow_manual_delete=True)
     restored = retention.restore_staged(record.staged_path)
     # Assert
     assert (
@@ -442,10 +448,57 @@ def test_entry_budget_does_not_begin_large_tree_cleanup(sandbox_home):
         _tree(sandbox_home / "work"), retention_days=0
     )
     # Act
-    report = retention.sweep_restorable(dry_run=False, max_entries=1)
+    report = retention.sweep_restorable(
+        dry_run=False, max_entries=1, allow_manual_delete=True
+    )
     # Assert
     assert (
         report.removed,
         report.retained,
         retention._read_registry()[0]["staged_path"],
     ) == ([], [record.staged_path], record.staged_path)
+
+
+def test_explicit_user_registries_do_not_share_restore_authority(sandbox_home):
+    # Arrange
+    from pathlib import Path
+
+    first_registry = sandbox_home / "first-user/runtime/registry.json"
+    second_registry = sandbox_home / "second-user/runtime/registry.json"
+    first = retention.stage_for_retention(
+        _tree(sandbox_home / "first-data"), registry_path=first_registry
+    )
+    second = retention.stage_for_retention(
+        _tree(sandbox_home / "second-data"), registry_path=second_registry
+    )
+    # Act
+    refused = False
+    try:
+        retention.restore_staged(first.staged_path, registry_path=second_registry)
+    except ValueError:
+        refused = True
+    # Assert
+    assert (
+        refused,
+        Path(first.staged_path).exists(),
+        Path(second.staged_path).exists(),
+        retention._registry_path().exists(),
+    ) == (True, True, True, False)
+
+
+def test_manual_quarantine_is_not_deleted_by_expiration_and_apply_alone(sandbox_home):
+    # Arrange
+    from pathlib import Path
+
+    record = retention.stage_for_retention(
+        _tree(sandbox_home / "work"), retention_days=0
+    )
+    # Act
+    report = retention.sweep_restorable(dry_run=False)
+    # Assert
+    assert (
+        report.removed,
+        report.retained,
+        bool(report.deferred),
+        Path(record.staged_path).exists(),
+    ) == ([], [record.staged_path], True, True)
