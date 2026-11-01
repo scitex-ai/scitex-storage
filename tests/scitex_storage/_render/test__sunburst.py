@@ -263,27 +263,13 @@ def test_a_folder_name_cannot_break_out_of_the_embedded_json_script():
     assert result == (evil, True)
 
 
-@pytest.mark.requires_fd
-def test_filesystem_labels_remain_text_in_real_browser(tmp_path):
-    # Arrange -- two real directories ensure the dangerous label has a visible
-    # sector. This also tests the exported, self-contained chart offline.
+@pytest.fixture
+def sunburst_browser():
+    """An actual optional Chromium instance, closed even when a check fails."""
     import os
     from pathlib import Path
 
     api = pytest.importorskip("playwright.sync_api")
-    label = "<img src=x onerror=window.__storage_xss_test=1>"
-    (tmp_path / label).mkdir()
-    (tmp_path / label / "data.bin").write_bytes(b"x" * 8192)
-    (tmp_path / "safe").mkdir()
-    (tmp_path / "safe" / "data.bin").write_bytes(b"x" * 4096)
-    from scitex_storage._render import build_dir_hierarchy, build_dir_sunburst_html
-
-    chart = tmp_path / "chart.html"
-    chart.write_text(
-        build_dir_sunburst_html(
-            "Audit", build_dir_hierarchy("Audit", tmp_path), "audit"
-        )
-    )
     with api.sync_playwright() as runtime:
         explicit = os.environ.get("SCITEX_STORAGE_TEST_CHROMIUM")
         executable = Path(explicit or runtime.chromium.executable_path)
@@ -297,23 +283,42 @@ def test_filesystem_labels_remain_text_in_real_browser(tmp_path):
             executable_path=str(executable), args=["--no-sandbox"]
         )
         try:
-            page = browser.new_page()
-            page.goto(chart.as_uri())
-            # Act -- real pointer hover and zoom, not synthetic DOM callbacks.
-            page.locator("#sb").hover(position={"x": 390, "y": 280})
-            page.wait_for_timeout(100)
-            tooltip_literal = label in page.locator("#tip").inner_text()
-            page.locator("#sb").click(position={"x": 390, "y": 280})
-            page.wait_for_timeout(100)
-            result = (
-                page.evaluate("window.__storage_xss_test || 0"),
-                page.locator("#tip img,#crumb img").count(),
-                tooltip_literal,
-                label in page.locator("#crumb").inner_text(),
-            )
-            page.screenshot(path=str(tmp_path / "sunburst-labels.png"))
+            yield browser
         finally:
             browser.close()
+
+
+@pytest.mark.requires_fd
+def test_filesystem_labels_remain_text_in_real_browser(tmp_path, sunburst_browser):
+    # Arrange -- real directories give the dangerous label a visible sector.
+    from scitex_storage._render import build_dir_hierarchy, build_dir_sunburst_html
+
+    label = "<img src=x onerror=window.__storage_xss_test=1>"
+    (tmp_path / label).mkdir()
+    (tmp_path / label / "data.bin").write_bytes(b"x" * 8192)
+    (tmp_path / "safe").mkdir()
+    (tmp_path / "safe" / "data.bin").write_bytes(b"x" * 4096)
+    chart = tmp_path / "chart.html"
+    chart.write_text(
+        build_dir_sunburst_html(
+            "Audit", build_dir_hierarchy("Audit", tmp_path), "audit"
+        )
+    )
+    page = sunburst_browser.new_page()
+    page.goto(chart.as_uri())
+    # Act -- real pointer hover and zoom, not synthetic DOM callbacks.
+    page.locator("#sb").hover(position={"x": 390, "y": 280})
+    page.wait_for_timeout(100)
+    tooltip_literal = label in page.locator("#tip").inner_text()
+    page.locator("#sb").click(position={"x": 390, "y": 280})
+    page.wait_for_timeout(100)
+    result = (
+        page.evaluate("window.__storage_xss_test || 0"),
+        page.locator("#tip img,#crumb img").count(),
+        tooltip_literal,
+        label in page.locator("#crumb").inner_text(),
+    )
+    page.screenshot(path=str(tmp_path / "sunburst-labels.png"))
     # Assert -- literal labels survive while executable markup never appears.
     assert result == (0, 0, True, True)
 
