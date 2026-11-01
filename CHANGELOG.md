@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Remove the leaf header-border override and version SDK header assets through the shared app_static helper.
+
 ## [0.6.15] - 2026-11-01
 
 ### Security

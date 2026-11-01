@@ -1496,13 +1496,6 @@ def _leaf_css_block():
     return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
 
 
-def test_no_peach_rule_under_app_header():
-    # Arrange -- the SDK AppHeader's warm bottom border reads as a peach
-    # line between the global header and our content; the leaf removes it.
-    # Act
-    body = _leaf_css_block()
-    # Assert
-    assert (".stx-app-header" in body, "border-bottom: none" in body) == (True, True)
 
 
 def test_selected_tab_uses_cards_pattern():

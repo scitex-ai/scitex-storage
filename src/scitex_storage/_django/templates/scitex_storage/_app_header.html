@@ -39,11 +39,11 @@ Duplicates / Move). There is deliberately NO <header> element and NO
 leaf-local class here: the only Storage-specific string on the row is the
 title attribute below.
 {% endcomment %}
-<link rel="stylesheet" href="{% static 'scitex_sdk/ui/css/app/app-header.css' %}">
+<link rel="stylesheet" href="{% app_static 'scitex_sdk/ui/css/app/app-header.css' %}">
 <div data-stx-app-header
      data-app-title="{% translate 'Storage' %}"
      data-app-version="{{ storage_version }}"></div>
-<script type="module" src="{% static 'scitex_sdk/ui/js/app/app-header.js' %}"></script>
+<script type="module" src="{% app_static 'scitex_sdk/ui/js/app/app-header.js' %}"></script>
 {% if project_picker_available %}
 {% include "scitex_storage/_project_picker.html" %}
 <script type="module" src="{% app_static 'scitex_storage/header-picker.js' %}"></script>
