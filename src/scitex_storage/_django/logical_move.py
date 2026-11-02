@@ -208,10 +208,12 @@ def _resolve(request, form, owned, tiers):
 
 def _context(request, form, tiers):
     from . import organize
+    from ._example_estimates import example_context
 
     return {
         **organize._base_context("move"),
         **organize._scope_context(request, "move"),
+        **example_context(form),
         "logical_tiers": [tier.public_details() for tier in tiers],
         "move_form": {
             key: form.get(key, "")

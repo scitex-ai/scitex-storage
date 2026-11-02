@@ -57,7 +57,7 @@ Use `manifest.version_id` from the applied result as `VERSION_ID` below:
 
 ```console
 scitex-storage versions --store ./objects inspect VERSION_ID
-scitex-storage versions --store ./objects pointer VERSION_ID ./experiment.stx.json --yes
+scitex-storage versions --store ./objects create-pointer VERSION_ID ./experiment.stx.json --yes
 scitex-storage versions --store ./objects checkout VERSION_ID ./restored.bin --yes
 ```
 
@@ -66,6 +66,14 @@ until ingestion measures them. Counts in the applied result concern payload
 chunk bytes and exclude manifest/filesystem overhead. `inspect` verifies the
 manifest, not chunk contents, and reports `content_verified: false` explicitly.
 Checkout verifies each chunk and the reconstructed file before publishing.
+
+`inspect` keeps JSON as its default; `--json` selects that format explicitly,
+while `--human` emits a readable manifest report through scitex-logging. Neither
+format reads or verifies chunk contents. `create-pointer` names the actual
+no-overwrite operation. The old `pointer` spelling still forwards its complete
+arguments and confirmation flags; the shared Dev deprecation helper warns on
+stderr (planned removal in 0.8), leaving JSON stdout unchanged. Older/minimal
+environments without that optional helper retain a normal Click alias.
 
 ## Format and boundaries
 

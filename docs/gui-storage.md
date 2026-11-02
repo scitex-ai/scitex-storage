@@ -16,6 +16,21 @@ its URL on a real selection event.
 The host supplies authorized volume roots. Displayed paths use a separate
 `display_root` or `/home/<username>` label; this never changes real I/O roots.
 Usage's sunburst scans the selected authorized root or exact project root.
+Its full center disk goes up one level within the already-loaded hierarchy,
+including clicks/taps on its labels or inner edge. The `..` affordance and
+Enter/Space share that action; the scoped root is disabled and never invents a
+filesystem ancestor. Breadcrumbs and ring drill-down remain available. Hash
+restoration only matches loaded child nodes; malformed encodings reset safely
+to that same scoped root, with no ancestor requests.
+The Usage endpoint accepts an owned volume key or an authorized project ID,
+not a free-form filesystem root. Traversal-shaped/foreign selectors return 403;
+`path`/`root` query values cannot replace the selected host-authorized root.
+Directory symlinks may appear as link entries but their target trees are not
+recursed. These existing boundaries are covered through actual SDK project and
+volume provider fixtures; the center control adds no filesystem endpoint.
+Single-child folders render a complete colored annulus rather than leaving an
+empty ring. Ring clicks still drill into the loaded child; the center remains
+the one-level parent control.
 Capacity cards are filesystem capacity, not claimed personal usage/quota.
 Duplicates calls the real read-only content matcher, with a depth bound; missing
 fclones is shown as unavailable rather than an empty successful report. The GUI
@@ -36,6 +51,34 @@ remain a separate CLI/Python operation; the browser requires mounted endpoints.
 and `per_gb_month` decimal rate. Estimates multiply selected bytes / 1,000,000,000
 by that rate and days / 30 for 1, 7, and 30 days. No default commercial price is
 invented; unconfigured rates say so. Transfer/service charges are excluded.
+
+The separate **Example cost calculator** uses a clearly labelled 100 GB example
+size, never the selected project’s measured usage. Its editable illustrative
+fixtures start at USD 0.10 / 0.03 / 0.01 per decimal GB per 30-day month for
+Warm / Cool / Cold. They were initially based on the
+[2026-11-02 Hub landing-page pricing snapshot](https://github.com/scitex-ai/scitex-hub/blob/54f4a8691a5369569feb1cb87346d160abd1d747/apps/infra/public_app/data/pricing.json).
+Hot has no numeric fixture: the reference card includes scratch with active
+compute. Users may enter any valid nonnegative example rate, including zero.
+These are display-only fixtures, not current billing rates or a synchronization
+promise; Storage does not import Hub or read its price file at runtime.
+
+Submitting examples is a separate GET action. It retains request-local scope and
+move draft fields, does not plan or apply a move, and writes no settings, session,
+preferences or user data. Visible Move controls share the example GET form owner
+through native HTML association, so fresh draft edits are included on submission.
+The visual Move form remains distinct for the host’s existing nearest-action
+Enter routing; no second handler is installed. Calculate ignores incomplete
+Move-field browser validation and never sends `plan=1`. Plan retains the Move
+fields’ native required checks, and Apply remains a separate POST form. Optional
+plain-text decimal example inputs are validated by the server, so an example
+error cannot block unrelated Move-field browser validation or explicit planning.
+
+Calculations use Decimal, 1/7/30-day durations and six
+decimal output places. Input accepts plain nonnegative decimals with at most
+16 integer and 9 fractional digits; negative/nonfinite/exponent/oversized inputs
+show errors rather than stale estimates. These calculator formatting bounds
+are not storage-size limits. Allowances, compute, transfer and service fees are
+excluded, and example edits never enable an unavailable tier.
 
 ## Moves and recovery
 

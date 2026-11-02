@@ -1,6 +1,6 @@
 # cli-audit-dict.yaml — package-specific additions to the CLI-audit
-# noun/verb catalog (audit-cli §1). Additive only: never reclassifies or
-# overrides the canonical catalog.
+# noun/verb catalog (audit-cli §1). These declarations state the literal
+# package-context meaning; the shared catalog remains the fallback.
 nouns:
   - inode  # why: `inodes` is the standard filesystem term for the on-disk
            # file-record objects a filesystem can run out of independently
@@ -40,3 +40,9 @@ intransitive_verbs:
          # inbox, supplied by the `document-sorter` group, not implied by the
          # verb. Moby dual-classifies run noun+verb; the verb reading is the
          # intended one here.
+  - alarm  # why: one-shot storage action: evaluate fleet thresholds and notify on
+           # transitions; --dry-run previews without notifying or recording state.
+  - backup  # why: established storage-tool action (e.g. restic backup): copy
+            # SOURCE to --to, verify the copy, and retain SOURCE. Not a noun view.
+  - scrub  # why: established filesystem action (e.g. btrfs/zpool scrub):
+           # re-measure MANIFEST's archived tree; read-only verdict, not a view group.

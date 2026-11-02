@@ -27,3 +27,9 @@ tags: [scitex-storage-cli-reference]
 Conventions: dry-run by default, `--yes/-y` mutates; `--json` for machine
 output; domain verdict exit codes start at 10 (1/2 stay generic). Verbs
 load lazily — help never fails because an unrelated verb's dep is skewed.
+
+Content versions: `versions --store ROOT inspect VERSION_ID` keeps its JSON
+default; `--human` selects readable metadata (manifest verified, contents not
+verified). `versions --store ROOT create-pointer VERSION_ID NEW_PATH --yes`
+creates a new pointer without overwrite. Legacy `pointer` forwards the same
+arguments, with a shared deprecation warning when Dev is available.

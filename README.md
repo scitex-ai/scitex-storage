@@ -184,6 +184,10 @@ verified chunks, and checkout creates a new checksum-verified file without
 overwriting an occupant. Git tracks small ordinary pointers; Storage owns the
 payload objects. This is not Git LFS and does not deploy or configure Gitea.
 
+CLI `versions inspect` preserves JSON by default and offers `--human` for
+readable metadata. `versions create-pointer` creates a new pointer; the old
+`pointer` spelling remains compatible during its deprecation period.
+
 See [content versions](docs/content-versions.md) for the executable temporary-file
 example, CLI previews, format, and limits. No garbage collection or automatic
 source deletion is enabled.
@@ -287,8 +291,10 @@ Usage embeds a read-only, zoomable sunburst of the selected project's bytes
 link. The chart uses the same authorized endpoint in both views and needs no
 external JavaScript service. The chart fits the available viewport height,
 with a 480px maximum drawing area, so the embedded view needs no inner scrollbar.
-Missing scan dependencies and scan timeouts are
-reported inside the chart.
+The entire inner disk (including its labels) goes up one loaded tree level;
+`..` and Enter/Space provide the same action. At the scoped root there is no
+parent and the center is disabled. Breadcrumbs still work. Missing scan
+dependencies and scan timeouts are reported inside the chart.
 
 Storage starts in **All Projects** without changing the host's remembered project.
 An explicit authorized project constrains the chart and duplicate scan; an invalid
@@ -301,6 +307,18 @@ settings `SCITEX_STORAGE_TIER_BINDINGS` map a tier to `{"volume": "provider-key"
 `SCITEX_STORAGE_TIER_RATES` supplies `{"currency": "USD", "per_gb_month": "…"}`
 per tier (replace the ellipsis with an actual nonnegative decimal rate). Rates
 are not inferred. Plans show day/week/30-day estimates using decimal GB.
+
+A separate **Example cost calculator** starts with an explicitly illustrative
+100 GB size and editable USD/GB/30-day rates: Warm 0.10, Cool 0.03, Cold 0.01.
+Hot remains nonnumeric (included with active compute in the reference card)
+until an example is entered. These fixtures were initially based on the
+[Hub landing-page pricing snapshot of 2026-11-02](https://github.com/scitex-ai/scitex-hub/blob/54f4a8691a5369569feb1cb87346d160abd1d747/apps/infra/public_app/data/pricing.json);
+they do not synchronize with billing or require Hub at runtime. Editing examples
+changes only the current GET response, not configured prices, tier availability,
+account/project preferences, move plans, or data. Native form association sends
+freshly edited Move draft fields with example calculations, rather than stale
+hidden copies. Calculate works with an incomplete Move draft; Plan still requires
+its Move fields, and invalid examples do not block an explicit plan.
 
 Confirmed GUI moves require both authorized locations to be mounted, refuse
 registered project-root relocation, verify with SHA after rsync, and retain the

@@ -234,3 +234,13 @@ a.stx-storage-name i { color: var(--stx-storage-accent); }
 .stx-storage-coming i { font-size: 1.8rem; color: var(--stx-storage-accent); }
 .stx-storage-coming h2 { margin: 10px 0 6px; font-size: 1.15rem; }
 .stx-storage-coming p { margin: 0 auto; max-width: 36rem; color: var(--stx-storage-muted); }
+
+/* Leaf-owned calculator result layout; controls use the shared SDK primitives. */
+.stx-storage-example-estimates {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 4px 12px;
+}
+.stx-storage-example-estimates dt,
+.stx-storage-example-estimates dd { margin: 0; overflow-wrap: anywhere; }
+.stx-storage-example-estimates dd { text-align: right; }

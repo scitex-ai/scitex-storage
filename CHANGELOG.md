@@ -7,6 +7,31 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Render a single-child Usage ring as a complete annulus using two SVG arcs per circle; preserve its empty center, ring bounds, partial sectors and native drill-down.
+
+- Paint the Usage parent disk after colored arcs so near-edge native touch compatibility clicks keep the center target inside sandboxed phone iframes. Radius and ring geometry are unchanged.
+- Give manifest inspection a real JSON/human format choice while preserving JSON
+  by default; human metadata uses scitex-logging and never claims content checks.
+- Name pointer creation `versions create-pointer`, keeping the old spelling as
+  an argument-preserving compatibility alias with unchanged confirmation gates.
+- Declare actual storage actions alarm/backup/scrub through the existing leaf
+  vocabulary SPI, without adding output flags or changing their behavior.
+
+
+- Regress Usage scope boundaries with registered SDK providers: reject encoded/foreign selectors, ignore free-form root overrides, preserve project narrowing, and avoid descent through escaping directory symlinks. No backend authorization policy changes.
+
+- Make the entire Usage sunburst center disk a parent control, with `..`, mouse/touch and Enter/Space support. Disable it at the loaded scoped root and safely refuse malformed hash restoration without ancestor requests.
+- Preserve fresh Move draft edits when calculating examples through native GET
+  form association. Calculate works with incomplete Move fields; explicit Plan
+  retains required fields and is independent of server-side example errors.
+  Apply remains a separate POST form; no controller or persisted state is added.
+
+- Add a separate, editable example cost calculator for logical tiers: explicit
+  illustrative size/rates and Decimal day/week/30-day estimates. Seed fixtures
+  cite the 2026-11-02 landing-page pricing snapshot; Hot remains nonnumeric until
+  entered. Configured rates, availability, scope and storage operations are
+  unchanged; no account or rate persistence is added.
+
 ## [0.6.16] - 2026-11-02
 
 ### Added

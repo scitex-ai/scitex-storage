@@ -159,9 +159,12 @@ h1 {{ font-size:20px; margin:0 0 4px; }}
 #crumb {{ font-size:14px; min-height:22px; margin-bottom:6px; }}
 #crumb a {{ color:var(--link); cursor:pointer; }}
 svg {{ max-width:100%; }}
-path.seg {{ cursor:pointer; stroke:var(--bg); stroke-width:1; transition:opacity .1s; }}
+path.seg {{ cursor:pointer; pointer-events:fill; stroke:var(--bg);
+  stroke-width:1; transition:opacity .1s; }}
 path.seg:hover {{ opacity:.82; }}
 #centre {{ font-size:13px; }}
+#centre text {{ pointer-events:none; }}
+#centre:focus-visible .centre-face {{ stroke:var(--link); stroke-width:2; }}
 #tip {{ position:fixed; pointer-events:none; background:var(--panel); border:1px solid var(--ring);
   border-radius:8px; padding:8px 10px; font-size:12px; opacity:0; transition:opacity .1s; z-index:9; text-align:left; }}
 footer {{ color:var(--muted); font-size:11px; margin-top:8px; }}
@@ -205,6 +208,15 @@ function polar(r,a){{return [CX+r*Math.cos(a), CY+r*Math.sin(a)];}}
 function arcPath(r0,r1,a0,a1){{
   const large=(a1-a0)>Math.PI?1:0;
   const [x0,y0]=polar(r0,a0),[x1,y1]=polar(r1,a0),[x2,y2]=polar(r1,a1),[x3,y3]=polar(r0,a1);
+  // One SVG arc cannot represent a circle with coincident endpoints.
+  // Opposite-winding closed circles preserve the annulus and its empty hole.
+  if(Math.abs(a1-a0-TAU)<=Number.EPSILON*8){{
+    const [ix,iy]=polar(r0,a0+Math.PI),[ox,oy]=polar(r1,a0+Math.PI);
+    return `M${{x1}} ${{y1}} A${{r1}} ${{r1}} 0 0 1 ${{ox}} ${{oy}} `+
+      `A${{r1}} ${{r1}} 0 0 1 ${{x1}} ${{y1}} Z `+
+      `M${{x0}} ${{y0}} A${{r0}} ${{r0}} 0 0 0 ${{ix}} ${{iy}} `+
+      `A${{r0}} ${{r0}} 0 0 0 ${{x0}} ${{y0}} Z`;
+  }}
   return `M${{x0}} ${{y0}} L${{x1}} ${{y1}} A${{r1}} ${{r1}} 0 ${{large}} 1 ${{x2}} ${{y2}} `+
          `L${{x3}} ${{y3}} A${{r0}} ${{r0}} 0 ${{large}} 0 ${{x0}} ${{y0}} Z`;
 }}
@@ -241,22 +253,52 @@ function ring(node, ringIdx, a0, a1, depth){{
 }}
 function render(){{
   while(svg.firstChild) svg.removeChild(svg.firstChild);
-  // centre label = current focus, click to go up
+  // The complete inner disk goes up exactly one already-loaded tree node.
+  const centre=document.createElementNS('http://www.w3.org/2000/svg','g');
+  const hasParent=path.length>1;
+  centre.id='centre'; centre.setAttribute('role','button');
+  centre.setAttribute('tabindex',hasParent?'0':'-1');
+  centre.setAttribute('aria-disabled',hasParent?'false':'true');
+  centre.setAttribute('aria-label',hasParent?
+    'Go up to '+path[path.length-2].name:'Scoped root; no parent');
+  centre.style.cursor=hasParent?'pointer':'default';
+  const goUp=()=>{{
+    if(path.length<=1)return;
+    const hadFocus=document.activeElement===centre;
+    path.pop(); focus=path[path.length-1]; render();
+    if(hadFocus)document.getElementById('centre').focus();
+  }};
+  centre.onclick=goUp;
+  centre.onkeydown=event=>{{
+    if(event.key==='Enter'||event.key===' '){{
+      event.preventDefault(); if(!event.repeat)goUp();
+    }}
+  }};
+  const hit=document.createElementNS('http://www.w3.org/2000/svg','circle');
+  hit.setAttribute('cx',CX); hit.setAttribute('cy',CY); hit.setAttribute('r',R0);
+  hit.setAttribute('fill','transparent'); hit.setAttribute('pointer-events','all');
+  centre.appendChild(hit);
   const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
   c.setAttribute('cx',CX); c.setAttribute('cy',CY); c.setAttribute('r',R0-6);
+  c.setAttribute('class','centre-face');
   c.setAttribute('fill','var(--panel)'); c.setAttribute('stroke','var(--ring)');
-  c.style.cursor = path.length>1?'pointer':'default';
-  if(path.length>1) c.onclick=()=>{{path.pop(); focus=path[path.length-1]; render();}};
-  svg.appendChild(c);
+  centre.appendChild(c);
+  const up=document.createElementNS('http://www.w3.org/2000/svg','text');
+  up.setAttribute('x',CX); up.setAttribute('y',CY-22);
+  up.setAttribute('text-anchor','middle');
+  up.setAttribute('fill','var(--muted)'); up.setAttribute('font-size','12');
+  up.textContent=hasParent?'..':''; centre.appendChild(up);
   const t=document.createElementNS('http://www.w3.org/2000/svg','text');
   t.setAttribute('x',CX); t.setAttribute('y',CY-2); t.setAttribute('text-anchor','middle');
   t.setAttribute('fill','var(--text)'); t.setAttribute('font-size','14'); t.setAttribute('font-weight','700');
-  t.textContent=focus.name; svg.appendChild(t);
+  t.textContent=focus.name; centre.appendChild(t);
   const t2=document.createElementNS('http://www.w3.org/2000/svg','text');
   t2.setAttribute('x',CX); t2.setAttribute('y',CY+16); t2.setAttribute('text-anchor','middle');
   t2.setAttribute('fill','var(--muted)'); t2.setAttribute('font-size','11');
-  t2.textContent=human(focus.value); svg.appendChild(t2);
+  t2.textContent=human(focus.value); centre.appendChild(t2);
   ring(focus, 0, -Math.PI/2, -Math.PI/2+TAU, 1);
+  // Keep the inner disk above arcs during native touch target adjustment.
+  svg.appendChild(centre);
   crumb.replaceChildren();
   path.forEach((n,i)=>{{
     if(i) crumb.appendChild(document.createTextNode(' / '));
@@ -273,10 +315,12 @@ function render(){{
   }}
 }}
 function restoreFromHash(){{
-  const raw=decodeURIComponent(location.hash.replace(/^#/,''));
+  const raw=location.hash.replace(/^#/,'');
   path=[ROOT]; focus=ROOT;
   if(!raw) return;
-  for(const name of raw.split('>').map(decodeURIComponent)){{
+  let names;
+  try{{names=decodeURIComponent(raw).split('>').map(decodeURIComponent);}}catch{{return;}}
+  for(const name of names){{
     const kid=(focus.children||[]).find(c=>c.name===name);
     if(!kid) break;
     path.push(kid); focus=kid;
@@ -339,8 +383,8 @@ def build_dir_sunburst_html(root_name: str, hierarchy: dict, gen_line: str) -> s
         gen=gen_line,
         modes="",
         footer=(
-            "Angle = size &middot; click a folder to zoom, the breadcrumb "
-            "climbs back. Self-contained, opens offline."
+            "Angle = size &middot; click a folder to zoom; the centre .. or breadcrumb "
+            "goes up within this tree. Self-contained, opens offline."
         ),
         data=data,
     )
