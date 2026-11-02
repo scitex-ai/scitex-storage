@@ -34,3 +34,17 @@ An existing Chromium binary can be selected with the test-only
 `SCITEX_STORAGE_TEST_CHROMIUM` environment variable. Without a browser this
 integration test reports a skip; that is not browser coverage. Its temporary
 directory retains `sunburst-labels.png` for visual inspection.
+
+
+The Usage center regression is a real browser integration test:
+
+```bash
+pytest tests/integration/scitex_storage/_render/test_sunburst_center_real.py
+```
+
+It uses temporary files and the real directory-tree renderer, native mouse
+and touch at fourteen disk points, keyboard parent/root controls, ring/breadcrumb
+navigation and malformed/traversal-shaped hashes. Only already-loaded nodes
+may be visited; no ancestor URL or filesystem request is permitted. Screenshots
+remain in that run's temporary directory. These fixture screenshots are not a
+claim about a deployed page. Browser availability follows the fixture above.
