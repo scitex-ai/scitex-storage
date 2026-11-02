@@ -1,11 +1,12 @@
-# Local content versions for scientific files
+# Experimental local content versions for scientific files
 
 `VersionStore` snapshots regular files into a local immutable object store.
 Storage owns the payload chunks and version manifests. Git owns the history of
 small pointer files. Creating a version keeps the source in place; it is not
 permission to retire the original or treat this single local copy as a backup.
 
-This is an additive source preview. It does not configure Gitea, upload objects,
+This is an experimental additive local-storage feature in 0.6.16. It does not
+configure Gitea, upload objects,
 install Git clean/smudge filters, or implement the Git LFS protocol. Gitea's
 standard LFS service is a separate, explicitly configured server feature.
 See [Gitea's official LFS setup](https://docs.gitea.com/administration/git-lfs-setup/).

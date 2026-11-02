@@ -2,7 +2,7 @@
 name: scitex-storage
 description: |
   [WHAT] Safe research-data storage handling: read-only scans, verified
-  tiering, and additive local content versions with ordinary Git pointers.
+  tiering, and experimental local content versions with ordinary Git pointers.
   [WHEN] Working on scitex-storage, moving data between disk tiers, or
   building on its GUI/CLI.
   [HOW] Plan/apply split; dry-run default + --yes gate; adopt SDK shared
@@ -30,6 +30,6 @@ content versions that retain their source.
   rules for the GUI leaf
 - [08_test-conventions.md](08_test-conventions.md) — TDD, AAA, mirror
   and single-assert rules
-- [09_content-versions.md](09_content-versions.md) — local immutable file
+- [09_content-versions.md](09_content-versions.md) — experimental local immutable file
   versions, verified checkout, and ordinary Git pointer ownership
 - [20_env-vars.md](20_env-vars.md) — every supported env var

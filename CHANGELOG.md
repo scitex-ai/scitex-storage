@@ -7,15 +7,62 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-- Acknowledge termination of live transfer descendants, not only their group
-  leader, before reporting cancellation or discarding interrupted transfer files.
-  Unverifiable termination retains the existing `cancelling` recovery state.
+## [0.6.16] - 2026-11-02
 
-- Add an optional keyword-only `find_duplicates(..., timeout_s=...)` process
-  deadline that kills and reaps fclones before reporting a timeout; the default
-  CLI/library behavior remains unbounded.
+### Added
 
-- Remove the leaf header-border override and version SDK header assets through the shared app_static helper.
+- Verified local file/directory moves through `plan_move` / `apply_move`: rsync
+  writes a private destination, independent SHA256 checks compare source/copy/
+  source, and atomic no-overwrite publication precedes seven-day recoverable
+  source retirement. Durable per-user transaction receipts support idempotent
+  completed replays and explicit recovery for interrupted transactions.
+- Public `restore_staged` with checksum verification and collision refusal;
+  locked, crash-recoverable quarantine registration and bounded explicit cleanup.
+  Expired move originals require a valid completed receipt and a fresh matching
+  destination checksum. Missing, corrupt or unreachable copies retain the
+  original. Remote archive cleanup needs a bounded host verifier; manual
+  quarantine deletion has a separate explicit opt-in. No sweeper is enabled.
+- Logical hot/warm/cool/cold GUI bindings through authorized host volumes,
+  configurable currency/rate estimates for day/week/30-day periods, and clear
+  unavailable states for missing tiers or unconfigured prices.
+- Experimental local `VersionStore` and `versions` CLI: bounded native FastCDC
+  (`fastcdc==1.7.0`) chunks, immutable SHA256 objects, streaming manifests,
+  measured reuse, verified no-overwrite checkout and ordinary Git pointer files.
+  Defaults are 512 KiB minimum, 2 MiB average scale and 8 MiB maximum chunks.
+  Sources stay in place. This release provides no remote object transport,
+  Git LFS service, automatic Git filters, garbage collection or production-scale
+  qualification; cloning a pointer repository does not fetch its payload store.
+
+### Changed
+
+- Storage opens in request-local All Projects without changing the host's saved
+  project. Explicit project selection constrains read views. SDK >=0.3.17 owns
+  the header/picker; displayed logical home paths do not rebind physical roots.
+- Organize tabs are Usage, Move and Duplicates. Remove the obsolete Backup GUI
+  while retaining the independent public backup CLI/Python operation.
+- Archive source retirement requires independent SHA256 even when rsync's
+  checksum flag is disabled; copy-only operation remains available. Moves keep
+  originals recoverable for at least seven days rather than deleting them
+  immediately after copying.
+- Optional keyword-only `find_duplicates(..., timeout_s=...)` bounds the actual
+  hashing subprocess and kills/reaps it on timeout. The GUI passes 60 seconds;
+  existing CLI/library calls remain unbounded unless explicitly configured.
+  Reports state the full group count and label the first-50 display subset.
+
+### Fixed
+
+- Authorize both move endpoints and project writes; refuse registered project
+  root relocation, missing storage capabilities and incomplete root catalogs.
+  View-only projects return 403; malformed tier configuration returns 503.
+- Keep transaction state inside the canonical authenticated user home, reject
+  child-symlink escapes and source/destination overlap with the state directory,
+  and keep planning/dry runs free of filesystem writes.
+- Acknowledge live transfer descendants as well as the group leader before
+  reporting cancellation or cleaning private transfer files. Unverifiable
+  termination retains the existing `cancelling` recovery state within the
+  bounded shutdown budget; recorded phases never imply a worker is live.
+- Use shared versioned SDK header assets without a leaf border override. Keep
+  the sandboxed, text-safe usage chart responsive with a 480px drawing cap.
 
 ## [0.6.15] - 2026-11-01
 

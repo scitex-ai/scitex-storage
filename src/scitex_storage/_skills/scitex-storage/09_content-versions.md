@@ -6,9 +6,10 @@ description: |
 tags: [scitex-storage-content-versions]
 ---
 
-# Content versions
+# Experimental local content versions
 
-Use `VersionStore(root)` for additive local file snapshots. Construction and
+This 0.6.16 feature is experimental and local-only. Use `VersionStore(root)`
+for additive file snapshots. Construction and
 `plan_ingest(source)` write nothing; the plan reads metadata only. The Python
 `ingest(source)` call explicitly writes immutable chunks and a version manifest
 while retaining the source. CLI `versions --store ROOT add FILE` previews;

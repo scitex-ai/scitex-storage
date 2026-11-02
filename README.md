@@ -167,7 +167,16 @@ remain an OS boundary; an unacknowledged termination stays `cancelling` with its
 PID and temporary path recorded. No periodic sweeper or detached worker is
 started by these APIs.
 
-## Local content versions (source preview)
+### Recovery and guarded cleanup
+
+Move quarantine is never deleted merely because seven days elapsed. Cleanup
+requires the original checksum, a matching completed move receipt, and a fresh
+independent destination checksum. Missing/corrupt/unreachable copies retain the
+original. Remote archive cleanup requires a bounded target verifier supplied by
+the host; without one it defers. Manual quarantine has a separate explicit
+`--allow-manual-quarantine` deletion opt-in, in addition to `--yes`.
+
+## Experimental local content versions
 
 `VersionStore` adds immutable SHA256 file versions with bounded native FastCDC
 content-defined chunks. The source stays in place, unchanged data reuses
@@ -192,7 +201,7 @@ uv pip install "scitex-storage[all]"
 
 | Extra | Pulls in |
 |---|---|
-| `gui` | django, scitex-app, scitex-ui, scitex-dev (browsable GUI plugin) |
+| `gui` | Django, scitex-sdk[gui]>=0.3.17, scitex-dev (browsable GUI plugin) |
 | `all` | `gui` + `dev` + `docs` (recommended) |
 | `dev` | pytest, pytest-cov, + every optional dep so the test suite runs |
 | `docs` | Sphinx + RTD theme + myst-parser (docs build only) |
@@ -270,8 +279,8 @@ python -m scitex_storage._system_deps
 
 scitex-storage ships a Django-based GUI plugin
 (`src/scitex_storage/_django/`) with Usage, Move, and Duplicates tabs,
-installable standalone (`scitex-storage start-gui`) or as a
-scitex-hub plugin mounted at `/storage/`, following the same
+installable standalone (`scitex-storage gui open`) or as a
+scitex-hub plugin mounted at `/apps/storage/`, following the same
 scitex-sdk convention as scitex-writer/scitex-scholar/figrecipe.
 Usage embeds a read-only, zoomable sunburst of the selected project's bytes
 (or an assigned volume when no project is selected), with a separate full-page
@@ -300,11 +309,11 @@ for private transaction receipts. Expiry does not itself delete anything: the
 bounded retention cleanup also verifies the current destination before deleting
 an expired original. Backup's old GUI was removed; its independent Python/CLI
 copy operation remains available. See [the GUI contract](docs/gui-storage.md).
- The GUI is optional:
+The GUI is optional:
 
 ```bash
 pip install scitex-storage[gui]
-scitex-storage start-gui
+scitex-storage gui open
 ```
 
 #### Configuration
@@ -605,11 +614,3 @@ AGPL-3.0 — see [LICENSE](LICENSE) for details.
 <p align="center">
   <a href="https://scitex.ai" target="_blank"><img src="docs/scitex-icon-navy-inverted.png" alt="SciTeX" width="40"/></a>
 </p>
-
-
-Move quarantine is never deleted merely because seven days elapsed. Cleanup
-requires the original checksum, a matching completed move receipt, and a fresh
-independent destination checksum. Missing/corrupt/unreachable copies retain the
-original. Remote archive cleanup requires a bounded target verifier supplied by
-the host; without one it defers. Manual quarantine has a separate explicit
-`--allow-manual-quarantine` deletion opt-in, in addition to `--yes`.

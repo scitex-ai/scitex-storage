@@ -52,8 +52,10 @@ when child directories are symbolic links.
 The backend `plan_move` / `apply_move` transaction performs bounded rsync into a
 private sibling, SHA checks source/copy/source, publishes without overwriting,
 and stages the original for seven days. Source/destination paths may not overlap
-the transaction state directory, so a move cannot relocate or copy its own journal. Timeouts cancel and reap the actual
-rsync process group. Recorded intermediate phases are historical state, not proof
+the transaction state directory, so a move cannot relocate or copy its own
+journal. Timeouts terminate the actual rsync group and acknowledge descendant
+shutdown before cleaning private transfer files. Unverifiable termination stays
+`cancelling` with its process and temporary path retained. Recorded intermediate phases are historical state, not proof
 that a worker is still running; interrupted moves require recovery.
 
 Public `restore_staged` restores a verified original without overwriting.
