@@ -2,22 +2,10 @@
 # -*- coding: utf-8 -*-
 """Organize views for the Storage app: Usage / Duplicates / Move tabs.
 
-This module implements the three organize tabs (Backup stays a ``[Soon]``
-placeholder in :mod:`.views`), backed by the ``scitex-storage`` Python API (ported from the scitex-hub mount glue, which
-used to carry them hub-side):
-
-* Usage — donut breakdown from ``volumes.measure_all`` (statvfs, always
-  available) plus a per-folder donut from ``scitex_storage.scan`` when the
-  ``fd`` binary is present.
-* Duplicates — read-only report from ``find_duplicates`` / ``reclaimable_bytes``.
-  The API has no delete/resolve verb (``fclones group`` only reports), so this
-  tab never offers one. Needs the ``fclones`` binary; otherwise an honest
-  disabled-with-reason panel.
-* Move — tier-to-tier planning via ``plan_archive`` (local -> scitex-nas-0x,
-  verified before anything is removed, manifest for restore). Planning is
-  read-only; applying needs rsync+ssh operator setup and an explicit
-  ``--yes`` confirm, so the web UI plans only and points at the CLI for the
-  gated apply. Never deletes data from the browser.
+Usage scans an authorized account/project root; filesystem capacity is labeled
+separately from the account's data. Duplicates reports real content matches
+without deletion. The logical Move adapter authorizes both roots, uses bounded
+rsync with mandatory SHA verification, and retains originals for seven days.
 
 SECURITY: no free-form paths anywhere. Scan roots come only from the
 requester's own volumes (``find_volume`` by key); subdirectories are
@@ -31,18 +19,26 @@ import math
 import threading
 from dataclasses import dataclass
 from typing import Any, Callable
+from urllib.parse import quote
 
-from django.http import HttpResponseForbidden
-from django.shortcuts import render
-from django.utils.translation import gettext_lazy as _
+# Django is the OPTIONAL ``gui`` extra (see pyproject.toml). Guarded per
+# PS-233/PS-148 so a GUI import without the extra names the remedy instead
+# of a bare ModuleNotFoundError.
+try:
+    from django.http import HttpResponse, HttpResponseForbidden
+    from django.shortcuts import render
+    from django.utils.translation import gettext_lazy as _
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage organize views require Django: pip install scitex-storage[gui]"
+    ) from exc
 
-#: Tabs this module serves. ``backup`` stays upstream (still [Soon] there).
+#: Tabs this module serves (the organize tabs).
 HANDLED_TABS = ("usage", "duplicates", "move")
 
 ORGANIZE_TABS = (
     ("usage", _("Usage"), False),
     ("move", _("Move"), False),
-    ("backup", _("Backup"), True),
     ("duplicates", _("Duplicates"), False),
 )
 
@@ -137,16 +133,24 @@ def _run_bounded(fn: Callable[[], Any], timeout_s: float) -> tuple[bool, Any]:
 
 
 def _base_context(active: str) -> dict:
-    """Shell + tab-nav context shared by the three organize tabs."""
-    from scitex_ui.branding import shell_context
+    """Shell and navigation shared by the organize tabs."""
+    try:
+        from scitex_sdk.ui.branding import shell_context
+    except ImportError as exc:
+        raise ImportError(
+            "scitex-storage organize views require scitex-sdk UI: "
+            "pip install scitex-storage[gui]"
+        ) from exc
 
     from . import views as _views
     from ._favicon import FAVICON_HREF
 
     return {
         **shell_context("Storage", panes=_views.SHELL_PANES),
-        "app_label": _views._app_label("SciTeX Storage"),
+        **_views._leaf_identity(),
+        "app_label": _views._app_label("Storage"),
         "favicon_href": FAVICON_HREF,
+        "project_picker_available": _views._project_picker_available(),
         "tabs": [
             {"key": key, "label": label, "soon": soon, "active": key == active}
             for key, label, soon in ORGANIZE_TABS
@@ -159,6 +163,114 @@ def _user_volumes(request):
     from . import volumes
 
     return volumes.resolve_user_volumes(request)
+
+
+def _scope_selection(request):
+    """Page scope defaults to All; only explicit project requests constrain it.
+
+    A remembered global project is a preference for other apps, not consent
+    to change this view or rewrite that preference during a read request.
+    """
+    from . import project_files
+
+    scope = request.GET.get("scope", request.POST.get("scope", ""))
+    selector = request.GET.get("project", request.POST.get("project", ""))
+    if scope in ("all", "user"):
+        return "all", None
+    if not selector and scope != "project":
+        return "all", None
+    try:
+        pscope = project_files.resolve_project_scope(request)
+    except Exception:
+        pscope = None
+    return "project", pscope
+
+
+def _scope_urls(request, tab):
+    """(all_url, project_url) preserving the tab and the other GET params."""
+    from urllib.parse import urlencode
+
+    keep = [(k, v) for k, v in request.GET.items() if k not in ("tab", "scope")]
+    base = urlencode([("tab", tab)] + keep)
+    return f"?{base}", f"?{base}&scope=project"
+
+
+def _host_can_pick_project() -> bool:
+    """True when the header can actually offer a project picker.
+
+    The scope notice otherwise points at a control that does not exist:
+    without the host provider URL (standalone) the picker tag renders
+    nothing, so "pick a project in the header" is a dead-end instruction
+    there. Library + provider URL are both required for the picker to
+    appear (see ``_project_picker.html``).
+    """
+    try:
+        from django.conf import settings
+    except ImportError:  # pragma: no cover - gui extra absent
+        return False
+
+    from . import views as _views
+
+    return bool(
+        getattr(settings, "SCITEX_PROJECT_PROVIDER_URL", "")
+        and _views._project_picker_available()
+    )
+
+
+def _scope_context(request, tab):
+    """Shared request-local scope for the organize tabs."""
+    scope, pscope = _scope_selection(request)
+    all_url, project_url = _scope_urls(request, tab)
+    notice = ""
+    name = ""
+    if scope == "project":
+        if pscope is None:
+            if _host_can_pick_project():
+                notice = str(
+                    _(
+                        "No project in scope. Pick a project "
+                        "in the header to filter these tabs to it."
+                    )
+                )
+            else:
+                notice = str(
+                    _(
+                        "No project in scope. Project "
+                        "filtering needs the hub-mounted app with a signed-in "
+                        "project."
+                    )
+                )
+        else:
+            name = pscope.name or pscope.slug or str(_("this project"))
+    return {
+        "storage_view_scope": "project" if pscope is not None else "user",
+        "storage_view_project": (pscope.project_id or pscope.slug or "")
+        if pscope is not None
+        else "",
+        "scope": scope,
+        "show_scope": True,
+        "scope_all_url": all_url,
+        "scope_project_url": project_url,
+        "scope_qs": (
+            "&scope=project&project=" + quote(pscope.project_id or "", safe="")
+        )
+        if pscope is not None
+        else "&scope=all",
+        "project_name": name,
+        "scope_notice": notice,
+        "pscope": pscope,
+    }
+
+
+def _within(path, root) -> bool:
+    """True when ``path`` sits inside ``root`` (both resolved)."""
+    from pathlib import Path
+
+    try:
+        Path(path).resolve().relative_to(Path(root).resolve())
+        return True
+    except (ValueError, OSError):
+        return False
 
 
 def _selected_volume(request, user_volumes, statuses):
@@ -176,6 +288,23 @@ def _selected_volume(request, user_volumes, statuses):
         if st.status == volumes.REACHABLE and st.total:
             return st.volume
     return user_volumes[0] if user_volumes else None
+
+
+def _fleet_views_available() -> bool:
+    """True when a gathered fleet snapshot exists to link to.
+
+    Imported lazily so the organize tabs never hard-require the observation
+    layer at module import; any failure reads as \"no snapshot\" rather than
+    a 500, because \"not gathered yet\" is a real first-run state.
+    """
+    try:
+        from scitex_storage._observe import fleet_views_available
+    except ImportError:
+        return False
+    try:
+        return bool(fleet_views_available())
+    except Exception:
+        return False
 
 
 def usage(request):
@@ -196,7 +325,20 @@ def usage(request):
     folder_volume = _selected_volume(request, user_volumes, statuses)
     if request.GET.get("volume") and folder_volume is None:
         return HttpResponseForbidden(str(_("That volume is not yours.")))
-    if folder_volume is not None:
+    scope_ctx = _scope_context(request, "usage")
+    if scope_ctx["scope"] == "project" and scope_ctx["pscope"] is None:
+        return HttpResponseForbidden(
+            str(_("Select an available project to view its storage."))
+        )
+    pscope = scope_ctx["pscope"]
+    folder_label = folder_volume.label if folder_volume is not None else ""
+    scan_root = None
+    if scope_ctx["scope"] == "project" and pscope is not None:
+        # Project scope wins over the volume picker: the breakdown answers
+        # "where do THIS project's bytes live", not "what is on the volume".
+        scan_root = pscope.project_dir
+        folder_label = scope_ctx["project_name"]
+    if folder_volume is not None or scan_root is not None:
         try:
             from scitex_storage import scan as _scan
         except ImportError:
@@ -206,7 +348,8 @@ def usage(request):
                 _("Per-folder breakdown needs the scitex-storage package.")
             )
         else:
-            ok, result = _run_bounded(lambda: _scan(folder_volume.path), SCAN_TIMEOUT_S)
+            root = scan_root if scan_root is not None else folder_volume.path
+            ok, result = _run_bounded(lambda: _scan(root), SCAN_TIMEOUT_S)
             if ok:
                 top = result.by_size()[:8]
                 folder_items = [(c.name, c.size) for c in top]
@@ -230,7 +373,8 @@ def usage(request):
                 elif isinstance(err, TimeoutError):
                     folder_note = str(
                         _(
-                            "Per-folder scan timed out; volume totals above are unaffected."
+                            "Per-folder scan timed out; "
+                            "filesystem capacity is shown separately."
                         )
                     )
                 else:
@@ -238,18 +382,119 @@ def usage(request):
                         _("Per-folder scan failed: %(err)s") % {"err": err}
                     )
 
+    from urllib.parse import urlencode
+
+    keep = [
+        (k, v) for k, v in request.GET.items() if k in ("volume", "scope", "project")
+    ]
+    sunburst_qs = urlencode(keep)
     context = {
         **_base_context("usage"),
+        **scope_ctx,
+        "sunburst_qs": sunburst_qs,
         "fleet_segments": donut_segments(fleet_items),
         "fleet_total": sum(v for _label, v in fleet_items),
         "statuses": statuses,
         "reachable": volumes.REACHABLE,
         "folder_volume": folder_volume,
+        "folder_label": folder_label,
         "folder_segments": donut_segments(folder_items),
         "folder_total": sum(v for _label, v in folder_items),
         "folder_note": folder_note,
+        "fleet_available": _fleet_views_available(),
     }
     return render(request, "scitex_storage/organize.html", context)
+
+
+def _sandboxed_chart(view):
+    from functools import wraps
+
+    @wraps(view)
+    def wrapped(request):
+        response = view(request)
+        response["Content-Security-Policy"] = "sandbox allow-scripts"
+        return response
+
+    return wrapped
+
+
+@_sandboxed_chart
+def usage_sunburst(request):
+    """Interactive folder sunburst for the Usage tab's breakdown root.
+
+    The same root the per-folder breakdown uses (the project directory
+    under project scope, else the selected volume path): the breakdown's
+    numbers live in this zoomable UI instead of a static donut. Served
+    live per request with the scan bounded; failures render a plain note
+    page -- never a blank page and never a 500, because "gather timed
+    out" is a real state a first-run user will hit.
+    """
+    import datetime
+    import html
+
+    from . import volumes
+
+    try:
+        from scitex_storage._render import (
+            build_dir_hierarchy,
+            build_dir_sunburst_html,
+        )
+    except ImportError:
+        return HttpResponse(
+            "<p>Usage sunburst needs the scitex-storage package.</p>",
+            content_type="text/html",
+        )
+    user_volumes = _user_volumes(request)
+    statuses = volumes.measure_all(user_volumes)
+    scope_ctx = _scope_context(request, "usage")
+    if scope_ctx["scope"] == "project" and scope_ctx["pscope"] is None:
+        return HttpResponseForbidden(
+            str(_("Select an available project to view its storage."))
+        )
+    if request.GET.get("volume"):
+        folder_volume = _selected_volume(request, user_volumes, statuses)
+        if folder_volume is None:
+            return HttpResponseForbidden(str(_("That volume is not yours.")))
+    else:
+        folder_volume = _selected_volume(request, user_volumes, statuses)
+    root = None
+    label = ""
+    if scope_ctx["scope"] == "project" and scope_ctx["pscope"] is not None:
+        root = scope_ctx["pscope"].project_dir
+        label = scope_ctx["project_name"]
+    elif folder_volume is not None:
+        root = folder_volume.path
+        label = folder_volume.label
+    if root is None:
+        return HttpResponse(
+            "<p>No reachable volumes with measurable capacity yet.</p>",
+            content_type="text/html",
+        )
+    ok, result = _run_bounded(
+        lambda: build_dir_hierarchy(label or str(root), root), SCAN_TIMEOUT_S
+    )
+    if not ok:
+        err = result
+        if type(err).__name__ == "MissingSystemDependencyError":
+            note = _(
+                "Usage sunburst is unavailable here: "
+                "the `fd` binary is not installed on this host."
+            )
+        elif isinstance(err, TimeoutError):
+            note = _(
+                "Usage scan timed out; volume totals on the Usage tab are unaffected."
+            )
+        else:
+            note = _("Could not scan that folder: %(err)s") % {"err": err}
+        return HttpResponse(
+            f"<p>{html.escape(str(note))}</p>", content_type="text/html"
+        )
+    when = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    display_root = (
+        volumes.display_path(folder_volume, request, root) if folder_volume else label
+    )
+    gen_line = f"Scanned {html.escape(display_root)} &middot; {html.escape(when)}"
+    return HttpResponse(build_dir_sunburst_html(label or str(root), result, gen_line))
 
 
 def duplicates(request):
@@ -263,8 +508,33 @@ def duplicates(request):
         for st in statuses
         if st.status == volumes.REACHABLE and st.volume.path.is_dir()
     ]
+    scope_ctx = _scope_context(request, "duplicates")
+    if scope_ctx["scope"] == "project" and scope_ctx["pscope"] is None:
+        return HttpResponseForbidden(
+            str(_("Select an available project to view its storage."))
+        )
+    pscope = scope_ctx["pscope"]
+    if scope_ctx["scope"] == "project" and pscope is not None:
+        # Duplicates within the project only: same report, narrower roots.
+        roots = [pscope.project_dir]
+
+    def visible_path(path):
+        from pathlib import Path
+
+        for volume in user_volumes:
+            if _within(Path(path), volume.path):
+                return volumes.display_path(volume, request, Path(path))
+        if pscope is not None and _within(Path(path), pscope.project_dir):
+            return (
+                scope_ctx["project_name"]
+                + "/"
+                + str(Path(path).relative_to(pscope.project_dir))
+            )
+        return "Storage item"
 
     groups: list[dict] = []
+    group_total = 0
+    truncated = False
     reclaimable: int | None = None
     unavailable_reason = ""
     scanned = False
@@ -285,10 +555,15 @@ def duplicates(request):
             )
         else:
             ok, result = _run_bounded(
-                lambda: _find(roots, max_depth=DUP_MAX_DEPTH), DUPLICATES_TIMEOUT_S
+                lambda: _find(
+                    roots, max_depth=DUP_MAX_DEPTH, timeout_s=DUPLICATES_TIMEOUT_S
+                ),
+                DUPLICATES_TIMEOUT_S + 2,
             )
             if ok:
                 scanned = True
+                group_total = len(result)
+                truncated = group_total > 50
                 import os
 
                 for group in result[:50]:
@@ -301,7 +576,7 @@ def duplicates(request):
                             continue
                     groups.append(
                         {
-                            "paths": [str(p) for p in group[:10]],
+                            "paths": [visible_path(p) for p in group[:10]],
                             "extra": max(0, len(group) - 10),
                             "count": len(group),
                             "size": size,
@@ -333,103 +608,22 @@ def duplicates(request):
 
     context = {
         **_base_context("duplicates"),
+        **scope_ctx,
         "groups": groups,
-        "group_total": len(groups),
-        "truncated": False,
+        "group_total": group_total,
+        "truncated": truncated,
         "reclaimable": reclaimable,
         "scanned": scanned,
         "unavailable_reason": unavailable_reason,
+        "roots": [visible_path(p) for p in roots],
     }
     return render(request, "scitex_storage/organize.html", context)
 
 
-def _archive_destinations() -> tuple:
-    try:
-        from scitex_storage._transfer._archive import DESTINATIONS
-    except ImportError:
-        return ()
-    return tuple(DESTINATIONS)
-
-
-def _tier_of(volume) -> str:
-    return (getattr(volume, "tier", "") or "").strip().lower() or "other"
-
-
-def move(request):
-    """Tier overview + read-only archive planning. No web apply."""
-    from . import volumes
-
-    user_volumes = _user_volumes(request)
-    statuses = volumes.measure_all(user_volumes)
-
-    tiers: dict[str, list] = {}
-    for st in statuses:
-        tiers.setdefault(_tier_of(st.volume), []).append(st)
-
-    destinations = _archive_destinations()
-    plan = None
-    plan_error = ""
-    form_volume = request.GET.get("volume", "")
-    form_dir = request.GET.get("dir", "")
-    form_dest = request.GET.get("destination", "")
-    if "plan" in request.GET:
-        volume = volumes.find_volume(user_volumes, form_volume)
-        if volume is None:
-            return HttpResponseForbidden(str(_("That volume is not yours.")))
-        try:
-            source = volumes.contained_dir(volume, (form_dir or "").strip().strip("/"))
-        except Exception:
-            return HttpResponseForbidden(str(_("That folder is outside the volume.")))
-        if form_dest not in destinations:
-            plan_error = str(
-                _("Pick an archive tier: %(tiers)s.")
-                % {"tiers": ", ".join(destinations) if destinations else "—"}
-            )
-        else:
-            try:
-                from scitex_storage import plan_archive as _plan
-            except ImportError:
-                _plan = None
-            if _plan is None:
-                plan_error = str(
-                    _("Archive planning needs the scitex-storage package.")
-                )
-            else:
-                ok, result = _run_bounded(
-                    lambda: _plan(source, form_dest), PLAN_TIMEOUT_S
-                )
-                if ok:
-                    plan = result
-                else:
-                    err = result
-                    if type(err).__name__ == "MissingSystemDependencyError":
-                        plan_error = str(
-                            _(
-                                "Archive planning is unavailable here: "
-                                "the `fd` binary is not installed on this host."
-                            )
-                        )
-                    elif isinstance(err, TimeoutError):
-                        plan_error = str(_("Archive planning timed out."))
-                    else:
-                        plan_error = str(
-                            _("Could not plan that move: %(err)s") % {"err": err}
-                        )
-
-    context = {
-        **_base_context("move"),
-        "tiers": sorted(tiers.items()),
-        "reachable": volumes.REACHABLE,
-        "destinations": destinations,
-        "form_volume": form_volume,
-        "form_dir": form_dir,
-        "form_dest": form_dest,
-        "user_volumes": user_volumes,
-        "plan": plan,
-        "plan_error": plan_error,
-    }
-    return render(request, "scitex_storage/organize.html", context)
-
+# Logical-tier adapter owns planning and bounded execution. Archive/retention
+# remain public CLI/Python APIs; the GUI never exposes physical host aliases.
+from .logical_move import move  # noqa: E402
+from .logical_move import move_apply as move_apply  # noqa: E402
 
 _HANDLERS = {
     "usage": usage,

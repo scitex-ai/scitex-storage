@@ -48,6 +48,10 @@ MISSING_ROOT_MARKER = "SCITEX_REMOTE_DIGEST_MISSING_ROOT"
 #: matching one, and the difference is exactly the file you would delete.
 UNREADABLE_MARKER = "UNREADABLE"
 
+#: Unlike find's ordinary paths (which begin with ./), this control token
+#: reports a failed traversal even if the pipeline's final command succeeds.
+WALK_FAILED_MARKER = "SCITEX_REMOTE_DIGEST_WALK_FAILED"
+
 #: POSIX-sh, BusyBox-safe. `{path}` is substituted with an already-quoted path.
 #:
 #: Deliberately NOT a one-liner pipeline into `xargs sha256sum`: xargs
@@ -55,7 +59,10 @@ UNREADABLE_MARKER = "UNREADABLE"
 #: WRONG hash for a DIFFERENT file rather than an error.
 REMOTE_DIGEST_CMD = (
     "cd {path} 2>/dev/null || {{ echo '" + MISSING_ROOT_MARKER + "'; exit 0; }}; "
-    "find . ! -type d | while IFS= read -r f; do "
+    "{{ find . ! -type d || printf '%s\\n' '" + WALK_FAILED_MARKER + "'; }} "
+    "| while IFS= read -r f; do "
+    'if [ "$f" = "' + WALK_FAILED_MARKER + '" ]; then '
+    "printf '" + UNREADABLE_MARKER + " <walk>\\n'; continue; fi; "
     'if [ -L "$f" ]; then '
     "printf 'symlink:%s' \"$(readlink \"$f\")\" | sha256sum 2>/dev/null "
     "| cut -c1-64 | tr -d '\\n'; printf ' %s\\n' \"$f\"; "

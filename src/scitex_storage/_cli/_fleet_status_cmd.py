@@ -85,6 +85,8 @@ def _snapshot_dict(snapshot: FleetSnapshot) -> dict:
             ("{prog} fleet-status", "measure THIS host's filesystems"),
             ("{prog} fleet-status --demo --output /tmp/board.html", "write elsewhere"),
             ("{prog} fleet-status --demo --json", "machine-readable snapshot"),
+            ("{prog} fleet-status --gather", "fleet sweep → table+bubbles+sunburst for the GUI views"),
+            ("{prog} fleet-status --gather --demo", "seeded snapshots for all three views, no ssh"),
         ),
     ),
 )
@@ -94,6 +96,15 @@ def _snapshot_dict(snapshot: FleetSnapshot) -> dict:
     help="Render the seeded fleet-wide snapshot instead of measuring this host.",
 )
 @click.option(
+    "--gather",
+    is_flag=True,
+    help=(
+        "Gather the whole fleet via the host registry and write the three "
+        "GUI snapshots (fleet table, bubbles, sunburst) the Django views serve. "
+        "With --demo, renders the seeded snapshot to all three paths without ssh."
+    ),
+)
+@click.option(
     "--output",
     "output",
     type=click.Path(dir_okay=False, writable=True),
@@ -101,7 +112,11 @@ def _snapshot_dict(snapshot: FleetSnapshot) -> dict:
     help="Where to write the HTML (default: the runtime tree).",
 )
 @click.option("--json", "as_json", is_flag=True, help="Emit the snapshot as JSON to stdout.")
-def fleet_status_cmd(demo: bool, output: str | None, as_json: bool) -> None:
+def fleet_status_cmd(demo: bool, gather: bool, output: str | None, as_json: bool) -> None:
+    if gather:
+        _run_gather(demo=demo, output=output, as_json=as_json)
+        return
+
     snapshot = demo_snapshot() if demo else gather_fleet_snapshot()
 
     if as_json:
@@ -118,6 +133,54 @@ def fleet_status_cmd(demo: bool, output: str | None, as_json: bool) -> None:
     click.echo(
         f"  {snapshot.total_hosts} host(s), {snapshot.total_filesystems} "
         f"filesystem(s), {flagged} flagged, {cnl} could-not-look."
+    )
+
+
+def _run_gather(demo: bool, output: str | None, as_json: bool) -> None:
+    """Gather the fleet and write the three snapshots the GUI views serve.
+
+    ``--output`` overrides only the fleet-table path; bubbles/sunburst go
+    to their default siblings (see :mod:`scitex_storage._observe`). With
+    ``--demo`` no host is contacted: the seeded snapshot is rendered to all
+    three paths. With ``--json`` the snapshot dict is also echoed to stdout.
+    """
+    from .._fleet_status import _now_iso
+
+    if demo:
+        from .._observe import (
+            _atomic_write,
+            default_bubbles_path,
+            default_snapshot_path,
+            default_sunburst_path,
+        )
+        from .._render import (
+            build_bubbles_html,
+            build_dashboard_html,
+            build_sunburst_html,
+        )
+
+        snapshot = demo_snapshot()
+        table_path = output or default_snapshot_path()
+        _atomic_write(table_path, build_dashboard_html(snapshot))
+        _atomic_write(default_bubbles_path(), build_bubbles_html(snapshot))
+        _atomic_write(default_sunburst_path(), build_sunburst_html(snapshot))
+    else:
+        from .._observe import default_snapshot_path, write_fleet_snapshot
+
+        table_path = output or default_snapshot_path()
+        snapshot = write_fleet_snapshot(table_path, _now_iso())
+
+    if as_json:
+        click.echo(json.dumps(_snapshot_dict(snapshot), indent=2))
+        return
+
+    flagged = snapshot.flagged_count
+    cnl = snapshot.could_not_look_count
+    click.echo(f"Wrote fleet snapshots for {snapshot.total_hosts} host(s):")
+    click.echo(f"  table: {table_path}")
+    click.echo(
+        f"  {snapshot.total_filesystems} filesystem(s), "
+        f"{flagged} flagged, {cnl} could-not-look."
     )
 
 

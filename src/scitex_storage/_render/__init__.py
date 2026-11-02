@@ -24,12 +24,19 @@ from __future__ import annotations
 
 from ._bubbles import aggregate_hosts, build_bubbles_html
 from ._fleet_table import build_dashboard_html
-from ._sunburst import build_hierarchy, build_sunburst_html
+from ._sunburst import (
+    build_dir_hierarchy,
+    build_dir_sunburst_html,
+    build_hierarchy,
+    build_sunburst_html,
+)
 
 __all__ = [
     "aggregate_hosts",
     "build_bubbles_html",
     "build_dashboard_html",
+    "build_dir_hierarchy",
+    "build_dir_sunburst_html",
     "build_hierarchy",
     "build_sunburst_html",
 ]

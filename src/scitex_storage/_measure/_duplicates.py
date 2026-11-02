@@ -30,16 +30,22 @@ instructions rather than silently falling back to a slow pure-Python hash.
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ._scan import MissingSystemDependencyError
 
+if TYPE_CHECKING:
+    from ._classify import Signal
+
 _FCLONES_BINARY_NAME = "fclones"
 
-_FCLONES_INSTALL_HINT = """scitex-storage `find-duplicates` requires the `fclones` binary — a \
+_FCLONES_INSTALL_HINT = """scitex-storage `find-duplicates` requires the \
+`fclones` binary — a \
 hand-rolled Python size+hash pass is too slow at multi-terabyte scale.
 
 `fclones` was not found on PATH. Install it:
@@ -63,7 +69,10 @@ def _fclones_binary() -> str:
 
 
 def find_duplicates(
-    roots: list[str | Path], max_depth: int | None = None
+    roots: list[str | Path],
+    max_depth: int | None = None,
+    *,
+    timeout_s: float | None = None,
 ) -> list[list[Path]]:
     """Find groups of files with byte-identical content under ``roots``.
 
@@ -73,6 +82,11 @@ def find_duplicates(
     requires reading bytes. Use ``max_depth`` to bound the walk on a slow
     network mount or a login node.
 
+    ``timeout_s`` optionally bounds the actual fclones process, in seconds.
+    It must be finite and positive. Expiry kills and reaps the process before
+    raising ``TimeoutError``; partial output is never returned as a result.
+    ``None`` preserves the existing unbounded CLI/library behavior.
+
     Read-only in the sense that nothing is moved, linked, or deleted —
     ``fclones group`` (not ``fclones link``/``remove``/``dedupe``) only
     ever reports.
@@ -81,6 +95,15 @@ def find_duplicates(
     (fail-loud, matching :func:`scitex_storage.scan`) and
     :class:`MissingSystemDependencyError` if ``fclones`` is not installed.
     """
+    if timeout_s is not None:
+        if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)):
+            raise ValueError("timeout_s must be a finite positive number of seconds")
+        try:
+            timeout_s = float(timeout_s)
+        except OverflowError as exc:
+            raise ValueError("timeout_s must be finite and positive") from exc
+        if not math.isfinite(timeout_s) or timeout_s <= 0:
+            raise ValueError("timeout_s must be finite and positive")
     if not roots:
         return []
 
@@ -92,11 +115,19 @@ def find_duplicates(
         cmd += ["--depth", str(max_depth)]
     cmd += [str(p) for p in resolved]
 
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        proc = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout_s
+        )
+    except subprocess.TimeoutExpired as exc:
+        # run() kills the child and completes communicate()/wait() before it
+        # raises. Do not leave the hashing process reading after GUI timeout.
+        raise TimeoutError("Duplicate detection exceeded its process deadline") from exc
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(
-            f"`fclones group` exited {proc.returncode}: {stderr or '(no stderr output)'}"
+            f"`fclones group` exited {proc.returncode}: "
+            f"{stderr or '(no stderr output)'}"
         )
 
     payload = json.loads(proc.stdout.decode("utf-8"))

@@ -22,6 +22,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
+# Django is the OPTIONAL ``gui`` extra (see pyproject.toml): this module
+# only runs inside a Django host. Guarded so the import failure names the
+# extra instead of surfacing a bare ModuleNotFoundError (PS-233; PS-148).
+try:
+    from django.conf import settings
+    from django.utils.module_loading import import_string
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage volumes require Django: pip install scitex-storage[gui]"
+    ) from exc
+
 PROBE_TIMEOUT_S = 2.0
 MAX_ENTRIES = 500
 
@@ -38,6 +49,7 @@ class Volume:
     machine: str
     tier: str = ""
     connection: str = ""
+    display_root: str = ""
 
 
 @dataclass
@@ -108,13 +120,11 @@ def _coerce(item) -> Volume:
         machine=str(item.get("machine") or ""),
         tier=str(item.get("tier") or ""),
         connection=str(item.get("connection") or ""),
+        display_root=str(item.get("display_root") or ""),
     )
 
 
 def _provider() -> Optional[Callable]:
-    from django.conf import settings
-    from django.utils.module_loading import import_string
-
     dotted = getattr(settings, "SCITEX_STORAGE_VOLUMES_PROVIDER", "")
     return import_string(dotted) if dotted else None
 
@@ -124,13 +134,38 @@ def resolve_user_volumes(request) -> list:
     provider = _provider()
     if provider is not None:
         return [_coerce(v) for v in (provider(request) or [])]
-    from django.conf import settings
-
     if getattr(settings, "SCITEX_APP_MODE", "standalone") != "standalone":
         return []  # hosted without a provider: fail closed
     return [
         Volume(key="home", label="Home", path=Path.home(), machine=os.uname().nodename)
     ]
+
+
+def display_path(volume: Volume, request, path: Path | None = None) -> str:
+    """Logical user-facing path; never changes the authorized physical root."""
+    if volume.display_root:
+        base = volume.display_root.rstrip("/")
+    else:
+        user = getattr(request, "user", None)
+        username = getattr(user, "username", "")
+        if (
+            isinstance(username, str)
+            and username
+            and not any(c in username for c in "/\\\0")
+            and username not in {".", ".."}
+        ):
+            base = "/home/" + username
+            if volume.key not in {"workspace", "home"}:
+                base += "/" + (volume.tier or volume.key)
+        else:
+            base = volume.label
+    if path is None:
+        return base
+    try:
+        relative = Path(path).resolve().relative_to(volume.path.resolve())
+    except ValueError:
+        return volume.label
+    return base if str(relative) == "." else base + "/" + relative.as_posix()
 
 
 def find_volume(volumes: Iterable[Volume], key: str) -> Optional[Volume]:
@@ -164,7 +199,10 @@ def measure_all(volumes: Iterable[Volume]) -> list:
     def work(i, v):
         results[i] = measure(v)
 
-    threads = [threading.Thread(target=work, args=(i, v), daemon=True) for i, v in enumerate(volumes)]
+    threads = [
+        threading.Thread(target=work, args=(i, v), daemon=True)
+        for i, v in enumerate(volumes)
+    ]
     for t in threads:
         t.start()
     for t in threads:
@@ -193,7 +231,9 @@ def contained_dir(volume: Volume, rel: str) -> Path:
     return candidate
 
 
-def list_dir(volume: Volume, rel: str = "", timeout: float = PROBE_TIMEOUT_S) -> Listing:
+def list_dir(
+    volume: Volume, rel: str = "", timeout: float = PROBE_TIMEOUT_S
+) -> Listing:
     rel = (rel or "").strip().strip("/")
     target = contained_dir(volume, rel)
     listing = Listing(volume=volume, rel=rel)

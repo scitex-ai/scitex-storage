@@ -8,9 +8,16 @@ Namespaced via ``app_name`` so hub's ``{% url 'scitex_storage:index' %}``
 never collides with another app's route names.
 """
 
-from django.urls import path
+# Django is the OPTIONAL ``gui`` extra (see pyproject.toml): hub mounts
+# this module inside its own Django project. Guarded per PS-233/PS-148.
+try:
+    from django.urls import path
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage URLs require Django: pip install scitex-storage[gui]"
+    ) from exc
 
-from . import views
+from . import logical_move, organize, views
 
 app_name = "scitex_storage"
 
@@ -22,6 +29,9 @@ urlpatterns = [
     path("fleet/", views.fleet, name="fleet"),
     path("bubbles/", views.bubbles, name="bubbles"),
     path("sunburst/", views.sunburst, name="sunburst"),
+    path("usage-sunburst/", organize.usage_sunburst, name="usage_sunburst"),
+    path("move-apply/", organize.move_apply, name="move_apply"),
+    path("move-status/", logical_move.move_status, name="move_status"),
     path("healthz", views.healthz, name="healthz"),
     # Project-scoped file API (compass §14). Machine-facing JSON/attachment
     # routes; authz + project scope come from the hub via `request`. The

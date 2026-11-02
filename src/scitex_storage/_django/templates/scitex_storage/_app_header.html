@@ -1,0 +1,50 @@
+{% load i18n static scitex_static %}{% comment %}
+Storage leaf header — SDK AppHeader primitive (operator SSoT CCT4618).
+
+The ROW is owned by scitex-sdk's AppHeader component (ui/ts/app/app-header):
+it renders the one canonical row shared by every app —
+
+    [ leaf title ] [ v<version> ] [ project selector ] ...... [ actions ]
+
+— so Storage cannot drift from Writer/Scholar in markup, classes, order, or
+the version-hidden rule. The leaf owns only the VALUES, stamped as the mount
+attributes the component reads (ts/app/app-header/types.ts): the translated
+title and the LEAF package version (views._leaf_identity via
+importlib.metadata — the leaf's own dist, never the host's version, never a
+hand-written string).
+
+Contract:
+  * title — data-app-title, translated by the LEAF (the component renders
+    whatever string it is given; translation is the leaf's job).
+  * version — data-app-version; the component prefixes "v" and hides the
+    badge when empty (an unknown version renders as ABSENT, never as a
+    placeholder).
+  * picker — server-rendered by `_project_picker.html`
+    (`{% scitex_project_picker scope="project" %}`, Writer precedent) when
+    `project_picker_available` (the tag library resolves) AND the request is
+    signed in AND the host registered a provider URL — i.e. exactly the
+    hub-mounted authed case (operator CCT4707). Standalone has no provider,
+    so the tag yields nothing and the markup is byte-identical to before.
+    `header-picker.js` (below) moves the rendered element into the
+    component's canonical slot after mount; the component itself only ever
+    creates the slot, it never populates it.
+  * actions — none declared; the component renders its actions slot empty.
+  * assets — SDK-owned CSS plus the prebuilt auto-mount module, which mounts
+    every [data-stx-app-header] root on DOMContentLoaded and exposes
+    window.stxAppHeader. Module scripts defer by default, so this include
+    can live inside app_content and still mount after parse, on both pages.
+
+Included by index.html (legacy fallback) and organize.html (Usage /
+Duplicates / Move). There is deliberately NO <header> element and NO
+leaf-local class here: the only Storage-specific string on the row is the
+title attribute below.
+{% endcomment %}
+<link rel="stylesheet" href="{% app_static 'scitex_sdk/ui/css/app/app-header.css' %}">
+<div data-stx-app-header
+     data-app-title="{% translate 'Storage' %}"
+     data-app-version="{{ storage_version }}"></div>
+<script type="module" src="{% app_static 'scitex_sdk/ui/js/app/app-header.js' %}"></script>
+{% if project_picker_available %}
+{% include "scitex_storage/_project_picker.html" %}
+<script type="module" src="{% app_static 'scitex_storage/header-picker.js' %}"></script>
+{% endif %}

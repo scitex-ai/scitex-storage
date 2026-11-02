@@ -109,8 +109,8 @@ class TransferVerdict:
 
 
 def verify_transfer(
-    expected_count: int,
-    expected_bytes: int,
+    expected_count: int | None,
+    expected_bytes: int | None,
     observed: RemoteTally,
     explained_shortfall: int = 0,
     shortfall_reason: str = "",
@@ -139,7 +139,22 @@ def verify_transfer(
     if explained_shortfall < 0:
         raise ValueError("explained_shortfall cannot be negative")
 
-    baseline = expected_count - explained_shortfall
+    baseline = (
+        expected_count - explained_shortfall if expected_count is not None else None
+    )
+
+    if baseline is None or expected_bytes is None:
+        return TransferVerdict(
+            verdict=COULD_NOT_LOOK,
+            expected_count=baseline,
+            observed_count=observed.entry_count,
+            expected_bytes=expected_bytes,
+            observed_bytes=observed.size_bytes,
+            evidence=(
+                "source tally produced no usable baseline -- the source must NOT "
+                "be removed on an unanswered check"
+            ),
+        )
 
     if observed.entry_count is None or observed.size_bytes is None:
         return TransferVerdict(
@@ -262,15 +277,18 @@ def local_tally(path: str) -> RemoteTally:
 
     entries = 0
     total = 0
+
+    def walk_failed(exc: OSError) -> None:
+        raise exc
+
     try:
-        for root, dirnames, filenames in os.walk(path, followlinks=False):
+        for root, dirnames, filenames in os.walk(
+            path, followlinks=False, onerror=walk_failed
+        ):
             for name in filenames:
                 full = os.path.join(root, name)
                 entries += 1
-                try:
-                    total += os.lstat(full).st_size
-                except OSError:
-                    pass
+                total += os.lstat(full).st_size
             # A symlink pointing at a directory lands in dirnames, not
             # filenames -- count it as an entry and do not descend.
             keep: list[str] = []
@@ -278,10 +296,7 @@ def local_tally(path: str) -> RemoteTally:
                 full = os.path.join(root, name)
                 if os.path.islink(full):
                     entries += 1
-                    try:
-                        total += os.lstat(full).st_size
-                    except OSError:
-                        pass
+                    total += os.lstat(full).st_size
                 else:
                     keep.append(name)
             dirnames[:] = keep

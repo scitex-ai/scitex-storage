@@ -2,6 +2,11 @@
 # -*- coding: utf-8 -*-
 """scitex-storage: research-data storage triage.
 
+Local ``VersionStore`` snapshots regular files using immutable content chunks
+and streaming manifests, with Git-owned small pointers. Ingest retains its
+source; verified checkout never overwrites an occupant. No version-store
+cleanup, source deletion, Git LFS protocol, or remote server is enabled.
+
 Current scope (see README for the full roadmap): a read-only, stat-only
 directory-tree ``scan`` (delegates its walk to ``fd``) that inventories
 the biggest space and inode (file-count) consumers per top-level child of
@@ -13,7 +18,10 @@ directory currently references; ``sweep`` — tars an inode-hog directory
 in place (compute-node-only, explicit per-directory confirm required);
 and ``archive``/``restore`` — move-not-delete tiering to nas/nas2 over
 ssh, verified before the local copy is removed, with a manifest
-``restore`` reads back. Every mutating command defaults to a dry-run.
+``restore`` reads back; ``backup`` — same verified copy without the
+delete (source retained, manifest marked ``retained_source``); and
+``scrub`` — cold re-verification of archived trees against their
+manifests. Every mutating command defaults to a dry-run.
 
 Public names — including ``__version__`` — are exposed via PEP 562
 ``__getattr__`` (lazy, on first access) so ``import scitex_storage`` itself
@@ -30,6 +38,26 @@ from __future__ import annotations
 
 # Public-name -> source-submodule map. ONE row per public symbol.
 _LAZY_ATTRS: dict[str, str] = {
+    "ChunkingConfig": "_versions",
+    "NativeChunkerUnavailable": "_versions",
+    "ChunkRef": "_versions",
+    "VersionManifest": "_versions",
+    "IntegrityError": "_versions",
+    "SourceChangedError": "_versions",
+    "GitPointer": "_versions",
+    "read_git_pointer": "_versions",
+    "render_git_pointer": "_versions",
+    "write_git_pointer": "_versions",
+    "IngestResult": "_versions",
+    "VersionStore": "_versions",
+    "MovePlan": "_transfer._move",
+    "MoveManifest": "_transfer._move",
+    "MoveRecoveryRequired": "_transfer._move",
+    "MoveInProgress": "_transfer._move",
+    "MoveCancelled": "_transfer._move",
+    "plan_move": "_transfer._move",
+    "apply_move": "_transfer._move",
+    "get_move_status": "_transfer._move",
     "ChildUsage": "_measure._scan",
     "MissingSystemDependencyError": "_measure._scan",
     "RootScan": "_measure._scan",
@@ -50,13 +78,20 @@ _LAZY_ATTRS: dict[str, str] = {
     "apply_sweep": "_transfer._sweep",
     "plan_sweep": "_transfer._sweep",
     "sweep_status": "_transfer._sweep",
+    "StagedRecord": "_transfer._retention",
+    "SweepReport": "_transfer._retention",
+    "stage_for_retention": "_transfer._retention",
+    "sweep_restorable": "_transfer._retention",
+    "restore_staged": "_transfer._retention",
     "ArchiveManifest": "_transfer._archive",
     "ArchivePlan": "_transfer._archive",
     "RestorePlan": "_transfer._archive",
+    "ScrubReport": "_transfer._scrub",
     "apply_archive": "_transfer._archive",
     "apply_restore": "_transfer._archive",
     "plan_archive": "_transfer._archive",
     "plan_restore": "_transfer._archive",
+    "scrub_manifest": "_transfer._scrub",
     "Classification": "_document_pipeline",
     "DocumentSorterConfig": "_document_pipeline",
     "DocumentOutcome": "_document_pipeline",
@@ -117,6 +152,26 @@ def __dir__() -> list[str]:
 # Literal (not computed) so PA-101's static AST check can see it. Keep in
 # sync with the _LAZY_ATTRS keys above.
 __all__ = [
+    "ChunkingConfig",
+    "NativeChunkerUnavailable",
+    "ChunkRef",
+    "VersionManifest",
+    "IntegrityError",
+    "SourceChangedError",
+    "GitPointer",
+    "read_git_pointer",
+    "render_git_pointer",
+    "write_git_pointer",
+    "IngestResult",
+    "VersionStore",
+    "MovePlan",
+    "MoveManifest",
+    "MoveRecoveryRequired",
+    "MoveInProgress",
+    "MoveCancelled",
+    "plan_move",
+    "apply_move",
+    "get_move_status",
     "ChildUsage",
     "MissingSystemDependencyError",
     "RootScan",
@@ -137,6 +192,11 @@ __all__ = [
     "apply_sweep",
     "plan_sweep",
     "sweep_status",
+    "StagedRecord",
+    "SweepReport",
+    "stage_for_retention",
+    "sweep_restorable",
+    "restore_staged",
     "ArchiveManifest",
     "ArchivePlan",
     "RestorePlan",
@@ -144,6 +204,8 @@ __all__ = [
     "apply_restore",
     "plan_archive",
     "plan_restore",
+    "ScrubReport",
+    "scrub_manifest",
     "Classification",
     "DocumentSorterConfig",
     "DocumentOutcome",

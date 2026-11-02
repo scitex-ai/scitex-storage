@@ -242,4 +242,93 @@ def _manifest_path(source: Path) -> Path:
     flattened = str(source).lstrip("/").replace("/", "--")
     return _manifest_dir() / f"{flattened}.json"
 
+
+#: Suffix for the manifest REPLICA written next to the archived tree on the
+#: destination host. A sibling file, not a member of the tree: it is written
+#: AFTER verification, so placing it inside ``remote_path`` would poison any
+#: later re-verify (tally or content) with an entry that was never in the
+#: source. Next to the tree, the map travels with the data -- losing the
+#: local machine no longer loses the knowledge of what went cold where.
+SIDECAR_SUFFIX = ".scitex-archive-manifest.json"
+
+
+def manifest_sidecar_remote_path(remote_path: str) -> str:
+    """Remote path of the manifest sidecar for an archived ``remote_path``."""
+    return remote_path.rstrip("/") + SIDECAR_SUFFIX
+
+
+@dataclass(frozen=True)
+class SidecarResult:
+    """Outcome of one manifest-sidecar round trip."""
+
+    written: bool
+    detail: str
+
+
+def write_manifest_sidecar(
+    destination: str,
+    remote_path: str,
+    local_manifest: Path,
+    *,
+    runner=None,
+) -> SidecarResult:
+    """Copy the local manifest to the destination and read it back.
+
+    Single-shot ``scp`` (no remote-shell quoting of content at all), then a
+    ``cat`` read-back compared byte-for-byte against the local file. The
+    read-back answers the only question that matters for a replica: is what
+    is THERE what is HERE.
+
+    Best-effort BY CONTRACT: a replica failure is recorded, never raised --
+    the primary verification already passed, and stranding a verified
+    migration over a replica hiccup would conflate a lost convenience with
+    lost data. Callers record the result on the manifest (``sidecar_*``).
+    """
+    from scitex_ssh import copy_to, exec_remote
+
+    if runner is None and shutil.which("scp") is None:
+        return SidecarResult(
+            written=False,
+            detail="local `scp` binary missing -- sidecar not attempted",
+        )
+    sidecar = manifest_sidecar_remote_path(remote_path)
+    put = copy_to(destination, str(local_manifest), sidecar, runner=runner)
+    if not put.success:
+        return SidecarResult(
+            written=False,
+            detail=(
+                f"scp manifest sidecar to {destination}:{sidecar} failed "
+                f"(exit {put.returncode}): {put.stderr.strip()}"
+            ),
+        )
+    try:
+        expected = local_manifest.read_text(encoding="utf-8")
+    except OSError as exc:
+        return SidecarResult(
+            written=False, detail=f"local manifest unreadable for read-back: {exc}"
+        )
+    back = exec_remote(
+        destination, f"cat -- {_quote_remote_path(sidecar)}", runner=runner
+    )
+    if not back.success:
+        return SidecarResult(
+            written=False,
+            detail=(
+                f"sidecar read-back from {destination}:{sidecar} failed "
+                f"(exit {back.returncode}): {back.stderr.strip()}"
+            ),
+        )
+    if back.stdout != expected:
+        return SidecarResult(
+            written=False,
+            detail=(
+                f"sidecar read-back from {destination}:{sidecar} differs from "
+                f"the local manifest ({len(back.stdout)} vs {len(expected)} chars)"
+            ),
+        )
+    return SidecarResult(
+        written=True,
+        detail=f"sidecar at {destination}:{sidecar}, read back identical",
+    )
+
 # EOF
