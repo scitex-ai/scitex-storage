@@ -121,17 +121,34 @@ def add_cmd(store, source, min_size, average_size, max_size, yes, dry_run):
     ),
 )
 @click.argument("version_id")
+@click.option(
+    "--json/--human",
+    "as_json",
+    default=True,
+    show_default=True,
+    help="Emit verified metadata as JSON (default) or a readable report.",
+)
 @click.pass_obj
-def inspect_cmd(store, version_id):
-    _run(
-        lambda: _emit(
-            {
-                "status": "manifest_verified",
-                "content_verified": False,
-                **asdict(store.read_manifest(version_id)),
-            }
-        )
-    )
+def inspect_cmd(store, version_id, as_json):
+    def action():
+        manifest = store.read_manifest(version_id)
+        if as_json:
+            _emit(
+                {
+                    "status": "manifest_verified",
+                    "content_verified": False,
+                    **asdict(manifest),
+                }
+            )
+        else:
+            _console.emit(
+                f"Version: {manifest.version_id}\n"
+                f"Manifest: verified\nContent: not verified\n"
+                f"File SHA256: {manifest.file_sha256}\n"
+                f"Size: {manifest.size} bytes\nChunks: {manifest.chunk_count}"
+            )
+
+    _run(action)
 
 
 @versions_group.command(
@@ -183,12 +200,12 @@ def checkout_cmd(store, version_id, destination, yes, dry_run):
 
 
 @versions_group.command(
-    "pointer",
+    "create-pointer",
     **spec_command_kwargs(
         summary="Create a small ordinary Git pointer file.",
         examples=(
             (
-                "{prog} versions --store ./objects pointer VERSION_ID "
+                "{prog} versions --store ./objects create-pointer VERSION_ID "
                 "./dataset.stx.json --yes",
                 "create a new Git-trackable pointer",
             ),
@@ -227,3 +244,20 @@ def pointer_cmd(store, version_id, destination, yes, dry_run):
             )
 
     _run(action)
+
+
+# This is a pure argument-preserving rename: old scripts retain JSON stdout and
+# all confirmation/no-overwrite gates. Dev owns the standard warning metadata.
+try:
+    from scitex_dev.ecosystem import deprecated_alias
+except ImportError:
+    # Minimal installations do not require Dev. Click's own alias registration
+    # preserves the old command; no local audit-exemption protocol is invented.
+    versions_group.add_command(pointer_cmd, name="pointer")
+else:
+    deprecated_alias(
+        versions_group,
+        "pointer",
+        target="create-pointer",
+        remove_in="0.8",
+    )

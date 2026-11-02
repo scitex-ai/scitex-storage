@@ -10,6 +10,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 - Render a single-child Usage ring as a complete annulus using two SVG arcs per circle; preserve its empty center, ring bounds, partial sectors and native drill-down.
 
 - Paint the Usage parent disk after colored arcs so near-edge native touch compatibility clicks keep the center target inside sandboxed phone iframes. Radius and ring geometry are unchanged.
+- Give manifest inspection a real JSON/human format choice while preserving JSON
+  by default; human metadata uses scitex-logging and never claims content checks.
+- Name pointer creation `versions create-pointer`, keeping the old spelling as
+  an argument-preserving compatibility alias with unchanged confirmation gates.
+- Declare actual storage actions alarm/backup/scrub through the existing leaf
+  vocabulary SPI, without adding output flags or changing their behavior.
+
 
 - Regress Usage scope boundaries with registered SDK providers: reject encoded/foreign selectors, ignore free-form root overrides, preserve project narrowing, and avoid descent through escaping directory symlinks. No backend authorization policy changes.
 
