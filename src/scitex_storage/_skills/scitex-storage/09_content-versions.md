@@ -26,7 +26,11 @@ interoperability from an ordinary Git test.
 chunks and the full output before publishing a new file. Existing files and
 symlinks are refused. Do not work around that refusal by deleting or replacing
 the destination. `read_manifest`/CLI `inspect` validate manifest metadata only;
-they do not prove that the payload chunks are intact.
+they do not prove that the payload chunks are intact. `inspect` defaults to
+JSON; `--json` selects it explicitly and `--human` shows readable metadata.
+Use `versions create-pointer VERSION_ID DESTINATION --yes` for a new pointer.
+The old `pointer` spelling remains compatible, with the shared Dev deprecation
+warning where available; no overwrite or confirmation gate is relaxed.
 
 The algorithm is `fastcdc-py-1.7.0-cython-v1`, using the pinned native
 fastcdc-py/ronomon variant. Defaults are 512 KiB / 2 MiB / 8 MiB bounds. Only

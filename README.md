@@ -184,6 +184,10 @@ verified chunks, and checkout creates a new checksum-verified file without
 overwriting an occupant. Git tracks small ordinary pointers; Storage owns the
 payload objects. This is not Git LFS and does not deploy or configure Gitea.
 
+CLI `versions inspect` preserves JSON by default and offers `--human` for
+readable metadata. `versions create-pointer` creates a new pointer; the old
+`pointer` spelling remains compatible during its deprecation period.
+
 See [content versions](docs/content-versions.md) for the executable temporary-file
 example, CLI previews, format, and limits. No garbage collection or automatic
 source deletion is enabled.

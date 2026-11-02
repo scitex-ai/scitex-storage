@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Give manifest inspection a real JSON/human format choice while preserving JSON
+  by default; human metadata uses scitex-logging and never claims content checks.
+- Name pointer creation `versions create-pointer`, keeping the old spelling as
+  an argument-preserving compatibility alias with unchanged confirmation gates.
+- Declare actual storage actions alarm/backup/scrub through the existing leaf
+  vocabulary SPI, without adding output flags or changing their behavior.
+
+
 - Regress Usage scope boundaries with registered SDK providers: reject encoded/foreign selectors, ignore free-form root overrides, preserve project narrowing, and avoid descent through escaping directory symlinks. No backend authorization policy changes.
 
 - Make the entire Usage sunburst center disk a parent control, with `..`, mouse/touch and Enter/Space support. Disable it at the loaded scoped root and safely refuse malformed hash restoration without ancestor requests.
