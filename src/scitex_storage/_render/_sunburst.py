@@ -287,8 +287,9 @@ function render(){{
   t2.setAttribute('x',CX); t2.setAttribute('y',CY+16); t2.setAttribute('text-anchor','middle');
   t2.setAttribute('fill','var(--muted)'); t2.setAttribute('font-size','11');
   t2.textContent=human(focus.value); centre.appendChild(t2);
-  svg.appendChild(centre);
   ring(focus, 0, -Math.PI/2, -Math.PI/2+TAU, 1);
+  // Keep the inner disk above arcs during native touch target adjustment.
+  svg.appendChild(centre);
   crumb.replaceChildren();
   path.forEach((n,i)=>{{
     if(i) crumb.appendChild(document.createTextNode(' / '));

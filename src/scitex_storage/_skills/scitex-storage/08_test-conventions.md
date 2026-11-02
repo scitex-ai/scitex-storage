@@ -55,3 +55,8 @@ ignored free-form path queries, per-project narrowing, and escaping directory
 symlinks. Its roots and file contents are temporary fixtures, and every request
 checks those contents remain unchanged. The tests prove existing protections;
 they do not add an unrestricted path or parent-navigation API.
+
+`test_sunburst_touch_iframe.py` retains the observed phone iframe dimensions and
+fractional SVG translation. A native touch inside radius 70 must navigate to
+the loaded parent even after the browser generates its compatibility click.
+The center is painted after arcs; its radius and ring bounds stay unchanged.
