@@ -208,6 +208,15 @@ function polar(r,a){{return [CX+r*Math.cos(a), CY+r*Math.sin(a)];}}
 function arcPath(r0,r1,a0,a1){{
   const large=(a1-a0)>Math.PI?1:0;
   const [x0,y0]=polar(r0,a0),[x1,y1]=polar(r1,a0),[x2,y2]=polar(r1,a1),[x3,y3]=polar(r0,a1);
+  // One SVG arc cannot represent a circle with coincident endpoints.
+  // Opposite-winding closed circles preserve the annulus and its empty hole.
+  if(Math.abs(a1-a0-TAU)<=Number.EPSILON*8){{
+    const [ix,iy]=polar(r0,a0+Math.PI),[ox,oy]=polar(r1,a0+Math.PI);
+    return `M${{x1}} ${{y1}} A${{r1}} ${{r1}} 0 0 1 ${{ox}} ${{oy}} `+
+      `A${{r1}} ${{r1}} 0 0 1 ${{x1}} ${{y1}} Z `+
+      `M${{x0}} ${{y0}} A${{r0}} ${{r0}} 0 0 0 ${{ix}} ${{iy}} `+
+      `A${{r0}} ${{r0}} 0 0 0 ${{x0}} ${{y0}} Z`;
+  }}
   return `M${{x0}} ${{y0}} L${{x1}} ${{y1}} A${{r1}} ${{r1}} 0 ${{large}} 1 ${{x2}} ${{y2}} `+
          `L${{x3}} ${{y3}} A${{r0}} ${{r0}} 0 ${{large}} 0 ${{x0}} ${{y0}} Z`;
 }}

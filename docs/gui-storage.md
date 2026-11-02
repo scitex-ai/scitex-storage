@@ -28,6 +28,9 @@ not a free-form filesystem root. Traversal-shaped/foreign selectors return 403;
 Directory symlinks may appear as link entries but their target trees are not
 recursed. These existing boundaries are covered through actual SDK project and
 volume provider fixtures; the center control adds no filesystem endpoint.
+Single-child folders render a complete colored annulus rather than leaving an
+empty ring. Ring clicks still drill into the loaded child; the center remains
+the one-level parent control.
 Capacity cards are filesystem capacity, not claimed personal usage/quota.
 Duplicates calls the real read-only content matcher, with a depth bound; missing
 fclones is shown as unavailable rather than an empty successful report. The GUI

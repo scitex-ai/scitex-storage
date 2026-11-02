@@ -60,3 +60,8 @@ they do not add an unrestricted path or parent-navigation API.
 fractional SVG translation. A native touch inside radius 70 must navigate to
 the loaded parent even after the browser generates its compatibility click.
 The center is painted after arcs; its radius and ring bounds stay unchanged.
+
+`test_sunburst_full_annulus.py` uses the native SVG fill engine and real
+mouse/touch against single-child directories. All ring angles must be filled,
+the center hole must remain empty, partial sectors must retain two arcs, and
+ring drill-down plus scoped parent navigation must both work.
