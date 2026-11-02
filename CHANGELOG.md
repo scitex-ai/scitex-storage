@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Acknowledge termination of live transfer descendants, not only their group
+  leader, before reporting cancellation or discarding interrupted transfer files.
+  Unverifiable termination retains the existing `cancelling` recovery state.
+
 - Add an optional keyword-only `find_duplicates(..., timeout_s=...)` process
   deadline that kills and reaps fclones before reporting a timeout; the default
   CLI/library behavior remains unbounded.
