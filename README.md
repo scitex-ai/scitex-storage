@@ -34,7 +34,7 @@
 | 2 | **Inodes exhausted, disk looks free** — `No space left on device` with GBs free: `du` measures bytes, not the millions of tiny files starving an HPC quota | **The `FILES` column** — every child's inode count, and `--sort files` to rank by it, so an inode hog surfaces even when it's small on disk |
 | 3 | **Stale-build cleanup deletes a live image** — a directory of dated images (SIFs, tarballs) where the currently-live file is often the oldest-looking one still symlinked in | **`scitex-storage images prune`** — rotates to the newest N, but a file any symlink in the directory currently resolves to is never a candidate, regardless of age. Dry-run by default |
 | 4 | **HPC fileset hits its inode quota** — millions of small files on GPFS; deleting real data is not an option, and the fix (tar it) reads file content, barred from login nodes | **`scitex-storage sweep`** — tars an inode-hog directory in place, compute-node-only (needs `$SLURM_JOB_ID`), explicit per-directory `--confirm`, skips anything still active |
-| 5 | **Copy-then-delete risks silent loss** — local disk fills with directories that should move to NAS, but "just delete after copying" risks a partial/failed copy silently losing data | **`scitex-storage archive`** — copy-verify-then-remove over ssh to `nas`/`nas2` (scitex-ssh's `sync_dir`), checksummed by default, manifest written first, `restore` reads it back; `--retire-source` stages the original restorable instead of deleting (swept by `sweep-restorable` after retention) |
+| 5 | **Copy-then-delete risks silent loss** — local disk fills with directories that should move to NAS, but "just delete after copying" risks a partial/failed copy silently losing data | **`scitex-storage archive`** — copy-verify-then-remove over ssh to `nas`/`nas2` (scitex-ssh's `sync_dir`), rsync checksum plus mandatory independent SHA256 before moving, manifest written first, `restore` reads it back; the original stays in seven-day restorable staging by default (only an explicitly applied `sweep-restorable` removes expired staging) |
 | 6 | **Duplicate copies pile up** — `dataset (1).zip`, `dataset_final_v2.zip`, and other near-identical names crowding the same directory | **`scitex-storage find-duplicates`** — an explicitly opt-in, separate verb (via `fclones`) that hashes file contents to report exact-duplicate groups; kept out of `scan` on purpose (see below) |
 
 ## Quick Start
@@ -143,6 +143,51 @@ scitex-storage reclaim ./node_modules ./build --yes
 scitex-storage reclaim-restore 2026-0717-154500-123456   # undo a run
 ```
 
+## Verified local moves
+
+`plan_move(source, destination, state_dir=...)` is read-only metadata planning.
+`apply_move(plan, timeout_s=..., deadline=..., cancel_event=...)` runs local
+rsync into a private temporary destination, independently verifies source and
+copy, publishes without overwrite, and retains the original in seven-day
+restorable staging. Files and directories are supported. A GUI host must
+authorize both filesystem roots and supply a trusted per-user state directory;
+physical paths and storage prices are not inferred from tier labels.
+
+The returned `MoveManifest` includes `transaction_id`, `phase`, and
+`manifest_path`. `get_move_status(transaction_id, state_dir=...)` reads it.
+Completed transaction replay returns the existing receipt; incomplete/failed
+transactions require explicit recovery rather than another blind copy.
+`MoveInProgress`, `MoveCancelled`, and `MoveRecoveryRequired` carry `.manifest`.
+A cancelled job may already have published a verified destination: check
+`destination_published`; that copy is retained, never rolled back by deletion.
+
+Rsync runs in its own process group, which cancellation terminates and reaps.
+Content hashing checks cancellation between reads. Blocking filesystem calls
+remain an OS boundary; an unacknowledged termination stays `cancelling` with its
+PID and temporary path recorded. No periodic sweeper or detached worker is
+started by these APIs.
+
+### Recovery and guarded cleanup
+
+Move quarantine is never deleted merely because seven days elapsed. Cleanup
+requires the original checksum, a matching completed move receipt, and a fresh
+independent destination checksum. Missing/corrupt/unreachable copies retain the
+original. Remote archive cleanup requires a bounded target verifier supplied by
+the host; without one it defers. Manual quarantine has a separate explicit
+`--allow-manual-quarantine` deletion opt-in, in addition to `--yes`.
+
+## Experimental local content versions
+
+`VersionStore` adds immutable SHA256 file versions with bounded native FastCDC
+content-defined chunks. The source stays in place, unchanged data reuses
+verified chunks, and checkout creates a new checksum-verified file without
+overwriting an occupant. Git tracks small ordinary pointers; Storage owns the
+payload objects. This is not Git LFS and does not deploy or configure Gitea.
+
+See [content versions](docs/content-versions.md) for the executable temporary-file
+example, CLI previews, format, and limits. No garbage collection or automatic
+source deletion is enabled.
+
 ## Installation
 
 ```bash
@@ -156,7 +201,7 @@ uv pip install "scitex-storage[all]"
 
 | Extra | Pulls in |
 |---|---|
-| `gui` | django, scitex-app, scitex-ui, scitex-dev (browsable GUI plugin) |
+| `gui` | Django, scitex-sdk[gui]>=0.3.17, scitex-dev (browsable GUI plugin) |
 | `all` | `gui` + `dev` + `docs` (recommended) |
 | `dev` | pytest, pytest-cov, + every optional dep so the test suite runs |
 | `docs` | Sphinx + RTD theme + myst-parser (docs build only) |
@@ -233,19 +278,42 @@ python -m scitex_storage._system_deps
 ### GUI plugin (optional)
 
 scitex-storage ships a Django-based GUI plugin
-(`src/scitex_storage/_django/`) with Usage, Duplicates, Move, and Backup tabs,
-installable standalone (`scitex-storage start-gui`) or as a
-scitex-hub plugin mounted at `/storage/`, following the same
+(`src/scitex_storage/_django/`) with Usage, Move, and Duplicates tabs,
+installable standalone (`scitex-storage gui open`) or as a
+scitex-hub plugin mounted at `/apps/storage/`, following the same
 scitex-sdk convention as scitex-writer/scitex-scholar/figrecipe.
 Usage embeds a read-only, zoomable sunburst of the selected project's bytes
 (or an assigned volume when no project is selected), with a separate full-page
 link. The chart uses the same authorized endpoint in both views and needs no
-external JavaScript service. Missing scan dependencies and scan timeouts are
-reported inside the chart. The GUI is optional:
+external JavaScript service. The chart fits the available viewport height,
+with a 480px maximum drawing area, so the embedded view needs no inner scrollbar.
+Missing scan dependencies and scan timeouts are
+reported inside the chart.
+
+Storage starts in **All Projects** without changing the host's remembered project.
+An explicit authorized project constrains the chart and duplicate scan; an invalid
+project is refused rather than widening the scope. Paths shown in the GUI use a
+logical home label, while filesystem operations retain their authorized mount roots.
+
+The Move view offers hot/warm/cool/cold locations through the host's authorized
+volume provider. Missing or ambiguous tiers stay unavailable. Optional Django
+settings `SCITEX_STORAGE_TIER_BINDINGS` map a tier to `{"volume": "provider-key"}`;
+`SCITEX_STORAGE_TIER_RATES` supplies `{"currency": "USD", "per_gb_month": "…"}`
+per tier (replace the ellipsis with an actual nonnegative decimal rate). Rates
+are not inferred. Plans show day/week/30-day estimates using decimal GB.
+
+Confirmed GUI moves require both authorized locations to be mounted, refuse
+registered project-root relocation, verify with SHA after rsync, and retain the
+original for at least seven days. The host must supply `SCITEX_USER_HOME_PROVIDER`
+for private transaction receipts. Expiry does not itself delete anything: the
+bounded retention cleanup also verifies the current destination before deleting
+an expired original. Backup's old GUI was removed; its independent Python/CLI
+copy operation remains available. See [the GUI contract](docs/gui-storage.md).
+The GUI is optional:
 
 ```bash
 pip install scitex-storage[gui]
-scitex-storage start-gui
+scitex-storage gui open
 ```
 
 #### Configuration
@@ -304,6 +372,13 @@ of a hand-rolled `os.walk`/`hashlib` reimplementation. They are
 deliberately separate pipelines, not a shared one: `scan` must stay
 stat-only (safe to point at a 100%-full disk), and finding exact
 duplicates fundamentally requires reading bytes, which `scan` never does.
+
+Library callers can bound the actual hashing process with
+`find_duplicates(roots, timeout_s=60)`. A finite positive deadline kills and
+reaps `fclones` before raising `TimeoutError`; partial output is not treated as
+an empty or completed report. Omitting the keyword preserves the existing
+unbounded CLI/library behavior. A GUI thread deadline alone does not stop the
+hashing process: its adapter must pass the process deadline explicitly.
 
 ```
 scitex_storage/

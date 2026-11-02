@@ -29,8 +29,10 @@ from ._compat import spec_command_kwargs
             "deleted) whose 7-day retention has expired. Defaults to a "
             "dry-run listing; --yes deletes exactly the expired, guarded "
             "trees. Entries outside a `.stx-restorable` directory or whose "
-            "marker no longer matches are refused, never deleted. Run "
-            "periodically (cron) so staged originals do not accumulate."
+            "marker/content checksum or freshly verified destination no longer "
+            "matches are retained. Manual quarantine needs a separate opt-in. "
+            "Each pass is bounded; larger trees remain retained until an "
+            "explicitly sufficient budget is supplied. No periodic job is enabled."
         ),
         examples=(
             ("{prog} sweep-restorable", "dry-run, list expired staging"),
@@ -56,11 +58,48 @@ from ._compat import spec_command_kwargs
     default=False,
     help="Actually delete the expired staged trees.",
 )
+@click.option(
+    "--allow-manual-quarantine",
+    "allow_manual_delete",
+    is_flag=True,
+    default=False,
+    help="Explicitly permit deleting manually staged trees without a verified copy.",
+)
+@click.option("--max-items", type=click.IntRange(min=1), default=32, show_default=True)
+@click.option(
+    "--max-bytes", type=click.IntRange(min=1), default=1024**3, show_default=True
+)
+@click.option(
+    "--max-entries", type=click.IntRange(min=1), default=4096, show_default=True
+)
+@click.option(
+    "--max-seconds",
+    type=click.FloatRange(min=0, min_open=True),
+    default=30.0,
+    show_default=True,
+)
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of text.")
-def sweep_restorable_cmd(dry_run: bool, assume_yes: bool, as_json: bool) -> None:
+def sweep_restorable_cmd(
+    dry_run: bool,
+    assume_yes: bool,
+    max_items: int,
+    max_bytes: int,
+    max_entries: int,
+    max_seconds: float,
+    as_json: bool,
+    allow_manual_delete: bool,
+) -> None:
     # --yes is the only thing that deletes: without it this is a dry-run
     # listing, whether --dry-run was spelled out or not.
-    report = sweep_restorable(dry_run=not assume_yes)
+    do_apply = assume_yes and not dry_run
+    report = sweep_restorable(
+        dry_run=not do_apply,
+        max_items=max_items,
+        max_bytes=max_bytes,
+        max_entries=max_entries,
+        max_seconds=max_seconds,
+        allow_manual_delete=allow_manual_delete,
+    )
     if as_json:
         click.echo(
             json.dumps(
@@ -70,12 +109,13 @@ def sweep_restorable_cmd(dry_run: bool, assume_yes: bool, as_json: bool) -> None
                     "pruned": report.pruned,
                     "refused": report.refused,
                     "errors": report.errors,
+                    "deferred": report.deferred,
                 },
                 indent=2,
             )
         )
         return
-    if assume_yes:
+    if do_apply:
         for path in report.removed:
             click.echo(f"removed {path}")
     elif report.removed:
@@ -84,7 +124,9 @@ def sweep_restorable_cmd(dry_run: bool, assume_yes: bool, as_json: bool) -> None
     else:
         click.echo("no expired staging.")
     for path in report.retained:
-        click.echo(f"retained (not yet expired) {path}")
+        click.echo(f"retained (not expired or outside this pass budget) {path}")
+    for path, reason in report.deferred.items():
+        click.echo(f"deferred {path}: {reason}")
     for path in report.pruned:
         click.echo(f"pruned missing record {path}")
     for path in report.refused:

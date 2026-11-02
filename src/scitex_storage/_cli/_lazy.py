@@ -50,6 +50,7 @@ import click
 #: importing anything -- help and completion must not be able to fail because
 #: some unrelated verb's dependency is skewed.
 VERB_REGISTRY: dict[str, str] = {
+    "versions": "._versions_cmd:versions_group",
     "scan": "._scan_cmd:scan_cmd",
     "scrub": "._scrub_cmd:scrub_cmd",
     "validate-inodes": "._inodes_cmd:inodes_cmd",

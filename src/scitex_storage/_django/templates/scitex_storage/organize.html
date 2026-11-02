@@ -1,8 +1,8 @@
 {% extends "scitex_sdk/app/app_shell.html" %}
 {% load i18n static scitex_static %}
 {% comment %}
-Storage organize tabs (Usage / Duplicates / Move / Backup), leaf-owned.
-Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
+Storage organize tabs (Usage / Duplicates / Move), leaf-owned.
+Reuses the upstream .stx-storage-* classes so the tabs feel like one app.
 {% endcomment %}
 {% block extra_css %}
     {# Shared tab contracts (scitex-sdk>=0.3.9, underline-only selected); see index.html. #}
@@ -52,11 +52,11 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
 
     {% if tab == "usage" %}
         <section class="stx-storage-card">
-            <h2 class="stx-storage-machine"><i class="fas fa-chart-pie" aria-hidden="true"></i> {% translate "Where your bytes live" %}</h2>
+            <h2 class="stx-storage-machine"><i class="fas fa-chart-pie" aria-hidden="true"></i> {% translate "Storage contents" %}</h2>
             {% if scope == "project" and pscope %}
             <p class="stx-storage-note">{% blocktranslate with name=project_name size=folder_total|filesizeformat %}Showing only {{ name }}: {{ size }}.{% endblocktranslate %}</p>
             {% else %}
-            <p class="stx-storage-note">{% blocktranslate with total=fleet_total|filesizeformat %}{{ total }} across volumes.{% endblocktranslate %}</p>
+            <p class="stx-storage-note">{% blocktranslate with total=folder_total|filesizeformat %}{{ total }} in the selected storage location.{% endblocktranslate %}</p>
             {% endif %}
             {% if folder_note %}
                 <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ folder_note }}</p></div>
@@ -77,7 +77,7 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
             <p>
                 <a href="{% url 'scitex_storage:usage_sunburst' %}{% if sunburst_qs %}?{{ sunburst_qs }}{% endif %}">{% translate "Open interactive sunburst" %}</a>
             </p>
-            <p class="stx-storage-note">{% translate "Zoomable: click a folder to go deeper, the breadcrumb climbs back. Used + available excludes blocks the filesystem reserves for root, which the per-volume totals include." %}</p>
+            <p class="stx-storage-note">{% translate "Zoomable: click a folder to go deeper, the breadcrumb climbs back. Capacity cards describe the filesystem, which may also contain other users’ data. The sunburst shows contents only within your authorized location." %}</p>
         </section>
 
         {% if fleet_available %}
@@ -97,6 +97,7 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
            per-volume cards and no root picker under project scope.{% endcomment %}
         {% else %}
         {% if statuses %}
+        <h2>{% translate "Filesystem capacity (shared)" %}</h2>
         <div class="stx-storage-grid">
         {% for v in statuses %}
         <section class="stx-storage-card">
@@ -147,6 +148,7 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
                 {% if not groups %}
                 <p class="stx-storage-empty">{% translate "No byte-identical duplicates found in the scanned volumes." %}</p>
                 {% endif %}
+                {% if truncated %}<p class="stx-storage-note">{% blocktranslate with total=group_total %}Showing the first 50 of {{ total }} groups.{% endblocktranslate %}</p>{% endif %}
                 <ul class="stx-storage-list">
                     {% for g in groups %}
                     <li class="stx-storage-row" style="display: block">
@@ -161,166 +163,9 @@ Reuses the upstream .stx-storage-* classes so the four tabs feel like one app.
             </section>
         {% endif %}
 
-    {% elif tab == "move" %}
-        <section class="stx-storage-card">
-            <h2 class="stx-storage-machine"><i class="fas fa-layer-group" aria-hidden="true"></i> {% translate "Your tiers" %}</h2>
-            <div class="stx-tier-grid">
-                {% for tier_name, tier_statuses in tiers %}
-                <div>
-                    <h3 style="margin: 0 0 6px; font-size: 0.95rem; text-transform: capitalize">{{ tier_name }}</h3>
-                    <ul class="stx-storage-list">
-                        {% for v in tier_statuses %}
-                        <li class="stx-storage-row" style="display: block">
-                            {% if v.status == reachable %}
-                            <span class="stx-storage-size">{{ v.used|filesizeformat }} / {{ v.total|filesizeformat }}</span>
-                            {% else %}
-                            <span class="stx-storage-size">{% translate "unreachable" %}</span>
-                            {% endif %}
-                        </li>
-                        {% endfor %}
-                    </ul>
-                </div>
-                {% empty %}
-                <p class="stx-storage-empty">{% translate "No storage is assigned to your account yet." %}</p>
-                {% endfor %}
-            </div>
-            {% if destinations %}
-            <p class="stx-storage-note">{% translate "Cold archive tiers:" %} {{ destinations|join:", " }}</p>
-            {% endif %}
-        </section>
-
-        <section class="stx-storage-card">
-            <h2 class="stx-storage-machine"><i class="fas fa-truck-moving" aria-hidden="true"></i> {% translate "Plan a move to cold storage" %}</h2>
-            <p class="stx-storage-note">{% translate "Planning is read-only: it measures the folder and shows where it would go. Nothing moves until you confirm." %}</p>
-            <form method="get" action="">
-                <input type="hidden" name="tab" value="move">
-                {% if scope == "project" %}<input type="hidden" name="scope" value="project">{% endif %}
-                <div class="stx-form-row">
-                    <div class="stx-field">
-                        <label for="mv-volume">{% translate "From volume" %}</label>
-                        <select id="mv-volume" name="volume">
-                            {% for v in user_volumes %}
-                            <option value="{{ v.key }}"{% if v.key == form_volume %} selected{% endif %} style="text-transform: capitalize">{% if v.tier %}{{ v.tier }}{% else %}{{ v.label }}{% endif %}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="stx-field">
-                        <label for="mv-dir">{% translate "Folder (inside the volume)" %}</label>
-                        <input id="mv-dir" name="dir" type="text" value="{{ form_dir }}" placeholder="old-experiment">
-                    </div>
-                    <div class="stx-field">
-                        <label for="mv-dest">{% translate "To tier" %}</label>
-                        <select id="mv-dest" name="destination">
-                            {% for d in destinations %}
-                            <option value="{{ d }}"{% if d == form_dest %} selected{% endif %}>{{ d }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <button class="stx-button stx-button--primary" type="submit" name="plan" value="1">{% translate "Plan move" %}</button>
-                </div>
-            </form>
-            {% if plan_error %}
-                <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ plan_error }}</p></div>
-            {% endif %}
-            {% if apply_error %}
-                <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ apply_error }}</p></div>
-            {% endif %}
-            {% if plan %}
-                <div class="stx-storage-ok">
-                    <strong>{% translate "Move plan (not executed)." %}</strong>
-                    {% blocktranslate with size=plan.size_bytes|filesizeformat count=plan.file_count src=plan.source dest=plan.destination remote=plan.remote_path %}{{ size }} in {{ count }} files: {{ src }} → {{ dest }}:{{ remote }}{% endblocktranslate %}
-                    <p class="stx-storage-note" style="margin: 4px 0 0">{% translate "Applying this clears the delete on a count-and-size read-back. For an independent per-file re-hash of both trees first, add" %} <code class="stx-cli">--verify-content</code></p>
-                </div>
-                <form method="post" action="{% url 'scitex_storage:move_apply' %}">
-                    {% csrf_token %}
-                    <input type="hidden" name="volume" value="{{ form_volume }}">
-                    <input type="hidden" name="dir" value="{{ form_dir }}">
-                    <input type="hidden" name="destination" value="{{ form_dest }}">
-                    {% if scope == "project" %}<input type="hidden" name="scope" value="project">{% endif %}
-                    <div class="stx-form-row">
-                        <div class="stx-field">
-                            <label class="stx-checkbox-label"><input class="stx-checkbox" type="checkbox" name="verify_content" value="yes"> {% translate "Re-hash both trees (slower, stronger)" %}</label>
-                        </div>
-                        <div class="stx-field">
-                            <label class="stx-checkbox-label"><input class="stx-checkbox" type="checkbox" name="confirm" value="yes" required> {% translate "I confirm: move it and stage the original restorable after verification" %}</label>
-                        </div>
-                        <button class="stx-button stx-button--primary" type="submit">{% translate "Apply move" %}</button>
-                    </div>
-                </form>
-            {% endif %}
-            {% if applied %}
-                <div class="stx-storage-ok">
-                    <strong>{% translate "Move applied and verified." %}</strong>
-                    {% blocktranslate with size=applied.size_bytes|filesizeformat count=applied.file_count src=applied.source dest=applied.destination remote=applied.remote_path method=applied.verification_method %}{{ size }} in {{ count }} files: {{ src }} → {{ dest }}:{{ remote }} ({{ method }}){% endblocktranslate %}
-                    <p class="stx-storage-note" style="margin: 4px 0 0">{% translate "The original was moved to restorable staging after verification. Expired staging is removed only when the retention sweeper is explicitly applied; this page does not schedule deletion." %}</p>
-                </div>
-            {% endif %}
-        </section>
-    {% elif tab == "backup" %}
-        <section class="stx-storage-card">
-            <h2 class="stx-storage-machine"><i class="fas fa-copy" aria-hidden="true"></i> {% translate "Backups on cold tiers" %}</h2>
-            {% if backups %}
-            <ul class="stx-storage-list">
-                {% for b in backups %}
-                <li class="stx-storage-row" style="display: block">
-                    <span class="stx-storage-name">{{ b.source }} → {{ b.destination }}</span>
-                    <span class="stx-storage-size">{{ b.when }} · {% translate "checked by" %} {{ b.method }}{% if b.retained %} · {% translate "source kept" %}{% endif %}</span>
-                </li>
-                {% endfor %}
-            </ul>
-            {% else %}
-            <p class="stx-storage-empty">{% translate "No backups recorded on this machine yet." %}</p>
-            {% endif %}
-        </section>
-
-        <section class="stx-storage-card">
-            <h2 class="stx-storage-machine"><i class="fas fa-truck-moving" aria-hidden="true"></i> {% translate "Plan a backup" %}</h2>
-            <p class="stx-storage-note">{% translate "Planning is read-only: it measures the folder and shows where a copy would go. The source is never removed by a backup." %}</p>
-            <form method="get" action="">
-                <input type="hidden" name="tab" value="backup">
-                {% if scope == "project" %}<input type="hidden" name="scope" value="project">{% endif %}
-                <div class="stx-form-row">
-                    <div class="stx-field">
-                        <label for="bk-volume">{% translate "From volume" %}</label>
-                        <select id="bk-volume" name="volume">
-                            {% for v in user_volumes %}
-                            <option value="{{ v.key }}"{% if v.key == form_volume %} selected{% endif %} style="text-transform: capitalize">{% if v.tier %}{{ v.tier }}{% else %}{{ v.label }}{% endif %}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="stx-field">
-                        <label for="bk-dir">{% translate "Folder (inside the volume)" %}</label>
-                        <input id="bk-dir" name="dir" type="text" value="{{ form_dir }}" placeholder="paper-figures">
-                    </div>
-                    <div class="stx-field">
-                        <label for="bk-dest">{% translate "To tier" %}</label>
-                        <select id="bk-dest" name="destination">
-                            {% for d in destinations %}
-                            <option value="{{ d }}"{% if d == form_dest %} selected{% endif %}>{{ d }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <button class="stx-button stx-button--primary" type="submit" name="plan" value="1">{% translate "Plan backup" %}</button>
-                </div>
-            </form>
-            {% if plan_error %}
-                <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ plan_error }}</p></div>
-            {% endif %}
-            {% if plan %}
-                <div class="stx-storage-ok">
-                    <strong>{% translate "Backup plan (not executed)." %}</strong>
-                    {% blocktranslate with size=plan.size_bytes|filesizeformat count=plan.file_count src=plan.source dest=plan.destination remote=plan.remote_path %}{{ size }} in {{ count }} files: {{ src }} → {{ dest }}:{{ remote }} (source kept){% endblocktranslate %}
-                </div>
-            {% endif %}
-            <div class="stx-storage-warn">
-                <strong>{% translate "Applying a backup is disabled in the browser." %}</strong>
-                <p class="stx-storage-note" style="margin: 4px 0 0">
-                    {% translate "The copy runs from the command line, never from a click:" %}
-                    <code class="stx-cli">scitex-storage backup &lt;folder&gt; --to &lt;tier&gt; --yes</code>
-                </p>
-            </div>
-        </section>
     {% endif %}
 </div>
 {% endblock %}
-{% block extra_js %}{% endblock %}
+{% block extra_js %}
+<script type="module" src="{% app_static 'scitex_storage/storage-ui.js' %}"></script>
+{% endblock %}

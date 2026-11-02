@@ -121,8 +121,14 @@ class _FakeRunner:
 
     def __call__(self, cmd, **kwargs):
         self.calls.append(cmd)
+        if self.returncode == 0 and _looks_like_digest(cmd):
+            return _FakeCompletedProcess(
+                0, _simulated_destination_digest(self.calls), ""
+            )
         if self.returncode == 0 and _looks_like_tally(cmd):
-            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
+            return _FakeCompletedProcess(
+                0, _simulated_destination_tally(self.calls), ""
+            )
         return _FakeCompletedProcess(self.returncode, self.stdout, self.stderr)
 
 
@@ -163,9 +169,13 @@ class _FaithfulDigestRunner(_FakeRunner):
     def __call__(self, cmd, **kwargs):
         self.calls.append(cmd)
         if _looks_like_digest(cmd):
-            return _FakeCompletedProcess(0, _simulated_destination_digest(self.calls), "")
+            return _FakeCompletedProcess(
+                0, _simulated_destination_digest(self.calls), ""
+            )
         if _looks_like_tally(cmd):
-            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
+            return _FakeCompletedProcess(
+                0, _simulated_destination_tally(self.calls), ""
+            )
         return _FakeCompletedProcess(0, "", "")
 
 
@@ -179,7 +189,9 @@ class _CorruptDigestRunner(_FakeRunner):
                 0, _simulated_destination_digest(self.calls, corrupt=True), ""
             )
         if _looks_like_tally(cmd):
-            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
+            return _FakeCompletedProcess(
+                0, _simulated_destination_tally(self.calls), ""
+            )
         return _FakeCompletedProcess(0, "", "")
 
 
@@ -221,8 +233,14 @@ class _FullDestinationRunner:
                 f"/dev/sda1 1000000 999999 {self.avail_kb} 100% /share\n",
                 "",
             )
+        if _looks_like_digest(cmd):
+            return _FakeCompletedProcess(
+                0, _simulated_destination_digest(self.calls), ""
+            )
         if _looks_like_tally(cmd):
-            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
+            return _FakeCompletedProcess(
+                0, _simulated_destination_tally(self.calls), ""
+            )
         return _FakeCompletedProcess(0, "", "")
 
 
@@ -522,20 +540,23 @@ def test_apply_archive_retire_stages_source_instead_of_deleting(tmp_path, sandbo
 
 
 @pytest.mark.requires_fd
-def test_apply_archive_retire_rejects_backup_mode_combination(tmp_path, sandbox_home):
-    # Arrange -- staging is a form of removal; backup keeps the source.
+def test_copy_only_mode_preserves_source_with_safe_retirement_default(
+    tmp_path, sandbox_home
+):
+    # Arrange
     source = tmp_path / "source"
     _touch(source / "a.bin")
     plan = plan_archive(source, "nas")
     # Act
-    raised = None
-    try:
-        apply_archive(plan, remove_source=False, retire_source=True,
-                      runner=_FakeRunner(returncode=0))
-    except ValueError as exc:
-        raised = exc
+    manifest = apply_archive(
+        plan, remove_source=False, runner=_FakeRunner(returncode=0)
+    )
     # Assert
-    assert raised is not None
+    assert (manifest.retained_source, manifest.staged_path, source.exists()) == (
+        True,
+        "",
+        True,
+    )
 
 
 @pytest.mark.requires_fd
@@ -563,15 +584,8 @@ def test_apply_archive_manifest_records_the_source_path(tmp_path, sandbox_home):
 
 
 @pytest.mark.requires_fd
-def test_apply_archive_records_that_the_check_was_a_tally(tmp_path, sandbox_home):
-    """The manifest must say WHAT the check could see, not only that it passed.
-
-    `verified: "verified"` is a claim about the outcome. This field is the
-    claim about the INSTRUMENT, and the two are not the same: the tally
-    cannot see a destination file with the right name, the right length and
-    the wrong bytes -- which `test__content_verify` asserts in CI -- and
-    `apply_archive` deletes the source on that verdict.
-    """
+def test_default_archive_records_independent_content_gate(tmp_path, sandbox_home):
+    """Every default move records its independent content-verification instrument."""
     # Arrange
     source = tmp_path / "source"
     _touch(source / "a.bin")
@@ -579,7 +593,7 @@ def test_apply_archive_records_that_the_check_was_a_tally(tmp_path, sandbox_home
     # Act
     manifest = apply_archive(plan, runner=_FakeRunner(returncode=0))
     # Assert
-    assert manifest.verification_method == "tally"
+    assert manifest.verification_method == "content"
 
 
 @pytest.mark.requires_fd
@@ -595,7 +609,9 @@ def test_the_manifest_file_on_disk_carries_the_method(tmp_path, sandbox_home):
     # Act
     apply_archive(plan, runner=_FakeRunner(returncode=0))
     # Assert
-    assert json.loads(plan.manifest_path.read_text())["verification_method"] == "tally"
+    assert (
+        json.loads(plan.manifest_path.read_text())["verification_method"] == "content"
+    )
 
 
 def test_an_old_manifest_reads_back_as_unknown_not_tally():
@@ -625,13 +641,8 @@ def test_an_old_manifest_reads_back_as_unknown_not_tally():
 
 
 @pytest.mark.requires_fd
-def test_the_content_gate_is_off_by_default(tmp_path, sandbox_home):
-    """Opt-in, because rsync --checksum already reads every byte on both sides.
-
-    Hashing both trees again by default would roughly double the cost of a
-    multi-terabyte archive to close a narrower residual window, and a default
-    nobody can afford to leave on gets turned off.
-    """
+def test_content_gate_is_required_by_default(tmp_path, sandbox_home):
+    """A successful rsync and tally never authorize retiring an unhashed source."""
     # Arrange
     source = tmp_path / "source"
     _touch(source / "a.bin")
@@ -639,7 +650,7 @@ def test_the_content_gate_is_off_by_default(tmp_path, sandbox_home):
     # Act
     manifest = apply_archive(plan, runner=_FaithfulDigestRunner(returncode=0))
     # Assert
-    assert manifest.verification_method == "tally"
+    assert manifest.verification_method == "content"
 
 
 @pytest.mark.requires_fd
@@ -713,25 +724,32 @@ def test_wrong_content_leaves_the_source_intact(refused_on_content):
 
 
 @pytest.mark.requires_fd
-def test_the_same_destination_passes_the_tally_it_fails_on_content(tmp_path, sandbox_home):
-    """DISCRIMINATING CONTROL — proves the gate adds something.
-
-    Same runner, same destination, only the flag differs. If this ever fails
-    because the tally ALSO catches it, the corruption being simulated is not
-    this gate's class and the test above has stopped being evidence.
-    """
+def test_copy_only_tally_mode_does_not_authorize_removing_original(
+    tmp_path, sandbox_home
+):
     # Arrange
     source = tmp_path / "source"
     _touch(source / "a.bin")
     plan = plan_archive(source, "nas")
     # Act
-    manifest = apply_archive(plan, runner=_CorruptDigestRunner(returncode=0))
+    manifest = apply_archive(
+        plan,
+        remove_source=False,
+        verify_content_too=False,
+        runner=_CorruptDigestRunner(returncode=0),
+    )
     # Assert
-    assert manifest.verified == "verified"
+    assert (
+        manifest.verification_method,
+        manifest.retained_source,
+        source.exists(),
+    ) == ("tally", True, True)
 
 
 @pytest.mark.requires_fd
-def test_apply_archive_creates_the_remote_parent_directory_first(tmp_path, sandbox_home):
+def test_apply_archive_creates_the_remote_parent_directory_first(
+    tmp_path, sandbox_home
+):
     # Arrange
     source = tmp_path / "source"
     _touch(source / "a.bin")
@@ -1044,7 +1062,9 @@ def test_apply_restore_delete_remote_command_targets_the_remote_path(tmp_path):
     assert "needle" in runner.calls[1][-1]
 
 
-def test_apply_restore_delete_remote_command_leaves_the_leading_tilde_unquoted(tmp_path):
+def test_apply_restore_delete_remote_command_leaves_the_leading_tilde_unquoted(
+    tmp_path,
+):
     # Arrange -- same regression class as the archive-side mkdir: a naive
     # shlex.quote(whole_path) would wrap "~" and break tilde-expansion.
     source = tmp_path / "source"
@@ -1407,6 +1427,10 @@ class _SidecarEchoRunner(_FakeRunner):
                 return _FakeCompletedProcess(0, "", "")
             with open(self._sidecar_src, encoding="utf-8") as fh:
                 return _FakeCompletedProcess(0, fh.read(), "")
+        if _looks_like_digest(cmd):
+            return _FakeCompletedProcess(
+                0, _simulated_destination_digest(self.calls), ""
+            )
         if _looks_like_tally(cmd):
             tally = _simulated_destination_tally(self.calls)
             return _FakeCompletedProcess(0, tally, "")
@@ -1519,7 +1543,9 @@ def test_apply_archive_keeps_source_when_remove_source_is_false(tmp_path, sandbo
     _touch(source / "a.bin")
     plan = plan_archive(source, "nas")
     # Act
-    manifest = apply_archive(plan, remove_source=False, runner=_FakeRunner(returncode=0))
+    manifest = apply_archive(
+        plan, remove_source=False, runner=_FakeRunner(returncode=0)
+    )
     # Assert
     assert (source.exists(), manifest.retained_source) == (True, True)
 

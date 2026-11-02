@@ -265,9 +265,11 @@ def _resolve_via_sdk(request, *, require_edit: bool = False) -> Optional[Project
         return None
     getter = getattr(request, "GET", None)
     raw = getter.get(PROJECT_QUERY_PARAM) if getter is not None else ""
+    if not raw:
+        raw = getattr(request, "POST", {}).get(PROJECT_QUERY_PARAM, "")
     explicit = str(raw or "").strip() or None
     try:
-        project_id = resolve_project(request, provider, explicit=explicit)
+        project_id = resolve_project(request, provider, explicit=explicit, remember=False)
     except Exception:
         return None
     if not project_id:

@@ -396,3 +396,80 @@ def test_overlap_bytes_reports_zero_for_unique_files_in_b(tmp_path):
 
 
 # EOF
+
+
+@pytest.mark.parametrize(
+    "deadline", [0, -1, float("nan"), float("inf"), -float("inf"), True, "1", 10**400]
+)
+def test_find_duplicates_refuses_invalid_deadline_before_process_start(deadline):
+    # Arrange
+    roots = []
+    # Act
+    # Assert
+    with pytest.raises(ValueError, match="timeout_s"):
+        find_duplicates(roots, timeout_s=deadline)
+
+
+def test_timeout_kills_and_reaps_actual_fclones_process(
+    isolated_path_bin_dir, tmp_path
+):
+    # Arrange
+    import time
+
+    marker = tmp_path / "started.pid"
+    heartbeat = tmp_path / "still-running"
+    _write_executable(
+        isolated_path_bin_dir / "fclones",
+        "import os,time\nfrom pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text(str(os.getpid()))\n"
+        "deadline = time.monotonic() + 2\n"
+        "while time.monotonic() < deadline:\n"
+        f"    Path({str(heartbeat)!r}).write_text(str(time.monotonic_ns()))\n"
+        "    time.sleep(0.01)\n"
+        "print('{\"groups\": []}')\n",
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    started = time.monotonic()
+    # Act
+    failure = None
+    try:
+        find_duplicates([source], timeout_s=0.5)
+    except TimeoutError as exc:
+        failure = exc
+    elapsed = time.monotonic() - started
+    pid = int(marker.read_text())
+    try:
+        os.kill(pid, 0)
+        child_alive = True
+    except ProcessLookupError:
+        child_alive = False
+    try:
+        os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        reaped = True
+    else:
+        reaped = False
+    final_heartbeat = heartbeat.read_bytes()
+    time.sleep(0.05)
+    # Assert
+    assert (
+        failure is not None
+        and not child_alive
+        and reaped
+        and elapsed < 3
+        and heartbeat.read_bytes() == final_heartbeat
+    )
+
+
+def test_explicit_deadline_preserves_completed_group_protocol(
+    isolated_path_bin_dir, tmp_path
+):
+    # Arrange
+    left, right = tmp_path / "a.txt", tmp_path / "b.txt"
+    payload = json.dumps({"groups": [{"files": [str(left), str(right)]}]})
+    _write_executable(isolated_path_bin_dir / "fclones", f"print({payload!r})\n")
+    # Act
+    groups = find_duplicates([tmp_path], timeout_s=3)
+    # Assert
+    assert groups == [[left, right]]

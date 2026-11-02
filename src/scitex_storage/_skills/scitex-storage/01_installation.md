@@ -13,7 +13,7 @@ pip install scitex-storage[gui]       # + Django GUI leaf + scitex-sdk UI shell
 pip install scitex-storage[dev]       # + full test suite deps
 ```
 
-- GUI needs `scitex-sdk[gui]>=0.3.12` (shared `.stx-layout-fill` utility,
+- GUI needs `scitex-sdk[gui]>=0.3.17` (request-local project view and shared layout,
   AppHeader, project picker) and `django>=5.0`.
 - System binaries (not PyPI, declared not bundled): `fd` (scan),
   `fclones` (find-duplicates), `rsync` + ssh (archive/restore/backup

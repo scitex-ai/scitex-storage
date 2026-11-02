@@ -139,44 +139,68 @@ _PAGE = """\
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <style>
-:root {{ --bg:#12151a; --panel:#1b2027; --text:#d7dde5; --muted:#8b95a3; --ring:#2c333d; }}
+:root {{ --bg:#f5f4f2; --panel:#efeeed; --text:#333333; --muted:#57606a; --ring:#c0bfbd; --link:#1a2a40; }}
+:root[data-theme="dark"] {{ --bg:#12151a; --panel:#1b2027; --text:#d7dde5; --muted:#8b95a3; --ring:#2c333d; --link:#d4a87a; }}
 * {{ box-sizing:border-box; }}
-body {{ margin:0; padding:24px; background:var(--bg); color:var(--text);
+html {{ height:100%; }}
+body {{ height:100%; display:flex; flex-direction:column; margin:0; padding:16px;
+  background:var(--bg); color:var(--text);
   font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; text-align:center; }}
 svg text {{ user-select:none; -webkit-user-select:none; }}
-#sb {{ cursor:default; }}
+#sb {{ display:block; width:100%; height:100%; min-height:0; cursor:default; }}
+.chart {{ flex:1 1 480px; min-height:0; max-height:480px; }}
+h1, .gen, #modes, #crumb, footer {{ flex:none; overflow-wrap:anywhere; }}
 h1 {{ font-size:20px; margin:0 0 4px; }}
 .gen {{ color:var(--muted); font-size:12px; margin:0 0 10px; }}
 #modes {{ margin-bottom:8px; }}
 #modes button {{ background:var(--panel); color:var(--muted); border:1px solid var(--ring);
   border-radius:6px; padding:5px 12px; margin:0 3px; font-size:12px; cursor:pointer; }}
-#modes button.on {{ color:var(--text); border-color:#4ea1ff; }}
+#modes button.on {{ color:var(--text); border-color:var(--link); }}
 #crumb {{ font-size:14px; min-height:22px; margin-bottom:6px; }}
-#crumb a {{ color:#4ea1ff; cursor:pointer; }}
-svg {{ max-width:100%; height:auto; }}
-path.seg {{ cursor:pointer; stroke:#12151a; stroke-width:1; transition:opacity .1s; }}
+#crumb a {{ color:var(--link); cursor:pointer; }}
+svg {{ max-width:100%; }}
+path.seg {{ cursor:pointer; stroke:var(--bg); stroke-width:1; transition:opacity .1s; }}
 path.seg:hover {{ opacity:.82; }}
 #centre {{ font-size:13px; }}
 #tip {{ position:fixed; pointer-events:none; background:var(--panel); border:1px solid var(--ring);
   border-radius:8px; padding:8px 10px; font-size:12px; opacity:0; transition:opacity .1s; z-index:9; text-align:left; }}
-footer {{ color:var(--muted); font-size:11px; margin-top:20px; }}
+footer {{ color:var(--muted); font-size:11px; margin-top:8px; }}
 </style></head><body>
 <h1>{title}</h1>
 <p class="gen">{gen}</p>
 <div id="modes">{modes}</div>
 <div id="crumb"></div>
-<svg id="sb" width="560" height="560" viewBox="0 0 560 560"></svg>
+<div class="chart">
+  <svg id="sb" width="560" height="560" viewBox="0 0 560 560"
+       preserveAspectRatio="xMidYMid meet"></svg>
+</div>
 <div id="tip"></div>
 <footer>{footer}</footer>
 <script>
 const ROOT = {data};
 const CX=280, CY=280, R0=70, RW=95, TAU=Math.PI*2;
 const svg=document.getElementById('sb'), tip=document.getElementById('tip'), crumb=document.getElementById('crumb');
+document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+window.addEventListener('message',event=>{{
+  const message=event.data;
+  if(event.source!==parent||!message||message.type!=='scitex-storage-theme')return;
+  if(message.theme==='light'||message.theme==='dark')document.documentElement.dataset.theme=message.theme;
+  for(const key of ['--bg','--panel','--text','--muted','--ring','--link']){{
+    const value=message.colors?.[key];
+    if(typeof value==='string'&&CSS.supports('color',value))document.documentElement.style.setProperty(key,value);
+  }}
+}});
 let focus=ROOT, path=[ROOT], metric='usage';  // 'usage' (space%) or 'inode'
 function human(b){{const u=['B','KB','MB','GB','TB','PB'];let i=0,n=b||0;
   while(n>=1024&&i<u.length-1){{n/=1024;i++;}}return n.toFixed(n<10?1:0)+u[i];}}
 function pct(node){{return node[metric];}}
-function colour(p){{if(p==null)return '#5a6472';return p>=85?'#f85149':p>=70?'#d29922':p>=40?'#3fb950':'#2ea043';}}
+function colour(p,name){{
+  if(p==null){{
+    let hash=0; for(const char of String(name)) hash=(Math.imul(hash,31)+char.codePointAt(0))>>>0;
+    return `hsl(${{hash%360}} 58% 53%)`;
+  }}
+  return p>=85?'#f85149':p>=70?'#d29922':p>=40?'#3fb950':'#2ea043';
+}}
 function polar(r,a){{return [CX+r*Math.cos(a), CY+r*Math.sin(a)];}}
 function arcPath(r0,r1,a0,a1){{
   const large=(a1-a0)>Math.PI?1:0;
@@ -184,12 +208,19 @@ function arcPath(r0,r1,a0,a1){{
   return `M${{x0}} ${{y0}} L${{x1}} ${{y1}} A${{r1}} ${{r1}} 0 ${{large}} 1 ${{x2}} ${{y2}} `+
          `L${{x3}} ${{y3}} A${{r0}} ${{r0}} 0 ${{large}} 0 ${{x0}} ${{y0}} Z`;
 }}
-function showTip(e,h){{tip.innerHTML=h; tip.style.opacity=1;
+function showTip(e,lines){{
+  tip.replaceChildren();
+  lines.forEach((line,i)=>{{
+    if(i) tip.appendChild(document.createElement('br'));
+    const label=document.createElement(i===0?'b':'span');
+    label.textContent=line; tip.appendChild(label);
+  }});
+  tip.style.opacity=1;
   tip.style.left=Math.min(e.clientX+14,innerWidth-260)+'px'; tip.style.top=(e.clientY+14)+'px';}}
-function seg(d,fill,tipHtml,onClick){{
+function seg(d,fill,tipLines,onClick){{
   const p=document.createElementNS('http://www.w3.org/2000/svg','path');
   p.setAttribute('d',d); p.setAttribute('fill',fill); p.setAttribute('class','seg');
-  p.onmousemove=e=>showTip(e,tipHtml); p.onmouseleave=()=>tip.style.opacity=0;
+  p.onmousemove=e=>showTip(e,tipLines); p.onmouseleave=()=>tip.style.opacity=0;
   if(onClick){{p.onclick=onClick;}} svg.appendChild(p);
 }}
 function ring(node, ringIdx, a0, a1, depth){{
@@ -199,10 +230,10 @@ function ring(node, ringIdx, a0, a1, depth){{
   for(const k of kids){{
     const span=(a1-a0)*k.value/tot, ka1=a+span;
     const r0=R0+ringIdx*RW, r1=r0+RW-6;
-    const tipHtml=`<b>${{k.name}}</b><br>capacity ${{human(k.value)}}<br>`+
-      `space ${{k.usage==null?'unknown':k.usage+'%'}}<br>`+
-      `inodes ${{k.inode==null?'n/a':k.inode+'%'}}`;
-    seg(arcPath(r0,r1,a,ka1), colour(pct(k)), tipHtml,
+    const tipLines=[k.name,`capacity ${{human(k.value)}}`,
+      `space ${{k.usage==null?'unknown':k.usage+'%'}}`,
+      `inodes ${{k.inode==null?'n/a':k.inode+'%'}}`];
+    seg(arcPath(r0,r1,a,ka1), colour(pct(k),k.name), tipLines,
         (k.children&&k.children.length)?()=>zoom(k):null);
     if(depth>0 && k.children && k.children.length){{ ring(k, ringIdx+1, a, ka1, depth-1); }}
     a=ka1;
@@ -213,23 +244,27 @@ function render(){{
   // centre label = current focus, click to go up
   const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
   c.setAttribute('cx',CX); c.setAttribute('cy',CY); c.setAttribute('r',R0-6);
-  c.setAttribute('fill','#1b2027'); c.setAttribute('stroke','#2c333d');
+  c.setAttribute('fill','var(--panel)'); c.setAttribute('stroke','var(--ring)');
   c.style.cursor = path.length>1?'pointer':'default';
   if(path.length>1) c.onclick=()=>{{path.pop(); focus=path[path.length-1]; render();}};
   svg.appendChild(c);
   const t=document.createElementNS('http://www.w3.org/2000/svg','text');
   t.setAttribute('x',CX); t.setAttribute('y',CY-2); t.setAttribute('text-anchor','middle');
-  t.setAttribute('fill','#d7dde5'); t.setAttribute('font-size','14'); t.setAttribute('font-weight','700');
+  t.setAttribute('fill','var(--text)'); t.setAttribute('font-size','14'); t.setAttribute('font-weight','700');
   t.textContent=focus.name; svg.appendChild(t);
   const t2=document.createElementNS('http://www.w3.org/2000/svg','text');
   t2.setAttribute('x',CX); t2.setAttribute('y',CY+16); t2.setAttribute('text-anchor','middle');
-  t2.setAttribute('fill','#8b95a3'); t2.setAttribute('font-size','11');
+  t2.setAttribute('fill','var(--muted)'); t2.setAttribute('font-size','11');
   t2.textContent=human(focus.value); svg.appendChild(t2);
   ring(focus, 0, -Math.PI/2, -Math.PI/2+TAU, 1);
-  crumb.innerHTML = path.map((n,i)=>
-    i===path.length-1?`<b>${{n.name}}</b>`:`<a data-i="${{i}}">${{n.name}}</a>`).join(' / ');
-  crumb.querySelectorAll('a').forEach(a=>a.onclick=()=>{{
-    const i=+a.dataset.i; path=path.slice(0,i+1); focus=path[i]; render();}});
+  crumb.replaceChildren();
+  path.forEach((n,i)=>{{
+    if(i) crumb.appendChild(document.createTextNode(' / '));
+    const label=document.createElement(i===path.length-1?'b':'a');
+    label.textContent=n.name;
+    if(i<path.length-1) label.onclick=()=>{{path=path.slice(0,i+1);focus=path[i];render();}};
+    crumb.appendChild(label);
+  }});
   // Reflect the location in the URL so a refresh or a shared link lands
   // where the user was -- they can see WHERE they are, and bookmark it.
   const want='#'+path.slice(1).map(n=>encodeURIComponent(n.name)).join('>');
@@ -296,9 +331,11 @@ def build_dir_sunburst_html(root_name: str, hierarchy: dict, gen_line: str) -> s
     footer name folders instead of hosts. ``gen_line`` is already-escaped
     HTML naming the scanned root and time.
     """
+    import html
+
     data = json.dumps(hierarchy).replace("</", "<\\/")
     return _PAGE.format(
-        title=f"{root_name} \u2014 Usage",
+        title=html.escape(f"{root_name} \u2014 Usage"),
         gen=gen_line,
         modes="",
         footer=(
@@ -307,5 +344,6 @@ def build_dir_sunburst_html(root_name: str, hierarchy: dict, gen_line: str) -> s
         ),
         data=data,
     )
+
 
 # EOF

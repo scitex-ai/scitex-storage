@@ -39,5 +39,9 @@
   },
   "mount_policy": {
     "login_required": true
+  },
+  "scope_capabilities": {
+    "user": true,
+    "project": true
   }
 }

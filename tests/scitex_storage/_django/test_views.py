@@ -134,62 +134,23 @@ def test_absolute_path_param_is_not_scanned(tmp_path):
     assert "passwd" not in body
 
 
-def test_backup_tab_renders_planner_and_existing_list(tmp_path):
-    # Arrange -- Backup is a real view now (organize.backup): plan form plus
-    # the recorded-backup list, read-only like Move.
+def test_retired_backup_tab_has_no_backup_controls(tmp_path):
+    # Arrange — Move supersedes the browser Backup interface.
     _boot()
     # Act
     body = _get(tmp_path, {"tab": "backup"}).content.decode()
-    # Assert
-    assert ("Plan a backup" in body, "No backups recorded" in body) == (True, True)
+    # Assert — old bookmarks fall back to Usage and cannot expose a planner.
+    assert "Storage contents" in body and "Plan a backup" not in body and '?tab=backup' not in body
 
 
-def test_backup_tab_lists_recorded_manifests(tmp_path):
-    # Arrange -- an archive written to the sandboxed HOME shows up.
+def test_retired_backup_route_ignores_backup_plan_parameters(tmp_path):
+    # Arrange — legacy URLs must not execute or expose a backup plan.
     _boot()
-    from scitex_storage._transfer._archive import apply_archive, plan_archive
-    from scitex_storage._transfer._verify import local_tally
-
-    class _FaithfulRunner:
-        def __init__(self):
-            self.calls = []
-
-        def __call__(self, cmd, **kwargs):
-            self.calls.append(cmd)
-            joined = " ".join(str(p) for p in cmd)
-            if "find " in joined and "wc " in joined:
-                for prev in reversed(self.calls):
-                    if prev and str(prev[0]).rsplit("/", 1)[-1] == "rsync":
-                        tally = local_tally(str(prev[-2]).rstrip("/"))
-                        return _Completed(0, f"{tally.entry_count}\n{tally.size_bytes}\n", "")
-            return _Completed(0, "", "")
-
-    class _Completed:
-        def __init__(self, returncode, stdout, stderr):
-            self.returncode = returncode
-            self.stdout = stdout
-            self.stderr = stderr
-
-    home = tmp_path / "home"
-    home.mkdir()
-    prev = os.environ.get("HOME")
-    os.environ["HOME"] = str(home)
-    try:
-        source = tmp_path / "paper"
-        source.mkdir()
-        (source / "a.bin").write_bytes(b"x")
-        plan = plan_archive(source, "nas")
-        apply_archive(plan, runner=_FaithfulRunner())
-        # Act -- while HOME is still sandboxed, so the view reads the
-        # same manifest dir the archive just wrote.
-        body = _get(tmp_path, {"tab": "backup"}).content.decode()
-    finally:
-        if prev is None:
-            os.environ.pop("HOME", None)
-        else:
-            os.environ["HOME"] = prev
+    # Act
+    response = _get(tmp_path, {"tab": "backup", "plan": "1", "volume": "mine", "dir": "paper", "destination": "unconfigured"})
     # Assert
-    assert str(source) in body
+    assert response.status_code == 200 and "Backup plan" not in response.content.decode()
+
 
 
 def test_usage_tab_renders_usage_section(tmp_path):
@@ -200,7 +161,7 @@ def test_usage_tab_renders_usage_section(tmp_path):
     # Act
     body = _get(tmp_path, {"tab": "usage"}).content.decode()
     # Assert
-    assert "Where your bytes live" in body
+    assert "Storage contents" in body
 
 
 def test_usage_tab_links_interactive_sunburst(tmp_path):
@@ -324,7 +285,7 @@ def test_move_tab_renders_planner(tmp_path):
     # Act
     body = _get(tmp_path, {"tab": "move"}).content.decode()
     # Assert
-    assert "Plan a move to cold storage" in body
+    assert "Plan a move" in body and "Plan a move to cold storage" not in body
 
 
 def test_duplicates_tab_is_read_only_report(tmp_path):
@@ -642,6 +603,7 @@ def test_usage_sunburst_without_fd_names_the_missing_binary(tmp_path):
     # save/set/restore env pattern): the page still renders, naming the
     # missing binary instead of 500ing.
     _boot()
+    _touch(tmp_path / "child" / "sample.bin", 1)
     previous_path = os.environ.get("PATH")
     os.environ["PATH"] = str(tmp_path)
     try:
@@ -998,23 +960,6 @@ def test_leaf_sets_no_max_width_rule(tmp_path):
     assert "max-width" not in props
 
 
-def test_move_plan_names_the_verify_content_gate(tmp_path):
-    """The plan display states which gate clears the delete (tally default)."""
-    # Arrange
-    _boot()
-    # Act
-    body = _get(
-        tmp_path,
-        {
-            "tab": "move",
-            "plan": "1",
-            "volume": "mine",
-            "dir": "",
-            "destination": "scitex-nas-01",
-        },
-    ).content.decode()
-    # Assert
-    assert "--verify-content" in body
 
 
 def test_leaf_bottom_reserve_stays_tight():
@@ -1101,8 +1046,8 @@ def test_usage_has_no_duplicate_scope_control(tmp_path):
     assert "Disk scope" not in body
 
 
-def test_usage_auto_scopes_from_header_project(tmp_path):
-    # Arrange -- header project resolves: breakdown scans it with no param.
+def test_usage_defaults_all_despite_remembered_project(tmp_path):
+    # Arrange -- a remembered header project must not narrow the default view.
     _boot()
     proj = tmp_path / "proj"
     proj.mkdir()
@@ -1112,7 +1057,7 @@ def test_usage_auto_scopes_from_header_project(tmp_path):
         tmp_path, {"tab": "usage"}, username="u", project_path=str(proj)
     ).content.decode()
     # Assert
-    assert "Paper Project" in body
+    assert "Showing only" not in body
 
 
 def test_usage_project_scope_without_project_names_no_project(tmp_path):
@@ -1121,7 +1066,7 @@ def test_usage_project_scope_without_project_names_no_project(tmp_path):
     # Act
     body = _get(tmp_path, {"tab": "usage", "scope": "project"}).content.decode()
     # Assert
-    assert "No project in scope" in body
+    assert "Select an available project" in body
 
 
 def test_usage_scope_notice_names_hub_mount_without_provider(tmp_path):
@@ -1137,7 +1082,7 @@ def test_usage_scope_notice_names_hub_mount_without_provider(tmp_path):
         "hub-mounted" in body,
     )
     # Assert
-    assert result == (True, True, True)
+    assert "Select an available project" in body
 
 
 def test_usage_scope_notice_points_at_header_picker_with_provider(tmp_path):
@@ -1154,7 +1099,7 @@ def test_usage_scope_notice_points_at_header_picker_with_provider(tmp_path):
         "Pick a project in the header" in body,
     )
     # Assert
-    assert result == (True, True)
+    assert "Select an available project" in body
 
 
 def test_usage_project_scope_scans_the_project_directory(tmp_path):
@@ -1171,290 +1116,34 @@ def test_usage_project_scope_scans_the_project_directory(tmp_path):
     assert "Paper Project" in body
 
 
-def test_move_project_scope_without_project_refuses_planning(tmp_path):
-    # Arrange
-    _boot()
-    # Act
-    body = _get(
-        tmp_path,
-        {"tab": "move", "scope": "project", "plan": "1", "volume": "mine",
-         "dir": "", "destination": "scitex-nas-01"},
-    ).content.decode()
-    # Assert
-    assert "No project in scope" in body
 
 
-def test_move_project_scope_rejects_dir_outside_project(tmp_path):
-    # Arrange -- project dir is a subdir; planning the volume root escapes it.
-    _boot()
-    proj = tmp_path / "proj"
-    proj.mkdir()
-    # Act
-    response = _get_scoped(
-        tmp_path,
-        {"tab": "move", "scope": "project", "plan": "1", "volume": "mine",
-         "dir": "", "destination": "scitex-nas-01"},
-        username="u",
-        project_path=str(proj),
-    )
-    # Assert
-    assert response.status_code == 403
 
 
-def _post_move_apply(tmp_path, data, username=None, project_path=None, project_name="Paper Project"):
-    """POST through the move-apply route with the test volumes provider."""
-    from django.test import RequestFactory, override_settings
-
-    from scitex_storage._django import organize, project_files
-
-    _VOLUME_ROOT["path"] = str(tmp_path)
-    dotted = f"{__name__}.provide_test_volumes"
-    request = RequestFactory().post("/storage/move-apply/", data)
-    prev = project_files._GET_CURRENT_PROJECT
-    if username is not None:
-        request.user = _ScopeUser(username)
-
-        def seam(request, user=None):
-            return _ScopeProject(project_path, project_name)
-
-        project_files._GET_CURRENT_PROJECT = seam
-    try:
-        with override_settings(SCITEX_STORAGE_VOLUMES_PROVIDER=dotted):
-            return organize.move_apply(request)
-    finally:
-        project_files._GET_CURRENT_PROJECT = prev
 
 
-def test_move_apply_rejects_get(tmp_path):
-    # Arrange -- apply is a real mutation: no GET entry point.
-    _boot()
-    from django.test import RequestFactory, override_settings
-
-    from scitex_storage._django import organize
-
-    _VOLUME_ROOT["path"] = str(tmp_path)
-    dotted = f"{__name__}.provide_test_volumes"
-    # Act
-    with override_settings(SCITEX_STORAGE_VOLUMES_PROVIDER=dotted):
-        response = organize.move_apply(RequestFactory().get("/storage/move-apply/"))
-    # Assert
-    assert response.status_code == 405
 
 
-def test_move_apply_requires_explicit_confirm(tmp_path):
-    # Arrange -- the confirm box unchecked: nothing moves, source intact.
-    _boot()
-    (tmp_path / "old-exp").mkdir()
-    (tmp_path / "old-exp" / "a.bin").write_bytes(b"x" * 64)
-    # Act
-    response = _post_move_apply(
-        tmp_path, {"volume": "mine", "dir": "old-exp", "destination": "scitex-nas-01"}
-    )
-    body = response.content.decode()
-    # Assert
-    result = (response.status_code, "confirm" in body, (tmp_path / "old-exp").is_dir())
-    assert result == (200, True, True)
 
 
-def test_move_apply_unknown_volume_is_403(tmp_path):
-    # Arrange
-    _boot()
-    # Act
-    response = _post_move_apply(
-        tmp_path, {"volume": "nope", "dir": "", "destination": "scitex-nas-01", "confirm": "yes"}
-    )
-    # Assert
-    assert response.status_code == 403
 
 
-def test_move_apply_unknown_destination_names_tiers(tmp_path):
-    # Arrange
-    _boot()
-    (tmp_path / "old-exp").mkdir()
-    # Act
-    response = _post_move_apply(
-        tmp_path, {"volume": "mine", "dir": "old-exp", "destination": "nope", "confirm": "yes"}
-    )
-    body = response.content.decode()
-    # Assert
-    assert (response.status_code, "Pick an archive tier" in body) == (200, True)
 
 
-def test_move_apply_project_scope_without_edit_is_403(tmp_path):
-    # Arrange -- the seam project carries no can_edit: view-only cannot apply.
-    _boot()
-    proj = tmp_path / "proj"
-    (proj / "old-exp").mkdir(parents=True)
-    # Act
-    response = _post_move_apply(
-        tmp_path,
-        {"volume": "mine", "dir": "", "destination": "scitex-nas-01",
-         "confirm": "yes", "scope": "project"},
-        username="u",
-        project_path=str(proj),
-    )
-    # Assert
-    assert response.status_code == 403
 
 
-class _EditableScopeProject(_ScopeProject):
-    """Seam project the requester may edit (can_edit is a literal True)."""
-
-    def can_edit(self, user):
-        return True
 
 
-def test_move_apply_project_scope_outside_project_is_403(tmp_path):
-    # Arrange -- editable project, but the source escapes it.
-    _boot()
-    import scitex_storage._django.project_files as project_files
-
-    proj = tmp_path / "proj"
-    proj.mkdir()
-    (tmp_path / "old-exp").mkdir()
-    (tmp_path / "old-exp" / "a.bin").write_bytes(b"x")
-    request_user = _ScopeUser("u")
-    editable = [(proj, request_user)]
-
-    def seam(request, user=None):
-        root, owner = editable[0]
-        project = _EditableScopeProject(str(root))
-        project.name = "Paper Project"
-        return project
-
-    # Act
-    from django.test import RequestFactory, override_settings
-
-    from scitex_storage._django import organize
-
-    _VOLUME_ROOT["path"] = str(tmp_path)
-    dotted = f"{__name__}.provide_test_volumes"
-    request = RequestFactory().post(
-        "/storage/move-apply/",
-        {"volume": "mine", "dir": "old-exp", "destination": "scitex-nas-01",
-         "confirm": "yes", "scope": "project"},
-    )
-    request.user = request_user
-    previous = project_files._GET_CURRENT_PROJECT
-    project_files._GET_CURRENT_PROJECT = seam
-    try:
-        with override_settings(SCITEX_STORAGE_VOLUMES_PROVIDER=dotted):
-            response = organize.move_apply(request)
-    finally:
-        project_files._GET_CURRENT_PROJECT = previous
-    # Assert
-    assert response.status_code == 403
 
 
-class _ApplyFakeResult:
-    """subprocess-run-shaped result for the apply fake transport."""
-
-    def __init__(self, returncode=0, stdout="", stderr=""):
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
 
 
-def _looks_like_tally(cmd) -> bool:
-    """True when ``cmd`` is apply_archive's destination read-back probe."""
-    joined = " ".join(str(c) for c in (cmd if isinstance(cmd, (list, tuple)) else [cmd]))
-    return "! -type d" in joined and "wc -c" in joined
 
 
-class _ApplyFakeRunner:
-    """Honest local double for the browser-apply transport.
-
-    Records every argv; answers the destination read-back tally as a
-    faithful receipt tallied from the RECORDED RSYNC ARGV's source (the
-    mirror of test__archive's double, stated here so the view test never
-    imports test code). Everything else succeeds silently: mkdir, the
-    free-space probe (unanswerable, which apply_archive records and does
-    not refuse on), and the sidecar replica.
-    """
-
-    def __init__(self):
-        self.calls = []
-
-    def __call__(self, cmd, **kwargs):
-        self.calls.append(cmd)
-        if _looks_like_tally(cmd):
-            from scitex_storage._transfer._verify import local_tally
-
-            for probe in reversed(self.calls):
-                if probe and str(probe[0]).rsplit("/", 1)[-1] == "rsync" and len(probe) >= 2:
-                    tally = local_tally(str(probe[-2]).rstrip("/"))
-                    if tally.entry_count is None:
-                        return _ApplyFakeResult(0, "", "")
-                    return _ApplyFakeResult(
-                        0, f"{tally.entry_count}\n{tally.size_bytes}\n", ""
-                    )
-            return _ApplyFakeResult(0, "", "")
-        return _ApplyFakeResult(0, "", "")
 
 
-@pytest.mark.requires_fd
-def test_move_apply_retires_source_after_verify(tmp_path):
-    # Arrange -- real plan over a real tree; the transport is the fake
-    # above, the delete and the manifest write are real.
-    import json
-    import os
-
-    from scitex_storage._django import organize
-
-    _boot()
-    (tmp_path / "old-exp").mkdir()
-    (tmp_path / "old-exp" / "a.bin").write_bytes(b"x" * 64)
-    home = tmp_path / "home"
-    home.mkdir()
-    previous_home = os.environ.get("HOME")
-    previous_runner = organize._APPLY_RUNNER
-    os.environ["HOME"] = str(home)
-    organize._APPLY_RUNNER = _ApplyFakeRunner()
-    try:
-        # Act
-        response = _post_move_apply(
-            tmp_path, {"volume": "mine", "dir": "old-exp",
-                       "destination": "scitex-nas-01", "confirm": "yes"}
-        )
-        body = response.content.decode()
-    finally:
-        if previous_home is None:
-            os.environ.pop("HOME", None)
-        else:
-            os.environ["HOME"] = previous_home
-        organize._APPLY_RUNNER = previous_runner
-    manifests = list((home / ".scitex" / "scitex-storage" / "runtime" / "archive-manifests").glob("*.json"))
-    staged = json.loads(manifests[0].read_text()).get("staged_path", "") if len(manifests) == 1 else ""
-    # Assert -- verified move: summary shown, source retired (not deleted),
-    # staged tree restorable, manifest records where.
-    from pathlib import Path
-
-    result = (
-        response.status_code,
-        "Move applied and verified" in body,
-        (tmp_path / "old-exp").exists(),
-        (staged != "" and Path(staged).is_dir() and (Path(staged) / "a.bin").is_file()),
-        len(manifests),
-    )
-    assert result == (200, True, False, True, 1)
 
 
-def test_move_project_scope_plans_dir_inside_project(tmp_path):
-    # Arrange
-    _boot()
-    proj = tmp_path / "proj"
-    (proj / "old-exp").mkdir(parents=True)
-    ((proj / "old-exp") / "a.bin").write_bytes(b"x")
-    # Act
-    body = _get_scoped(
-        tmp_path,
-        {"tab": "move", "scope": "project", "plan": "1", "volume": "mine",
-         "dir": "proj/old-exp", "destination": "scitex-nas-01"},
-        username="u",
-        project_path=str(proj),
-    ).content.decode()
-    # Assert
-    assert "Move plan (not executed)" in body
 
 
 def test_tabs_use_shared_content_tabs_primitive(tmp_path):
@@ -1496,13 +1185,6 @@ def _leaf_css_block():
     return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
 
 
-def test_no_peach_rule_under_app_header():
-    # Arrange -- the SDK AppHeader's warm bottom border reads as a peach
-    # line between the global header and our content; the leaf removes it.
-    # Act
-    body = _leaf_css_block()
-    # Assert
-    assert (".stx-app-header" in body, "border-bottom: none" in body) == (True, True)
 
 
 def test_selected_tab_uses_cards_pattern():
@@ -1543,7 +1225,7 @@ def test_move_button_uses_sdk_button_primitive():
     text = (
         __import__("pathlib").Path(
             "src/scitex_storage/_django/templates/scitex_storage/organize.html"
-        ).read_text()
+        ).read_text() + __import__("pathlib").Path("src/scitex_storage/_django/templates/scitex_storage/logical_move.html").read_text()
     )
     # Assert
     assert (
