@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Add a separate, editable example cost calculator for logical tiers: explicit
+  illustrative size/rates and Decimal day/week/30-day estimates. Seed fixtures
+  cite the 2026-11-02 landing-page pricing snapshot; Hot remains nonnumeric until
+  entered. Configured rates, availability, scope and storage operations are
+  unchanged; no account or rate persistence is added.
+
 ## [0.6.16] - 2026-11-02
 
 ### Added

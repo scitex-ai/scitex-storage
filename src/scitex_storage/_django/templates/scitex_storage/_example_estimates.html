@@ -1,0 +1,32 @@
+{% load i18n %}
+<section class="stx-storage-card" aria-labelledby="example-estimates-heading">
+  <h2 id="example-estimates-heading" class="stx-storage-machine">{% translate "Example cost calculator" %}</h2>
+  <p>{% translate "Illustrative USD estimates only. Edit these example rates to compare storage costs; they do not set actual pricing or make a tier available." %}</p>
+  <form method="get">
+    <input type="hidden" name="tab" value="move">
+    <input type="hidden" name="scope" value="{{ scope }}">
+    {% if pscope %}<input type="hidden" name="project" value="{{ pscope.project_id }}">{% endif %}
+    {% for key, value in move_form.items %}{% if key != "transaction_id" %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endif %}{% endfor %}
+    <div class="stx-field">
+      <label for="example-size-gb">{% translate "Example size (decimal GB)" %}</label>
+      <input class="stx-input" id="example-size-gb" name="example_size_gb" type="number" min="0" step="any" value="{{ example_size_gb }}" required{% if example_size_error %} aria-invalid="true" aria-describedby="example-size-error"{% endif %}>
+      {% if example_size_error %}<p class="stx-storage-warn" id="example-size-error" role="alert">{{ example_size_error }}</p>{% endif %}
+    </div>
+    <div class="stx-tier-grid">
+      {% for tier in example_tiers %}
+      <article>
+        <div class="stx-field">
+          <label for="example-rate-{{ tier.name }}">{{ tier.name|capfirst }} — {% translate "example USD / GB / 30 days" %}</label>
+          <input class="stx-input" id="example-rate-{{ tier.name }}" name="example_rate_{{ tier.name }}" type="number" min="0" step="any" value="{{ tier.rate }}"{% if tier.error %} aria-invalid="true" aria-describedby="example-rate-error-{{ tier.name }}"{% endif %}>
+        </div>
+        {% if tier.error %}<p class="stx-storage-warn" id="example-rate-error-{{ tier.name }}" role="alert">{{ tier.error }}</p>{% endif %}
+        {% if tier.name == "hot" %}<p class="stx-storage-note">{% translate "Hot scratch is included with active compute in the reference rate card. No numeric example rate is assumed." %}</p>{% endif %}
+        {% if tier.estimates %}<dl class="stx-storage-example-estimates" aria-label="{{ tier.name|capfirst }} example estimates">{% for estimate in tier.estimates %}<dt>{{ estimate.label }}</dt><dd>USD {{ estimate.amount }}</dd>{% endfor %}</dl>
+        {% elif not tier.error and not example_size_error %}<p class="stx-storage-note">{% translate "Enter an example rate to calculate." %}</p>{% endif %}
+      </article>
+      {% endfor %}
+    </div>
+    <button class="stx-button stx-button--primary" type="submit">{% translate "Calculate examples" %}</button>
+  </form>
+  <p class="stx-storage-note">{% translate "Day = 1 day; week = 7 days; month = 30 days. Examples exclude included allowances, compute, transfer and other service charges. Configured rates above remain separate host settings." %}</p>
+</section>

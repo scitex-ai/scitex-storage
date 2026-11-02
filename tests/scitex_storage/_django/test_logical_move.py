@@ -404,3 +404,64 @@ def test_duplicate_report_preserves_total_and_labels_display_subset(storage):
         "Showing the first 50 of 52 groups" in body,
         str(storage["hot"]) not in body,
     ) == (200, True, True, True)
+
+
+def test_example_calculator_keeps_real_rates_availability_and_move_draft(storage):
+    # Arrange -- observe genuine function calls; do not replace production code.
+    import sys
+
+    calls = []
+
+    def observe(frame, event, arg):
+        if (event == "call" and frame.f_globals.get("__name__") == "scitex_storage._transfer._move"
+                and frame.f_code.co_name in {"plan_move", "apply_move"}):
+            calls.append(frame.f_code.co_name)
+
+    previous = sys.getprofile()
+    before = sorted(str(p) for root in storage.values() for p in root.rglob("*"))
+    req = request({"example_size_gb": "100", "example_rate_cold": "0.50"})
+    # Act
+    sys.setprofile(observe)
+    try:
+        response = logical_move.move(req)
+    finally:
+        sys.setprofile(previous)
+    body = response.content.decode()
+    observed = [
+        not calls,
+        response.status_code == 200,
+        'name="scope" value="all"' in body,
+        'name="source_path" value="experiment"' in body,
+        'name="example_rate_cold" type="number" min="0" step="any" value="0.50"' in body,
+        "USD 2 / GB / 30 days" in body,
+        "USD 50.000000" in body,
+        "Illustrative USD estimates only" in body,
+        "No numeric example rate is assumed" in body,
+        'value="warm" disabled' in body,
+        sorted(str(p) for root in storage.values() for p in root.rglob("*")) == before,
+    ]
+    # Assert
+    assert all(observed), observed
+
+
+def test_example_get_preserves_real_sdk_project_scope_without_remembering(storage):
+    # Arrange -- this real SDK provider refuses every preference write.
+    (storage["hot"] / "registered-project").mkdir()
+    # Act
+    with override_settings(
+        SCITEX_PROJECT_PROVIDER=__name__ + ".ReviewProjectProvider",
+        SCITEX_PROJECT_STORAGE=__name__ + ".ReviewProjectStorage",
+    ):
+        response = logical_move.move(
+            request({"scope": "project", "project": "scientist/paper", "example_rate_warm": "0.30"})
+        )
+    body = response.content.decode()
+    observed = [
+        response.status_code == 200,
+        'name="scope" value="project"' in body,
+        'name="project" value="scientist/paper"' in body,
+        "USD 30.000000" in body,
+        not (storage["cold"] / "experiment").exists(),
+    ]
+    # Assert
+    assert all(observed), observed

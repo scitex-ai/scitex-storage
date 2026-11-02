@@ -302,6 +302,15 @@ settings `SCITEX_STORAGE_TIER_BINDINGS` map a tier to `{"volume": "provider-key"
 per tier (replace the ellipsis with an actual nonnegative decimal rate). Rates
 are not inferred. Plans show day/week/30-day estimates using decimal GB.
 
+A separate **Example cost calculator** starts with an explicitly illustrative
+100 GB size and editable USD/GB/30-day rates: Warm 0.10, Cool 0.03, Cold 0.01.
+Hot remains nonnumeric (included with active compute in the reference card)
+until an example is entered. These fixtures were initially based on the
+[Hub landing-page pricing snapshot of 2026-11-02](https://github.com/scitex-ai/scitex-hub/blob/54f4a8691a5369569feb1cb87346d160abd1d747/apps/infra/public_app/data/pricing.json);
+they do not synchronize with billing or require Hub at runtime. Editing examples
+changes only the current GET response, not configured prices, tier availability,
+account/project preferences, move plans, or data.
+
 Confirmed GUI moves require both authorized locations to be mounted, refuse
 registered project-root relocation, verify with SHA after rsync, and retain the
 original for at least seven days. The host must supply `SCITEX_USER_HOME_PROVIDER`

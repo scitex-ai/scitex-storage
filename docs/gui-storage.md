@@ -37,6 +37,25 @@ and `per_gb_month` decimal rate. Estimates multiply selected bytes / 1,000,000,0
 by that rate and days / 30 for 1, 7, and 30 days. No default commercial price is
 invented; unconfigured rates say so. Transfer/service charges are excluded.
 
+The separate **Example cost calculator** uses a clearly labelled 100 GB example
+size, never the selected project’s measured usage. Its editable illustrative
+fixtures start at USD 0.10 / 0.03 / 0.01 per decimal GB per 30-day month for
+Warm / Cool / Cold. They were initially based on the
+[2026-11-02 Hub landing-page pricing snapshot](https://github.com/scitex-ai/scitex-hub/blob/54f4a8691a5369569feb1cb87346d160abd1d747/apps/infra/public_app/data/pricing.json).
+Hot has no numeric fixture: the reference card includes scratch with active
+compute. Users may enter any valid nonnegative example rate, including zero.
+These are display-only fixtures, not current billing rates or a synchronization
+promise; Storage does not import Hub or read its price file at runtime.
+
+Submitting examples is a separate GET action. It retains request-local scope and
+move draft fields, does not plan or apply a move, and writes no settings, session,
+preferences or user data. Calculations use Decimal, 1/7/30-day durations and six
+decimal output places. Input accepts plain nonnegative decimals with at most
+16 integer and 9 fractional digits; negative/nonfinite/exponent/oversized inputs
+show errors rather than stale estimates. These calculator formatting bounds
+are not storage-size limits. Allowances, compute, transfer and service fees are
+excluded, and example edits never enable an unavailable tier.
+
 ## Moves and recovery
 
 Planning performs no writes. Applying is POST-only with an explicit confirmation,
