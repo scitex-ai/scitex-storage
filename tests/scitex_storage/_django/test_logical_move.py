@@ -432,7 +432,7 @@ def test_example_calculator_keeps_real_rates_availability_and_move_draft(storage
         response.status_code == 200,
         'name="scope" value="all"' in body,
         'name="source_path" value="experiment"' in body,
-        'name="example_rate_cold" type="number" min="0" step="any" value="0.50"' in body,
+        'name="example_rate_cold" type="text" inputmode="decimal" value="0.50"' in body,
         "USD 2 / GB / 30 days" in body,
         "USD 50.000000" in body,
         "Illustrative USD estimates only" in body,
@@ -462,6 +462,56 @@ def test_example_get_preserves_real_sdk_project_scope_without_remembering(storag
         'name="project" value="scientist/paper"' in body,
         "USD 30.000000" in body,
         not (storage["cold"] / "experiment").exists(),
+    ]
+    # Assert
+    assert all(observed), observed
+
+
+def test_fresh_move_controls_share_calculator_owner_without_stale_hidden_copies(storage):
+    # Arrange -- inspect the real rendered forms without replacing any view code.
+    from html.parser import HTMLParser
+
+    class Controls(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.nodes = []
+
+        def handle_starttag(self, tag, attributes):
+            if tag in {"form", "input", "select", "button"}:
+                self.nodes.append((tag, dict(attributes)))
+
+    # Act
+    parser = Controls()
+    parser.feed(logical_move.move(request()).content.decode())
+    nodes = parser.nodes
+    by_id = {attributes.get("id"): attributes for tag, attributes in nodes if attributes.get("id")}
+    owner = "storage-example-move-form"
+    move_ids = ["move-source-tier", "move-source-path", "move-destination-tier", "move-destination-path"]
+    plan = next(attributes for tag, attributes in nodes if tag == "button" and attributes.get("name") == "plan")
+    observed = [
+        by_id.get(owner, {}).get("method") == "get",
+        all(by_id[key].get("form") == owner and "required" in by_id[key] for key in move_ids),
+        plan.get("form") == owner and "formnovalidate" not in plan,
+        not any(tag == "input" and attributes.get("type") == "hidden" and attributes.get("name") in {"source_path", "destination_path", "source_tier", "destination_tier"} for tag, attributes in nodes),
+        "required" not in by_id["example-size-gb"] and by_id["example-size-gb"].get("inputmode") == "decimal",
+        any(tag == "button" and "formnovalidate" in attributes and attributes.get("name") != "plan" for tag, attributes in nodes),
+    ]
+    # Assert
+    assert all(observed), observed
+
+
+def test_invalid_examples_do_not_block_an_explicit_real_read_only_move_plan(storage):
+    # Arrange -- only the owned temporary source and destination can be planned.
+    before = sorted(str(p) for root in storage.values() for p in root.rglob("*"))
+    # Act
+    response = logical_move.move(request({"plan": "1", "example_size_gb": "NaN", "example_rate_warm": "-1"}))
+    body = response.content.decode()
+    observed = [
+        response.status_code == 200,
+        "Move plan (not executed)." in body,
+        'id="example-size-error"' in body,
+        'id="example-rate-error-warm"' in body,
+        sorted(str(p) for root in storage.values() for p in root.rglob("*")) == before,
     ]
     # Assert
     assert all(observed), observed

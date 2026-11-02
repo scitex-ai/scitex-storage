@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Preserve fresh Move draft edits when calculating examples through native GET
+  form association. Calculate works with incomplete Move fields; explicit Plan
+  retains required fields and is independent of server-side example errors.
+  Apply remains a separate POST form; no controller or persisted state is added.
+
 - Add a separate, editable example cost calculator for logical tiers: explicit
   illustrative size/rates and Decimal day/week/30-day estimates. Seed fixtures
   cite the 2026-11-02 landing-page pricing snapshot; Hot remains nonnumeric until

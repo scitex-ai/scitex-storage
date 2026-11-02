@@ -309,7 +309,10 @@ until an example is entered. These fixtures were initially based on the
 [Hub landing-page pricing snapshot of 2026-11-02](https://github.com/scitex-ai/scitex-hub/blob/54f4a8691a5369569feb1cb87346d160abd1d747/apps/infra/public_app/data/pricing.json);
 they do not synchronize with billing or require Hub at runtime. Editing examples
 changes only the current GET response, not configured prices, tier availability,
-account/project preferences, move plans, or data.
+account/project preferences, move plans, or data. Native form association sends
+freshly edited Move draft fields with example calculations, rather than stale
+hidden copies. Calculate works with an incomplete Move draft; Plan still requires
+its Move fields, and invalid examples do not block an explicit plan.
 
 Confirmed GUI moves require both authorized locations to be mounted, refuse
 registered project-root relocation, verify with SHA after rsync, and retain the

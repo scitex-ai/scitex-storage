@@ -49,7 +49,16 @@ promise; Storage does not import Hub or read its price file at runtime.
 
 Submitting examples is a separate GET action. It retains request-local scope and
 move draft fields, does not plan or apply a move, and writes no settings, session,
-preferences or user data. Calculations use Decimal, 1/7/30-day durations and six
+preferences or user data. Visible Move controls share the example GET form owner
+through native HTML association, so fresh draft edits are included on submission.
+The visual Move form remains distinct for the host’s existing nearest-action
+Enter routing; no second handler is installed. Calculate ignores incomplete
+Move-field browser validation and never sends `plan=1`. Plan retains the Move
+fields’ native required checks, and Apply remains a separate POST form. Optional
+plain-text decimal example inputs are validated by the server, so an example
+error cannot block unrelated Move-field browser validation or explicit planning.
+
+Calculations use Decimal, 1/7/30-day durations and six
 decimal output places. Input accepts plain nonnegative decimals with at most
 16 integer and 9 fractional digits; negative/nonfinite/exponent/oversized inputs
 show errors rather than stale estimates. These calculator formatting bounds
