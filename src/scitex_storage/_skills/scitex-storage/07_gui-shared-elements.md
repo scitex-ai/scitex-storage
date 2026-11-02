@@ -32,7 +32,11 @@ tags: [scitex-storage-gui-shared-elements]
   per GB per 30 days from the cited 2026-11-02 Hub pricing snapshot. Hot stays
   nonnumeric until entered. These fixtures do not synchronize with billing or
   import Hub at runtime. Example GETs preserve scope/drafts and never plan/apply
-  moves, persist rates/preferences, or enable unavailable tiers. See
+  moves, persist rates/preferences, or enable unavailable tiers. Use native form
+  association for live Move draft values, not hidden snapshots. Calculate must
+  work with incomplete drafts; Plan keeps required-field validation, and example
+  errors never block explicit planning. Keep Apply POST separate and retain the
+  existing host Enter routing, without a second global handler. See
   `_logical_tiers.py`, `_django/_example_estimates.py`, and `docs/gui-storage.md`.
 - Both move endpoints are contained and authorized; project roots cannot be
   silently relocated. Confirmed moves always SHA-verify and retain originals

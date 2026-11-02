@@ -24,19 +24,20 @@
   <section class="stx-storage-card">
     <h2 class="stx-storage-machine">{% translate "Plan a move" %}</h2>
     <p>{% translate "Choose both locations. Planning changes no files. A confirmed move uses rsync, independently verifies content, and keeps the original recoverable for at least seven days." %}</p>
-    <form method="get" class="stx-form-row">
+    {% comment %}Keep the visual form for the host nearest-action Enter router; controls use the shared GET owner. Apply below remains an independent POST form.{% endcomment %}
+    <form method="get" class="stx-form-row" aria-label="{% translate 'Move draft' %}">
       <input type="hidden" name="tab" value="move">
       <input type="hidden" name="scope" value="{{ scope }}">
       {% if pscope %}<input type="hidden" name="project" value="{{ pscope.project_id }}">{% endif %}
-      <div class="stx-field"><label for="move-source-tier">{% translate "From tier" %}</label><select class="stx-select" id="move-source-tier" name="source_tier" required>
+      <div class="stx-field"><label for="move-source-tier">{% translate "From tier" %}</label><select class="stx-select" id="move-source-tier" form="storage-example-move-form" name="source_tier" required>
         <option value="">{% translate "Choose tier" %}</option>{% for tier in logical_tiers %}<option value="{{ tier.name }}"{% if move_form.source_tier == tier.name %} selected{% endif %}{% if not tier.available %} disabled{% endif %}>{{ tier.name|capfirst }}</option>{% endfor %}
       </select></div>
-      <div class="stx-field"><label for="move-source-path">{% translate "Source folder within tier" %}</label><input class="stx-input" id="move-source-path" name="source_path" value="{{ move_form.source_path }}" placeholder="experiments/run-01" required></div>
-      <div class="stx-field"><label for="move-destination-tier">{% translate "To tier" %}</label><select class="stx-select" id="move-destination-tier" name="destination_tier" required>
+      <div class="stx-field"><label for="move-source-path">{% translate "Source folder within tier" %}</label><input class="stx-input" id="move-source-path" form="storage-example-move-form" name="source_path" value="{{ move_form.source_path }}" placeholder="experiments/run-01" required></div>
+      <div class="stx-field"><label for="move-destination-tier">{% translate "To tier" %}</label><select class="stx-select" id="move-destination-tier" form="storage-example-move-form" name="destination_tier" required>
         <option value="">{% translate "Choose tier" %}</option>{% for tier in logical_tiers %}<option value="{{ tier.name }}"{% if move_form.destination_tier == tier.name %} selected{% endif %}{% if not tier.available %} disabled{% endif %}>{{ tier.name|capfirst }}</option>{% endfor %}
       </select></div>
-      <div class="stx-field"><label for="move-destination-path">{% translate "Destination folder within tier" %}</label><input class="stx-input" id="move-destination-path" name="destination_path" value="{{ move_form.destination_path }}" placeholder="experiments/run-01" required></div>
-      <button class="stx-button stx-button--primary" name="plan" value="1" type="submit">{% translate "Plan move" %}</button>
+      <div class="stx-field"><label for="move-destination-path">{% translate "Destination folder within tier" %}</label><input class="stx-input" id="move-destination-path" form="storage-example-move-form" name="destination_path" value="{{ move_form.destination_path }}" placeholder="experiments/run-01" required></div>
+      <button class="stx-button stx-button--primary" form="storage-example-move-form" name="plan" value="1" type="submit">{% translate "Plan move" %}</button>
     </form>
     {% if move_error %}<p class="stx-storage-warn" role="alert">{{ move_error }}</p>{% endif %}
     {% if move_plan %}
