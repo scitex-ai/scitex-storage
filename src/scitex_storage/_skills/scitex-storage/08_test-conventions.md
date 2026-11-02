@@ -48,3 +48,10 @@ navigation and malformed/traversal-shaped hashes. Only already-loaded nodes
 may be visited; no ancestor URL or filesystem request is permitted. Screenshots
 remain in that run's temporary directory. These fixture screenshots are not a
 claim about a deployed page. Browser availability follows the fixture above.
+
+`tests/scitex_storage/_django/test_organize.py` exercises the production SDK
+provider path (no test-only project seam), encoded/absolute foreign selectors,
+ignored free-form path queries, per-project narrowing, and escaping directory
+symlinks. Its roots and file contents are temporary fixtures, and every request
+checks those contents remain unchanged. The tests prove existing protections;
+they do not add an unrestricted path or parent-navigation API.
