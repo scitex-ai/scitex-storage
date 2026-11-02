@@ -287,8 +287,10 @@ Usage embeds a read-only, zoomable sunburst of the selected project's bytes
 link. The chart uses the same authorized endpoint in both views and needs no
 external JavaScript service. The chart fits the available viewport height,
 with a 480px maximum drawing area, so the embedded view needs no inner scrollbar.
-Missing scan dependencies and scan timeouts are
-reported inside the chart.
+The entire inner disk (including its labels) goes up one loaded tree level;
+`..` and Enter/Space provide the same action. At the scoped root there is no
+parent and the center is disabled. Breadcrumbs still work. Missing scan
+dependencies and scan timeouts are reported inside the chart.
 
 Storage starts in **All Projects** without changing the host's remembered project.
 An explicit authorized project constrains the chart and duplicate scan; an invalid

@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Regress Usage scope boundaries with registered SDK providers: reject encoded/foreign selectors, ignore free-form root overrides, preserve project narrowing, and avoid descent through escaping directory symlinks. No backend authorization policy changes.
+
+- Make the entire Usage sunburst center disk a parent control, with `..`, mouse/touch and Enter/Space support. Disable it at the loaded scoped root and safely refuse malformed hash restoration without ancestor requests.
+
 - Add a separate, editable example cost calculator for logical tiers: explicit
   illustrative size/rates and Decimal day/week/30-day estimates. Seed fixtures
   cite the 2026-11-02 landing-page pricing snapshot; Hot remains nonnumeric until

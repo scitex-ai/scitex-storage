@@ -16,6 +16,18 @@ its URL on a real selection event.
 The host supplies authorized volume roots. Displayed paths use a separate
 `display_root` or `/home/<username>` label; this never changes real I/O roots.
 Usage's sunburst scans the selected authorized root or exact project root.
+Its full center disk goes up one level within the already-loaded hierarchy,
+including clicks/taps on its labels or inner edge. The `..` affordance and
+Enter/Space share that action; the scoped root is disabled and never invents a
+filesystem ancestor. Breadcrumbs and ring drill-down remain available. Hash
+restoration only matches loaded child nodes; malformed encodings reset safely
+to that same scoped root, with no ancestor requests.
+The Usage endpoint accepts an owned volume key or an authorized project ID,
+not a free-form filesystem root. Traversal-shaped/foreign selectors return 403;
+`path`/`root` query values cannot replace the selected host-authorized root.
+Directory symlinks may appear as link entries but their target trees are not
+recursed. These existing boundaries are covered through actual SDK project and
+volume provider fixtures; the center control adds no filesystem endpoint.
 Capacity cards are filesystem capacity, not claimed personal usage/quota.
 Duplicates calls the real read-only content matcher, with a depth bound; missing
 fclones is shown as unavailable rather than an empty successful report. The GUI
