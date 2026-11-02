@@ -179,18 +179,66 @@ class _TerminationPending(RuntimeError):
     """The OS has not yet acknowledged termination of the owned group."""
 
 
+def _process_group_is_running(group_id, *, deadline=None):
+    """Check live group members, including descendants after their leader exits.
+
+    A process wait only acknowledges the direct child. Linux /proc provides
+    the group membership needed before discarding an interrupted transfer's
+    private files; zombies cannot execute or write and need not delay recovery.
+    """
+    try:
+        try:
+            os.killpg(group_id, 0)
+        except ProcessLookupError:
+            return False
+        for candidate in Path("/proc").iterdir():
+            if deadline is not None and time.monotonic() >= deadline:
+                raise _TerminationPending("Process group liveness deadline expired")
+            if not candidate.name.isdigit():
+                continue
+            try:
+                fields = (
+                    (candidate / "stat")
+                    .read_text(errors="replace")
+                    .rpartition(")")[2]
+                    .split()
+                )
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            if int(fields[2]) == group_id and fields[0] not in {"Z", "X"}:
+                return True
+    except (OSError, ValueError, IndexError) as exc:
+        raise _TerminationPending(
+            "Process group liveness could not be verified"
+        ) from exc
+    return False
+
+
 def _terminate_group(process):
+    until = time.monotonic() + 2.0
     for signum in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(process.pid, signum)
         except ProcessLookupError:
             pass
     try:
-        process.wait(timeout=2)
+        process.wait(timeout=max(0.001, until - time.monotonic()))
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(
+        raise _TerminationPending(
             "Process group termination is still pending in the OS"
         ) from exc
+    while _process_group_is_running(process.pid, deadline=until):
+        if time.monotonic() >= until:
+            raise _TerminationPending(
+                "Descendant termination is still pending in the OS"
+            )
+        # A descendant may still be acknowledging the first signal, or have
+        # forked before it arrived. Keep the owned group stopped while waiting.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        time.sleep(0.01)
 
 
 def _run_process_group(command, stopped, on_start=None):
