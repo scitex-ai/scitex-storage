@@ -16,7 +16,7 @@ convention this repo already uses for archive manifests
 Always registered on ``main`` (importing this module needs only
 ``click``, never Django) so ``scitex-storage --help`` always lists
 ``gui`` — but ``serve``/``open`` require the ``gui`` optional-dependency
-group (Django + scitex-sdk + scitex-ui; see ``pyproject.toml``). Without
+group (Django + scitex-sdk + scitex-dev; see ``pyproject.toml``). Without
 it, both raise a clear, actionable ``click.ClickException`` rather than
 a raw ``ImportError`` traceback.
 
@@ -65,9 +65,9 @@ def _require_django():
 
 
 def _warn_once_forward(old_name: str, new_invocation: str, removed_in: str) -> None:
-    """Phase-W once-per-shell stderr warning (keyed by $PPID), per 11_deprecation.md."""
+    """Phase-W stderr warning keyed by the actual parent process, once per shell."""
     marker_dir = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
-    ppid = os.environ.get("PPID") or str(os.getppid())
+    ppid = str(os.getppid())
     marker = marker_dir / f"scitex-cli-dep-{os.environ.get('USER', 'user')}-{ppid}-{old_name}.flag"
     if marker.exists():
         return
