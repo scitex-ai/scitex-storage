@@ -49,7 +49,8 @@ jobs:
   # Keep the real integration suite on the admitted org runner workflow.
   # The pinned callee preserves fd/fclones installation and full pytest,
   # with membership/fork admission before native checkout.
-  # Qualified 2026-11-08 backport: bounded APT lock waits and job-owned
-  # downloads, retaining the original repository-specific admission gate.
+  # Qualified 2026-11-08 maintenance: bounded APT waits, job-owned downloads,
+  # isolated dev profile and required matching Chromium headless shell.
+  # The original repository-specific admission gate remains intact.
   fd-fclones-integration:
-    uses: scitex-ai/.github/.github/workflows/fd-fclones-integration.yml@825df4212b96db37e9775bec45e08d2068634cc7
+    uses: scitex-ai/.github/.github/workflows/fd-fclones-integration.yml@8e57b1ddc49e22d5f8ad2344aba7764fff70b9fd
