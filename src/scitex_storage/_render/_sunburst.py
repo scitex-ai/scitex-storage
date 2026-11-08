@@ -76,8 +76,8 @@ def build_dir_hierarchy(
 
     Same node shape as :func:`build_hierarchy` (``name`` / ``value`` /
     ``usage`` / ``inode`` / ``children``) so the one drawing routine serves
-    both. Directories report no usage metric (``None`` -> grey, never a
-    misleading red): for folders the angle (size) is the signal, and the
+    both. Directories report no usage metric: their colours identify folder
+    labels rather than usage percentages. The angle represents size and the
     tooltip names the byte count. Recursion is depth-capped and each level
     keeps the ``top_n`` largest plus an ``Other`` rollup, so a huge tree
     cannot blow up the page. Raises ``MissingSystemDependencyError`` when
@@ -252,6 +252,7 @@ function ring(node, ringIdx, a0, a1, depth){{
   }}
 }}
 function render(){{
+  tip.style.opacity=0;
   while(svg.firstChild) svg.removeChild(svg.firstChild);
   // The complete inner disk goes up exactly one already-loaded tree node.
   const centre=document.createElementNS('http://www.w3.org/2000/svg','g');
