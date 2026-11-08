@@ -79,7 +79,6 @@ def test_single_child_rings_drill_down_and_center_stays_in_scope(
     )
     page.goto(single_child_chart.as_uri())
     action = page.mouse.click if device == "mouse" else page.touchscreen.tap
-    page.screenshot(path=str(single_child_chart.parent / f"annulus-{device}.png"))
 
     def activate(radius):
         point = page.locator("#sb").evaluate(
@@ -103,6 +102,9 @@ def test_single_child_rings_drill_down_and_center_stays_in_scope(
     activate(0)
     state = page.locator("#centre").get_attribute("aria-disabled")
     crumb = page.locator("#crumb").inner_text()
+    expect(page.locator("#tip")).to_have_css("opacity", "0")
+    # Capture the verified root after native interaction has rendered the scene.
+    page.screenshot(path=str(single_child_chart.parent / f"annulus-{device}.png"))
     page.close()
     # Assert -- no filesystem ancestor exists outside the loaded scope.
     assert (state, crumb) == ("true", "Owned scope")

@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Clear the previous sunburst tooltip when navigating between hierarchy levels.
+- Capture the verified root after native navigation in browser regression tests,
+  retaining the required screenshot and all boundary assertions.
+
 - Key the legacy GUI command's once-per-shell warning to the actual parent
   process, rather than a stale or caller-supplied `PPID` environment value.
 
