@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import stat
 import sys
@@ -27,14 +28,17 @@ requires_fclones = pytest.mark.skipif(
     not _HAVE_FCLONES, reason="requires the `fclones` binary on PATH"
 )
 
-# Fake-`fclones` scripts need a real interpreter in their shebang; `/usr/bin/
-# env python3` would depend on PATH, which the isolated PATH fixture
-# deliberately empties out, so use this process's own interpreter instead.
+# Fake-`fclones` scripts must use this process's actual interpreter even when
+# its path contains spaces. PATH is deliberately emptied by the fixture.
 _PYTHON3_BIN = sys.executable
 
 
-def _write_executable(path, body: str) -> None:
-    path.write_text(f"#!{_PYTHON3_BIN}\n{body}")
+def _write_executable(path, body: str, *, interpreter: str = _PYTHON3_BIN) -> None:
+    # Shell/Python launcher: exec preserves the script path and argument vector;
+    # quoting protects interpreter paths that a kernel shebang cannot represent.
+    path.write_text(
+        f"#!/bin/sh\n'''exec' {shlex.quote(interpreter)} \"$0\" \"$@\"\n' '''\n{body}"
+    )
     path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
 
