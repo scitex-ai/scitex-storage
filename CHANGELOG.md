@@ -7,6 +7,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Key the legacy GUI command's once-per-shell warning to the actual parent
+  process, rather than a stale or caller-supplied `PPID` environment value.
+
 - Render a single-child Usage ring as a complete annulus using two SVG arcs per circle; preserve its empty center, ring bounds, partial sectors and native drill-down.
 
 - Paint the Usage parent disk after colored arcs so near-edge native touch compatibility clicks keep the center target inside sandboxed phone iframes. Radius and ring geometry are unchanged.
