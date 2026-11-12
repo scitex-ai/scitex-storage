@@ -50,7 +50,9 @@ import click
 #: importing anything -- help and completion must not be able to fail because
 #: some unrelated verb's dependency is skewed.
 VERB_REGISTRY: dict[str, str] = {
+    "versions": "._versions_cmd:versions_group",
     "scan": "._scan_cmd:scan_cmd",
+    "scrub": "._scrub_cmd:scrub_cmd",
     "validate-inodes": "._inodes_cmd:inodes_cmd",
     "find-duplicates": "._duplicates_cmd:find_duplicates_cmd",
     "find-recipe": "._regenerable_cmd:regenerable_cmd",
@@ -58,7 +60,9 @@ VERB_REGISTRY: dict[str, str] = {
     "images": "._images_cmd:images_group",
     "sweep": "._sweep_cmd:sweep_cmd",
     "sweep-status": "._sweep_cmd:sweep_status_cmd",
+    "sweep-restorable": "._retention_cmd:sweep_restorable_cmd",
     "archive": "._archive_cmd:archive_cmd",
+    "backup": "._backup_cmd:backup_cmd",
     "restore": "._archive_cmd:restore_cmd",
     "reclaim": "._reclaim_cmd:reclaim_cmd",
     "reclaim-restore": "._reclaim_cmd:reclaim_restore_cmd",
@@ -66,8 +70,8 @@ VERB_REGISTRY: dict[str, str] = {
     "verify-content": "._verify_content_cmd:verify_content_cmd",
     "fleet-status": "._fleet_status_cmd:fleet_status_cmd",
     "alarm": "._alarm_cmd:alarm_cmd",
-    # NOTE: `list-python-apis` and `mcp` are deliberately NOT here -- they are
-    # attached eagerly in __init__.py. See the comment there.
+    # NOTE: `list-python-apis`, `mcp` and `skills` are deliberately NOT here --
+    # they are attached eagerly in __init__.py. See the comment there.
     "gui": "._gui_cmd:gui_group",
     "start-gui": "._gui_cmd:start_gui_cmd",
 }

@@ -94,6 +94,8 @@ schema change in a hurry.
 
 from __future__ import annotations
 
+import sys
+
 # (package, purpose). EVERY ENTRY HERE MUST BE INSTALLABLE BY `apt-get
 # install <package>` ON A STOCK DEBIAN/UBUNTU. This federation has no field
 # for any other channel, so an entry that is not an apt package is not an
@@ -163,8 +165,15 @@ def provide():
     stays importable even where ``scitex-dev`` isn't installed -- the
     aggregator that calls ``provide()`` runs in an environment that provides
     ``scitex_dev``; a bare ``scitex-storage`` install never needs to.
+    Without scitex-dev this raises an actionable ``ImportError`` (PS-233).
     """
-    from scitex_dev.system_deps import SystemDepSpec
+    try:
+        from scitex_dev.system_deps import SystemDepSpec
+    except ImportError as exc:
+        raise ImportError(
+            "scitex-storage system-deps federation requires scitex-dev: "
+            "pip install scitex-storage[gui]"
+        ) from exc
 
     return [
         SystemDepSpec(package=pkg, purpose=purpose, provider="scitex-storage")
@@ -173,7 +182,7 @@ def provide():
 
 
 def _main() -> int:
-    print("\n".join(PACKAGE_NAMES))
+    sys.stdout.write("\n".join(PACKAGE_NAMES) + "\n")
     return 0
 
 

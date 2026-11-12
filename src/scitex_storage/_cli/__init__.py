@@ -36,8 +36,9 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
 _GROUP_KWARGS = spec_group_kwargs(
         summary="Research-data storage triage (scan + duplicates + versioned-image rotation).",
         description=(
-            "Discovery + rotation layers of a planned storage-tiering tool "
-            "(local SSD -> NAS SSD -> NAS HDD -> offline). `scan` is a "
+            "Storage triage plus verified tiering (local -> NAS over ssh, "
+            "copy -> read-back -> manifest -> delete)."
+            " `scan` is a "
             "read-only, stat-only directory walk (via `fd`) that reports "
             "the biggest space and inode (file-count) consumers per "
             "top-level child of a root -- no file contents are ever read. "
@@ -55,7 +56,9 @@ _GROUP_KWARGS = spec_group_kwargs(
             "gated on an explicit per-directory confirm. `archive` moves a "
             "directory to nas/nas2 over ssh (scitex-ssh's sync_dir), "
             "verifying before removing the local copy and writing a "
-            "manifest `restore` reads back. `reclaim` moves a path aside "
+            "manifest `restore` reads back. `backup` copies the same way "
+            "but retains the source (manifest marked `retained_source`). "
+            "`reclaim` moves a path aside "
             "into a reversible local archive (default adjacent `.old/`, or "
             "--archive-root on another filesystem to free inodes) instead of "
             "deleting it, so a rough cleanup call costs only a "
@@ -65,14 +68,17 @@ _GROUP_KWARGS = spec_group_kwargs(
             "grouped by role/tier, carrying the same three-state verdicts "
             "(measured / not-applicable / could-not-look) so a filesystem it "
             "could not read is never shown as a reassuring green 0%. Every "
-            "mutating command defaults to a dry-run.",
+            "mutating command defaults to a dry-run. `versions` adds local "
+            "content-addressed snapshots and ordinary Git pointers without "
+            "changing sources; it does not implement Git LFS or garbage collection.",
         ),
         config_resolution=(
             "scitex-storage has no configurable state yet — every command "
             "takes its options on the command line. Runtime state written: "
             "archive manifests under "
             "~/.scitex/scitex-storage/runtime/archive-manifests/, one JSON "
-            "file per archived directory, read back by `restore`.",
+            "file per archived directory, read back by `restore`. Content "
+            "versions live only under the explicitly supplied `versions --store` root.",
         ),
         version_of="scitex-storage",
         command_categories=(
@@ -83,6 +89,7 @@ _GROUP_KWARGS = spec_group_kwargs(
                     "validate-inodes",
                     "find-duplicates",
                     "images",
+                    "versions",
                     "sweep",
                     "sweep-status",
                     "archive",
@@ -152,28 +159,29 @@ def main(ctx: click.Context, help_recursive: bool, as_json: bool) -> None:
 # Adding a verb means adding one registry line, and it can no longer break
 # unrelated verbs at import time.
 #
-# TWO EXCEPTIONS, attached eagerly on purpose. The CLI-conventions audit
-# (§1a) requires `list-python-apis` and an `mcp` group to be DISCOVERABLE,
-# and it introspects the attached-command mapping rather than calling
-# `list_commands()`/`get_command()`, so lazily-registered verbs are invisible
-# to it. Attaching these two costs nothing and reintroduces no coupling:
-# both import only stdlib, click, `._compat` and `scitex_storage` itself --
-# verified, not assumed. The failure this module exists to prevent came in
-# through `_archive_cmd` -> `_archive` -> `scitex_ssh`, an EXTERNAL sibling
-# package, and neither of these touches one.
+# THREE EXCEPTIONS, attached eagerly on purpose. The CLI-conventions audit
+# (§1a) requires `list-python-apis`, an `mcp` group and a `skills` group to
+# be DISCOVERABLE, and it introspects the attached-command mapping rather
+# than calling `list_commands()`/`get_command()`, so lazily-registered
+# verbs are invisible to it. Attaching these three costs nothing and
+# reintroduces no coupling: all import only stdlib, click, `._compat` and
+# `scitex_storage` itself -- verified, not assumed. The failure this module
+# exists to prevent came in through `_archive_cmd` -> `_archive` ->
+# `scitex_ssh`, an EXTERNAL sibling package, and none of these touches one.
 from ._introspect import list_python_apis  # noqa: E402
 from ._mcp_commands import mcp  # noqa: E402
+from ._skills_cmd import skills_group  # noqa: E402
 
 main.add_command(list_python_apis)
 main.add_command(mcp)
+main.add_command(skills_group, name="skills")
 
 # §1a: install-shell-completion + print-shell-completion (canonical leaves).
-try:
-    from scitex_dev._cli._completion import attach_shell_completion
+# Vendored drop-in module (``._completion``): stdlib + click only, so shell
+# completion keeps working whether or not scitex-dev is installed.
+from ._completion import attach_shell_completion
 
-    attach_shell_completion(main, prog_name="scitex-storage")
-except ImportError:
-    pass
+attach_shell_completion(main, prog_name="scitex-storage")
 
 
 if __name__ == "__main__":  # pragma: no cover

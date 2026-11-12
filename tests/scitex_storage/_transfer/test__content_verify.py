@@ -341,6 +341,95 @@ def test_a_partial_walk_does_not_masquerade_as_a_manifest():
     assert verdict.verdict == COULD_NOT_LOOK
 
 
+@pytest.fixture(params=["source", "destination", "both"])
+def unreadable_content_pair(tmp_path, request):
+    """Real unreadable directories, with modes restored even when a test fails."""
+    unreadable_side = request.param
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    for root in (source, destination):
+        _write(str(root), "visible.txt", b"visible")
+        _write(str(root), "blocked/hidden.txt", b"hidden")
+    roots = (
+        [source, destination]
+        if unreadable_side == "both"
+        else [source if unreadable_side == "source" else destination]
+    )
+    blocked = [root / "blocked" for root in roots]
+    previous_modes = [stat.S_IMODE(path.stat().st_mode) for path in blocked]
+    try:
+        for path in blocked:
+            path.chmod(0)
+            try:
+                with os.scandir(path):
+                    pass
+            except PermissionError:
+                pass
+            else:
+                pytest.skip("this runtime can bypass fixture directory permissions")
+        yield source, destination, roots[0], blocked, previous_modes
+    finally:
+        for path, mode in zip(blocked, previous_modes):
+            path.chmod(mode)
+
+
+def test_unreadable_directory_blocks_content_verification(unreadable_content_pair):
+    # Arrange
+    source, destination, _, _, _ = unreadable_content_pair
+    # Act
+    verdict = verify_content(digest_tree(str(source)), digest_tree(str(destination)))
+    # Assert
+    assert verdict.verdict == COULD_NOT_LOOK
+
+
+def test_unreadable_directory_never_authorizes_removal(unreadable_content_pair):
+    # Arrange
+    source, destination, _, _, _ = unreadable_content_pair
+    # Act
+    verdict = verify_content(digest_tree(str(source)), digest_tree(str(destination)))
+    # Assert
+    assert verdict.may_remove_source is False
+
+
+def test_unreadable_directory_discards_partial_digests(unreadable_content_pair):
+    # Arrange
+    _, _, unreadable_root, _, _ = unreadable_content_pair
+    # Act
+    manifest = digest_tree(str(unreadable_root))
+    # Assert
+    assert manifest.digests == {}
+
+
+def test_unreadable_directory_records_walk_error(unreadable_content_pair):
+    # Arrange
+    _, _, unreadable_root, _, _ = unreadable_content_pair
+    # Act
+    manifest = digest_tree(str(unreadable_root))
+    # Assert
+    assert "<walk>" in manifest.unreadable
+
+
+def test_restored_directory_verifies_full_content(unreadable_content_pair):
+    # Arrange
+    source, destination, _, blocked, modes = unreadable_content_pair
+    # Act
+    for path, mode in zip(blocked, modes):
+        path.chmod(mode)
+    verdict = verify_content(digest_tree(str(source)), digest_tree(str(destination)))
+    # Assert
+    assert verdict.verdict == VERIFIED
+
+
+def test_restored_directory_authorizes_source_removal(unreadable_content_pair):
+    # Arrange
+    source, destination, _, blocked, modes = unreadable_content_pair
+    # Act
+    for path, mode in zip(blocked, modes):
+        path.chmod(mode)
+    verdict = verify_content(digest_tree(str(source)), digest_tree(str(destination)))
+    # Assert
+    assert verdict.may_remove_source is True
+
+
 def test_bytes_are_reported_as_none_not_zero(pair):
     """This check does not measure bytes; it must not report a number."""
     # Arrange
@@ -388,4 +477,64 @@ def test_remote_tally_none_is_not_zero_still_holds():
     # Assert
     assert verdict.may_remove_source is False
 
+
 # EOF
+
+
+def test_tree_digest_is_order_independent():
+    # Arrange
+    from scitex_storage._transfer._content_verify import ContentManifest, tree_digest
+
+    first = ContentManifest(digests={"b": "0" * 64, "a": "1" * 64})
+    second = ContentManifest(digests={"a": "1" * 64, "b": "0" * 64})
+    # Act
+    digest = tree_digest(first)
+    # Assert
+    assert digest == tree_digest(second)
+
+
+def test_tree_digest_moves_when_any_entry_moves():
+    # Arrange
+    from scitex_storage._transfer._content_verify import ContentManifest, tree_digest
+
+    before = ContentManifest(digests={"a": "1" * 64})
+    after = ContentManifest(digests={"a": "2" * 64})
+    # Act
+    digest = tree_digest(before)
+    # Assert
+    assert digest != tree_digest(after)
+
+
+def test_tree_digest_agrees_across_local_and_remote_manifests(tmp_path):
+    # Arrange -- the scrub comparison: a locally-hashed tree and the same
+    # tree hashed on the far side must reduce to the same digest, or every
+    # cold re-verify would cry wolf.
+    from scitex_storage._transfer._content_verify import digest_tree, tree_digest
+    from scitex_storage._transfer._remote_digest import parse_remote_manifest
+
+    (tmp_path / "a.bin").write_bytes(b"alpha")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "b.bin").write_bytes(b"beta")
+    local = digest_tree(str(tmp_path))
+    lines = "".join(f"{h} ./{rel}\n" for rel, h in sorted(local.digests.items()))
+    # Act
+    digest = tree_digest(local)
+    # Assert
+    assert digest == tree_digest(parse_remote_manifest(lines))
+
+
+def test_content_reader_checks_cancellation_between_chunks(tmp_path):
+    # Arrange
+    import pytest
+
+    from scitex_storage._transfer._content_verify import DigestCancelled, digest_file
+
+    path = tmp_path / "large.bin"
+    with path.open("wb") as stream:
+        stream.truncate(3 * 1024**2)
+    checkpoints = iter([False, False, True])
+    # Act
+    raised = pytest.raises(DigestCancelled)
+    # Assert
+    with raised:
+        digest_file(str(path), cancelled=lambda: next(checkpoints))

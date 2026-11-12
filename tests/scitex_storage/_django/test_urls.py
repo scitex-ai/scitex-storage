@@ -44,4 +44,37 @@ def test_healthz_route_is_registered():
     assert "healthz" in names
 
 
+def test_fleet_route_is_registered():
+    # Arrange -- the fleet-table view the gather pipeline feeds.
+    pytest.importorskip("django")
+    from scitex_storage._django import urls
+
+    # Act
+    names = {p.name for p in urls.urlpatterns}
+    # Assert
+    assert "fleet" in names
+
+
+def test_bubbles_route_is_registered():
+    # Arrange -- the capacity-bubble view the gather pipeline feeds.
+    pytest.importorskip("django")
+    from scitex_storage._django import urls
+
+    # Act
+    names = {p.name for p in urls.urlpatterns}
+    # Assert
+    assert "bubbles" in names
+
+
+def test_sunburst_route_is_registered():
+    # Arrange -- the capacity-sunburst view the gather pipeline feeds.
+    pytest.importorskip("django")
+    from scitex_storage._django import urls
+
+    # Act
+    names = {p.name for p in urls.urlpatterns}
+    # Assert
+    assert "sunburst" in names
+
+
 # EOF

@@ -8,7 +8,11 @@ data, not a placeholder" proof this scaffold exists to demonstrate.
 
 from __future__ import annotations
 
+import importlib
 import os
+import shutil
+from html.parser import HTMLParser
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -60,7 +64,9 @@ _VOLUME_ROOT = {}
 
 def provide_test_volumes(request):
     """Volumes provider wired in via SCITEX_STORAGE_VOLUMES_PROVIDER."""
-    return [{"key": "mine", "label": "Mine", "path": _VOLUME_ROOT["path"], "machine": "box"}]
+    return [
+        {"key": "mine", "label": "Mine", "path": _VOLUME_ROOT["path"], "machine": "box"}
+    ]
 
 
 def _get(tmp_path, params):
@@ -76,8 +82,10 @@ def _get(tmp_path, params):
 
 def _boot():
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module("scitex_sdk.app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module("scitex_sdk.ui")
     _boot_django_for_storage_gui()
 
 
@@ -126,33 +134,149 @@ def test_absolute_path_param_is_not_scanned(tmp_path):
     assert "passwd" not in body
 
 
-def test_backup_tab_is_still_coming_soon(tmp_path):
-    # Arrange -- Usage/Move/Duplicates are real views now (organize.py);
-    # Backup is the remaining placeholder.
+def test_retired_backup_tab_has_no_backup_controls(tmp_path):
+    # Arrange — Move supersedes the browser Backup interface.
     _boot()
     # Act
     body = _get(tmp_path, {"tab": "backup"}).content.decode()
+    # Assert — old bookmarks fall back to Usage and cannot expose a planner.
+    assert "Storage contents" in body and "Plan a backup" not in body and '?tab=backup' not in body
+
+
+def test_retired_backup_route_ignores_backup_plan_parameters(tmp_path):
+    # Arrange — legacy URLs must not execute or expose a backup plan.
+    _boot()
+    # Act
+    response = _get(tmp_path, {"tab": "backup", "plan": "1", "volume": "mine", "dir": "paper", "destination": "unconfigured"})
     # Assert
-    assert "Coming soon" in body
+    assert response.status_code == 200 and "Backup plan" not in response.content.decode()
 
 
-def test_usage_tab_renders_donut(tmp_path):
-    # Arrange
+
+def test_usage_tab_renders_usage_section(tmp_path):
+    # Arrange -- the static doughnut is gone (operator 2026-10-24: dynamic
+    # sunburst instead); the section heading stays as the anchor.
     _boot()
     _touch(tmp_path / "alpha" / "a.bin", 100)
     # Act
     body = _get(tmp_path, {"tab": "usage"}).content.decode()
     # Assert
-    assert "Where your bytes live" in body
+    assert "Storage contents" in body
 
 
-def test_usage_tab_links_fleet_views(tmp_path):
-    # Arrange -- fleet links use route names, never hardcoded paths.
+def test_usage_tab_links_interactive_sunburst(tmp_path):
+    # Arrange
     _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
+    # Act
+    body = _get(tmp_path, {"tab": "usage"}).content.decode()
+    # Assert -- route name, never a hardcoded path.
+    assert "usage-sunburst" in body
+
+
+def test_usage_embedded_chart_preserves_authorized_scope(tmp_path):
+    # Arrange -- arbitrary paths must not be forwarded into the embedded
+    # scan. The route resolves the selected project through its provider.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+
+    class Frames(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.items = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "iframe":
+                self.items.append(dict(attrs))
+
+    # Act -- real template rendering, including URL reversal and escaping.
+    body = _get_scoped(
+        tmp_path,
+        {"tab": "usage", "scope": "project", "dir": "/etc", "path": "/etc"},
+        username="u",
+        project_path=str(proj),
+    ).content.decode()
+    parser = Frames()
+    parser.feed(body)
+    chart = next(f for f in parser.items if "usage-sunburst" in f.get("src", ""))
+    query = parse_qs(urlsplit(chart["src"]).query)
+    result = (
+        query,
+        chart.get("sandbox"),
+        bool(chart.get("title")),
+        "Project bytes are shown" in body,
+    )
+    # Assert -- scripts may render/zoom but cannot access the parent origin;
+    # neither arbitrary filesystem paths nor private comments reach the UI.
+    assert result == ({"scope": ["project"]}, "allow-scripts", True, False)
+
+
+def test_usage_tab_has_no_static_donut(tmp_path):
+    # Arrange -- operator 2026-10-24: drop the round UI; the breakdown
+    # lives in the interactive sunburst now.
+    _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
     # Act
     body = _get(tmp_path, {"tab": "usage"}).content.decode()
     # Assert
-    assert "Fleet visualizations" in body
+    assert ("stx-donut" in body, "Storage usage donut" in body) == (False, False)
+
+
+def test_usage_project_scope_shows_only_project_bytes(tmp_path):
+    # Arrange -- operator "filtered disk": a selected project shows only
+    # that project's bytes, never the all-volumes cards.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+    # Act
+    body = _get_scoped(
+        tmp_path, {"tab": "usage", "scope": "project"}, username="u", project_path=str(proj)
+    ).content.decode()
+    # Assert
+    result = ("Showing only" in body, "Paper Project" in body, "stx-storage-grid" in body)
+    assert result == (True, True, False)
+
+
+def test_usage_tab_has_no_per_folder_breakdown_section(tmp_path):
+    # Arrange -- operator 2026-10-24: no per-folder breakdown; the sunburst
+    # resolves all of it. The vol-pick pills stay (round-pill verdict) as
+    # the sunburst-root picker.
+    _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
+    # Act
+    body = _get(tmp_path, {"tab": "usage"}).content.decode()
+    # Assert
+    result = ("Per-folder breakdown" in body, "Sunburst root:" in body)
+    assert result == (False, True)
+
+
+def test_usage_scope_hides_the_root_picker(tmp_path):
+    # Arrange -- under project scope the project wins; no root to pick.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+    # Act
+    body = _get_scoped(
+        tmp_path, {"tab": "usage", "scope": "project"}, username="u", project_path=str(proj)
+    ).content.decode()
+    # Assert
+    assert "Sunburst root:" not in body
+
+
+def test_usage_tab_links_fleet_views(scitex_dir):
+    # Arrange -- operator 2026-10-17: no empty promo. With no snapshot
+    # gathered the Usage tab shows no Fleet-visualizations section
+    # (backend pipeline stays). Fleet links use route names, never
+    # hardcoded paths.
+    _boot()
+    # Act
+    body = _get(scitex_dir, {"tab": "usage"}).content.decode()
+    # Assert
+    assert "Fleet visualizations" not in body
 
 
 def test_move_tab_renders_planner(tmp_path):
@@ -161,7 +285,7 @@ def test_move_tab_renders_planner(tmp_path):
     # Act
     body = _get(tmp_path, {"tab": "move"}).content.decode()
     # Assert
-    assert "Plan a move to cold storage" in body
+    assert "Plan a move" in body and "Plan a move to cold storage" not in body
 
 
 def test_duplicates_tab_is_read_only_report(tmp_path):
@@ -171,6 +295,30 @@ def test_duplicates_tab_is_read_only_report(tmp_path):
     body = _get(tmp_path, {"tab": "duplicates"}).content.decode()
     # Assert
     assert "Read-only report." in body
+
+
+_HAVE_FCLONES = bool(shutil.which("fclones"))
+requires_no_fclones = pytest.mark.skipif(
+    _HAVE_FCLONES, reason="covers the fclones-absent unavailable app state"
+)
+
+
+@requires_no_fclones
+def test_duplicates_unavailable_lists_would_scan_roots(tmp_path):
+    # Arrange -- operator 2026-10-24: an app, not a command dump. Without
+    # the binary the tab still shows its scope and what the report holds.
+    _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
+    # Act
+    body = _get(tmp_path, {"tab": "duplicates"}).content.decode()
+    result = (
+        "Duplicates unavailable" in body,
+        "Would scan:" in body,
+        str(tmp_path) in body,
+        "find-duplicates" in body,
+    )
+    # Assert
+    assert result == (True, True, True, True)
 
 
 def test_index_declares_every_shell_pane_so_none_reserves_width(tmp_path):
@@ -186,11 +334,13 @@ def test_index_declares_every_shell_pane_so_none_reserves_width(tmp_path):
     """
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module("scitex_sdk.app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module("scitex_sdk.ui")
     _boot_django_for_storage_gui()
 
-    from scitex_ui.branding import PANE_NAMES
+    from scitex_sdk.ui.branding import PANE_NAMES
 
     # Act
     context = _index_template_context(tmp_path)
@@ -211,8 +361,10 @@ def test_index_declares_every_shell_pane_unused(tmp_path):
     """
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module("scitex_sdk.app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module("scitex_sdk.ui")
     _boot_django_for_storage_gui()
 
     # Act
@@ -234,8 +386,10 @@ def test_index_declares_files_pane_unused_not_client_populated(tmp_path):
     """
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module("scitex_sdk.app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module("scitex_sdk.ui")
     _boot_django_for_storage_gui()
 
     # Act
@@ -248,8 +402,10 @@ def test_index_declares_files_pane_unused_not_client_populated(tmp_path):
 def test_healthz_returns_ok():
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
-    pytest.importorskip("scitex_ui")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module("scitex_sdk.app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module("scitex_sdk.ui")
     _boot_django_for_storage_gui()
     from django.test import RequestFactory
 
@@ -261,4 +417,840 @@ def test_healthz_returns_ok():
     assert body == b"ok"
 
 
+# --------------------------------------------------------------------------
+# Fleet views on real snapshots: table / bubbles / sunburst serve the
+# gathered pages verbatim, and name the gather command when absent.
+# --------------------------------------------------------------------------
+
+
+def _sandbox(tmp_path):
+    """Point SCITEX_DIR at tmp_path; returns a restore callable.
+
+    A real env-var save/set (not a mock): the code under test still calls
+    the real default_*_path resolvers. Every test below sets its own value
+    in Arrange, so no test reads ambient user state.
+    """
+    old = os.environ.get("SCITEX_DIR")
+    os.environ["SCITEX_DIR"] = str(tmp_path)
+
+    def restore():
+        if old is None:
+            os.environ.pop("SCITEX_DIR", None)
+        else:
+            os.environ["SCITEX_DIR"] = old
+
+    return restore
+
+
+@pytest.fixture
+def scitex_dir(tmp_path):
+    """Sandbox SCITEX_DIR at tmp_path for the test; restores on teardown.
+
+    The sanctioned env-var pattern (real save/set, never a mock): the
+    code under test still calls the real default_*_path resolvers.
+    """
+    restore = _sandbox(tmp_path)
+    try:
+        yield tmp_path
+    finally:
+        restore()
+
+
+def _write_snapshot_file(path_str):
+    """Write a sentinel snapshot page at the explicit path (no env involved)."""
+    import os as _os
+
+    _os.makedirs(_os.path.dirname(path_str), exist_ok=True)
+    with open(path_str, "w", encoding="utf-8") as fh:
+        fh.write("<html><body>FLEET-SENTINEL</body></html>")
+
+
+def test_fleet_view_without_snapshot_names_the_gather_command(scitex_dir):
+    # Arrange -- nothing gathered yet in this sandbox.
+    _boot()
+    from django.test import RequestFactory
+
+    from scitex_storage._django.views import fleet
+
+    # Act
+    body = fleet(RequestFactory().get("/storage/fleet/")).content.decode()
+    # Assert
+    assert "fleet-status --gather" in body
+
+
+def test_fleet_view_serves_a_gathered_snapshot(scitex_dir):
+    # Arrange
+    _boot()
+    from scitex_storage._observe import default_snapshot_path
+
+    _write_snapshot_file(default_snapshot_path())
+    from django.test import RequestFactory
+
+    from scitex_storage._django.views import fleet
+
+    # Act
+    body = fleet(RequestFactory().get("/storage/fleet/")).content.decode()
+    # Assert
+    assert "FLEET-SENTINEL" in body
+
+
+def test_bubbles_view_without_snapshot_names_the_gather_command(scitex_dir):
+    # Arrange
+    _boot()
+    from django.test import RequestFactory
+
+    from scitex_storage._django.views import bubbles
+
+    # Act
+    body = bubbles(RequestFactory().get("/storage/bubbles/")).content.decode()
+    # Assert
+    assert "fleet-status --gather" in body
+
+
+def test_bubbles_view_serves_a_gathered_snapshot(scitex_dir):
+    # Arrange
+    _boot()
+    from scitex_storage._observe import default_bubbles_path
+
+    _write_snapshot_file(default_bubbles_path())
+    from django.test import RequestFactory
+
+    from scitex_storage._django.views import bubbles
+
+    # Act
+    body = bubbles(RequestFactory().get("/storage/bubbles/")).content.decode()
+    # Assert
+    assert "FLEET-SENTINEL" in body
+
+
+def test_sunburst_view_without_snapshot_names_the_gather_command(scitex_dir):
+    # Arrange
+    _boot()
+    from django.test import RequestFactory
+
+    from scitex_storage._django.views import sunburst
+
+    # Act
+    body = sunburst(RequestFactory().get("/storage/sunburst/")).content.decode()
+    # Assert
+    assert "fleet-status --gather" in body
+
+
+def test_sunburst_view_serves_a_gathered_snapshot(scitex_dir):
+    # Arrange
+    _boot()
+    from scitex_storage._observe import default_sunburst_path
+
+    _write_snapshot_file(default_sunburst_path())
+    from django.test import RequestFactory
+
+    from scitex_storage._django.views import sunburst
+
+    # Act
+    body = sunburst(RequestFactory().get("/storage/sunburst/")).content.decode()
+    # Assert
+    assert "FLEET-SENTINEL" in body
+
+
+def _get_usage_sunburst(tmp_path, params, username=None, project_path=None, project_name="Paper Project"):
+    """GET through the usage-sunburst route with the test volumes provider."""
+    from django.test import RequestFactory, override_settings
+
+    from scitex_storage._django import organize, project_files
+
+    _VOLUME_ROOT["path"] = str(tmp_path)
+    dotted = f"{__name__}.provide_test_volumes"
+    request = RequestFactory().get("/storage/usage-sunburst/", params)
+    prev = project_files._GET_CURRENT_PROJECT
+    if username is not None:
+        request.user = _ScopeUser(username)
+
+        def seam(request, user=None):
+            return _ScopeProject(project_path, project_name)
+
+        project_files._GET_CURRENT_PROJECT = seam
+    try:
+        with override_settings(SCITEX_STORAGE_VOLUMES_PROVIDER=dotted):
+            return organize.usage_sunburst(request)
+    finally:
+        project_files._GET_CURRENT_PROJECT = prev
+
+
+@pytest.mark.requires_fd
+def test_usage_sunburst_serves_interactive_page(tmp_path):
+    # Arrange -- real scan of a real temp tree, served self-contained.
+    _boot()
+    _touch(tmp_path / "alpha" / "a.bin", 100)
+    # Act
+    response = _get_usage_sunburst(tmp_path, {})
+    body = response.content.decode()
+    # Assert -- dynamic UI: zoomable page, embedded data, no CDN.
+    result = (response.status_code, "Usage" in body, "alpha" in body, 'src="http' in body)
+    assert result == (200, True, True, False)
+
+
+def test_usage_sunburst_unknown_volume_is_403(tmp_path):
+    # Arrange
+    _boot()
+    # Act
+    response = _get_usage_sunburst(tmp_path, {"volume": "nope"})
+    # Assert -- fail closed, like the Usage tab itself.
+    assert response.status_code == 403
+
+
+def test_usage_sunburst_without_fd_names_the_missing_binary(tmp_path):
+    # Arrange -- an empty PATH hides fd and fdfind alike (sanctioned
+    # save/set/restore env pattern): the page still renders, naming the
+    # missing binary instead of 500ing.
+    _boot()
+    _touch(tmp_path / "child" / "sample.bin", 1)
+    previous_path = os.environ.get("PATH")
+    os.environ["PATH"] = str(tmp_path)
+    try:
+        # Act
+        response = _get_usage_sunburst(tmp_path, {})
+        body = response.content.decode()
+    finally:
+        if previous_path is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = previous_path
+    # Assert
+    assert (response.status_code, "fd" in body) == (200, True)
+
+
+@pytest.mark.requires_fd
+def test_usage_sunburst_project_scope_scans_the_project_directory(tmp_path):
+    # Arrange -- project dir holds the only file; the volume root is empty.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+    # Act
+    body = _get_usage_sunburst(
+        tmp_path, {"scope": "project"}, username="u", project_path=str(proj)
+    ).content.decode()
+    # Assert -- the breakdown root is the project, not the volume.
+    assert ("Paper Project" in body, "paper.pdf" in body) == (True, True)
+
+
+def test_usage_tab_shows_fleet_links_once_a_snapshot_exists(scitex_dir):
+    # Arrange -- a gathered snapshot turns the promo back on.
+    _boot()
+    from scitex_storage._observe import default_snapshot_path
+
+    _write_snapshot_file(default_snapshot_path())
+    # Act
+    body = _get(scitex_dir, {"tab": "usage"}).content.decode()
+    # Assert
+    assert "Fleet visualizations" in body
+
+
+def test_storage_pages_render_shared_app_header_row(tmp_path):
+    """Both Storage surfaces mount the SDK AppHeader primitive (CCT4618).
+
+    Operator SSoT: the header row must match all apps exactly — one row,
+    only the app name differs. The row itself is SDK-owned
+    (ts/app/app-header renders it client-side); what the server must emit
+    is the primitive's mount root, so that is what is pinned here.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("data-stx-app-header" in body for body in bodies)
+
+
+def test_storage_header_mount_carries_leaf_title(tmp_path):
+    """The mount root stamps the translated leaf title.
+
+    The "v" prefix and the hide-when-unknown rule are SDK-owned (covered by
+    the SDK's own contract tests); the leaf's job is passing the right
+    values in, never a hand-written string and never the host's version.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all('data-app-title="Storage"' in body for body in bodies)
+
+
+def test_storage_header_mount_carries_leaf_version(tmp_path):
+    """The mount root stamps the LEAF package version (never the host's)."""
+    # Arrange
+    _boot()
+    from scitex_storage import __version__
+
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all(f'data-app-version="{__version__}"' in body for body in bodies)
+
+
+def test_storage_header_loads_sdk_header_css(tmp_path):
+    """Both pages load the SDK header CSS (the row's 40px shape lives there)."""
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("scitex_sdk/ui/css/app/app-header.css" in body for body in bodies)
+
+
+def test_storage_header_loads_sdk_header_module(tmp_path):
+    """Both pages load the prebuilt auto-mount module.
+
+    The primitive is code, not just classes: without app-header.js nothing
+    mounts the [data-stx-app-header] root and the page ships a header mount
+    that never renders.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("scitex_sdk/ui/js/app/app-header.js" in body for body in bodies)
+
+
+def test_storage_pages_carry_no_bespoke_title_class(tmp_path):
+    """The old leaf-owned h1.stx-storage-title block is gone everywhere."""
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("stx-storage-title" not in body for body in bodies)
+
+
+def test_storage_pages_carry_no_handwritten_header_row(tmp_path):
+    """No hand-written <header class="stx-app-header..."> anywhere.
+
+    The row is SDK-owned and client-rendered; a server-rendered copy would
+    double-mount (or drift from) the primitive.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all('<header class="stx-app-header' not in body for body in bodies)
+
+
+def test_storage_pages_carry_no_leaf_row_class(tmp_path):
+    """No leaf-local row class: the only Storage string on the row is title."""
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("storage-app-header" not in body for body in bodies)
+
+
+def _both_surfaces_with_provider(tmp_path, provider_url="/stub-projects/"):
+    """Render Backup (index) + Usage (organize) with a host provider URL set."""
+    from django.test import override_settings
+
+    with override_settings(SCITEX_PROJECT_PROVIDER_URL=provider_url):
+        return (
+            _get(tmp_path, {"tab": "backup"}).content.decode(),
+            _get(tmp_path, {"tab": "usage"}).content.decode(),
+        )
+
+
+def test_storage_header_renders_picker_element_with_provider(tmp_path):
+    """Both surfaces carry the picker element the mover drops in the slot.
+
+    Operator CCT4707: the content dump showed an empty picker slot because
+    NOTHING server-rendered a picker at all. With the host provider URL set
+    (the hub sets ``SCITEX_PROJECT_PROVIDER_URL``; standalone leaves it
+    empty) both surfaces must carry the ``data-stx-project-picker`` element
+    — the same element Writer serves.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = _both_surfaces_with_provider(tmp_path)
+    # Assert
+    assert all("data-stx-project-picker" in body for body in bodies)
+
+
+def test_storage_header_picker_points_at_host_provider(tmp_path):
+    """The rendered picker fetches from the host's provider URL, not a guess.
+
+    The tag resolves ``settings.SCITEX_PROJECT_PROVIDER_URL`` (a literal
+    path passes through; a URL name reverses) and stamps it as
+    ``data-provider-url`` for the picker's HTTP transport.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = _both_surfaces_with_provider(tmp_path, "/stub-projects/")
+    # Assert
+    assert all('data-provider-url="/stub-projects/"' in body for body in bodies)
+
+
+def test_storage_header_includes_picker_mover_with_provider(tmp_path):
+    """Both surfaces include the leaf mover that slots the picker (CCT4707).
+
+    The SDK AppHeader primitive only ever CREATES the canonical slot — the
+    leaf-owned ``header-picker.js`` moves the server-rendered picker into it
+    after mount (module order after both auto-mounts, fail-soft otherwise).
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = _both_surfaces_with_provider(tmp_path)
+    # Assert
+    assert all("scitex_storage/header-picker.js" in body for body in bodies)
+
+
+def test_storage_header_renders_no_picker_markup_without_provider(tmp_path):
+    """Standalone (no host provider) ships no picker markup.
+
+    The tag yields ``""`` without ``SCITEX_PROJECT_PROVIDER_URL``, so the
+    content dump stays exactly as before the picker slice: mount root only,
+    no dead picker element fetching nowhere.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("data-stx-project-picker" not in body for body in bodies)
+
+
+def test_storage_header_stamps_no_provider_url_without_provider(tmp_path):
+    """Without a host provider no provider URL is stamped anywhere.
+
+    Guards the fail-closed direction: no setting means no
+    ``data-provider-url`` attribute the picker transport could read.
+    """
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("data-provider-url" not in body for body in bodies)
+
+
+def test_picker_availability_requires_a_configured_provider(tmp_path):
+    # Arrange -- the SDK tag fails loudly (ImproperlyConfigured) on a
+    # project-scoped render with no provider, so library presence alone
+    # must not count as available: the include guard has to check both.
+    from django.test import override_settings
+
+    from scitex_storage._django.views import _project_picker_available
+
+    _boot()
+    # Act
+    with override_settings(SCITEX_PROJECT_PROVIDER_URL=""):
+        without = _project_picker_available()
+    with override_settings(SCITEX_PROJECT_PROVIDER_URL="/stub-projects/"):
+        with_provider = _project_picker_available()
+    # Assert
+    assert (without, with_provider) == (False, True)
+
+
 # EOF
+
+
+def _leaf_storage_block():
+    """Declarations of the leaf ``.stx-storage`` rule, comments stripped."""
+    import re
+    from pathlib import Path
+
+    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    stripped = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    match = re.search(r"^\.stx-storage \{(.*?)\}", stripped, re.M | re.S)
+    if match is None:
+        raise ValueError("leaf .stx-storage rule must still exist")
+    return match.group(1)
+
+
+def test_organize_roots_carry_shared_layout_fill(tmp_path):
+    """Usage/Move/Duplicates roots use the SDK width contract, not a leaf rule."""
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+        _get(tmp_path, {"tab": "move"}).content.decode(),
+        _get(tmp_path, {"tab": "duplicates"}).content.decode(),
+    )
+    # Assert
+    assert all('class="stx-storage stx-layout-fill"' in body for body in bodies)
+
+
+def test_backup_root_carries_shared_layout_fill(tmp_path):
+    """Backup placeholder (index.html) carries the same shared root class."""
+    # Arrange
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "backup"}).content.decode()
+    # Assert
+    assert 'class="stx-storage stx-layout-fill"' in body
+
+
+def test_templates_load_shared_sdk_layout_css(tmp_path):
+    """Both templates link the SDK utility stylesheet (app_shell is a shim)."""
+    # Arrange
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+    )
+    # Assert
+    assert all("scitex_sdk/ui/css/utils/layout.css" in body for body in bodies)
+
+
+def test_leaf_sets_no_width_rule(tmp_path):
+    """No competing ``width`` on the leaf root (SDK no-!important contract)."""
+    # Arrange
+    _boot()
+    # Act
+    import re
+
+    props = re.findall(r"^\s*([a-z-]+)\s*:", _leaf_storage_block(), re.M)
+    # Assert
+    assert "width" not in props
+
+
+def test_leaf_sets_no_max_width_rule(tmp_path):
+    """No competing ``max-width`` on the leaf root (SDK no-!important contract)."""
+    # Arrange
+    _boot()
+    # Act
+    import re
+
+    props = re.findall(r"^\s*([a-z-]+)\s*:", _leaf_storage_block(), re.M)
+    # Assert
+    assert "max-width" not in props
+
+
+
+
+def test_leaf_bottom_reserve_stays_tight():
+    """The dock reserve must not balloon the pane bottom (operator: 76px)."""
+    # Arrange -- read the shipped stylesheet, not a constant.
+    import re
+    from pathlib import Path
+
+    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    match = re.search(r"^\.stx-storage \{(.*?)\}", body, re.M | re.S)
+    # Act
+    block = match.group(1)
+    # Assert -- bottom = live dock height + 16px air, never the old +32px.
+    assert " + 32px" not in block
+
+
+def test_leaf_pane_padding_stays_tight():
+    """No margins on the largest div (operator 2026-10-24: content fills the
+    pane edge to edge; live dock clearance kept so the dock cannot cover
+    the last row)."""
+    # Arrange -- read the shipped stylesheet, not a constant.
+    import re
+    from pathlib import Path
+
+    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    match = re.search(r"^\.stx-storage \{(.*?)\}", body, re.M | re.S)
+    # Act
+    block = match.group(1)
+    # Assert -- zero gutters edge to edge; live dock clearance kept.
+    assert "padding: 0 0 var(--site-dock-live-height, 0px)" in block
+
+
+class _ScopeUser:
+    def __init__(self, username):
+        self.username = username
+        self.is_authenticated = True
+
+
+class _ScopeProject:
+    def __init__(self, path, name="Paper Project"):
+        self._path = path
+        self.name = name
+
+    def get_local_path(self):
+        from pathlib import Path
+
+        return Path(self._path)
+
+
+def _get_scoped(tmp_path, params, username=None, project_path=None, project_name="Paper Project"):
+    """GET through the index view with an optional authed user + project seam."""
+    from django.test import RequestFactory, override_settings
+
+    from scitex_storage._django import project_files
+    from scitex_storage._django.views import index
+
+    _VOLUME_ROOT["path"] = str(tmp_path)
+    dotted = f"{__name__}.provide_test_volumes"
+    request = RequestFactory().get("/storage/", params)
+    prev = project_files._GET_CURRENT_PROJECT
+    if username is not None:
+        request.user = _ScopeUser(username)
+
+        def seam(request, user=None):
+            return _ScopeProject(project_path, project_name)
+
+        project_files._GET_CURRENT_PROJECT = seam
+    try:
+        with override_settings(SCITEX_STORAGE_VOLUMES_PROVIDER=dotted):
+            return index(request)
+    finally:
+        project_files._GET_CURRENT_PROJECT = prev
+
+
+def test_usage_has_no_duplicate_scope_control(tmp_path):
+    # Arrange -- scope lives in the shared app header; the tabs must not
+    # render a second project control.
+    _boot()
+    # Act
+    body = _get(tmp_path, {}).content.decode()
+    # Assert
+    assert "Disk scope" not in body
+
+
+def test_usage_defaults_all_despite_remembered_project(tmp_path):
+    # Arrange -- a remembered header project must not narrow the default view.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+    # Act
+    body = _get_scoped(
+        tmp_path, {"tab": "usage"}, username="u", project_path=str(proj)
+    ).content.decode()
+    # Assert
+    assert "Showing only" not in body
+
+
+def test_usage_project_scope_without_project_names_no_project(tmp_path):
+    # Arrange -- no authed user, so no project can resolve.
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "usage", "scope": "project"}).content.decode()
+    # Assert
+    assert "Select an available project" in body
+
+
+def test_usage_scope_notice_names_hub_mount_without_provider(tmp_path):
+    # Arrange -- standalone: no host provider URL, so the header renders no
+    # picker (operator "No Project Selected": the notice must not point at
+    # a control that does not exist).
+    _boot()
+    # Act
+    body = _get(tmp_path, {"tab": "usage", "scope": "project"}).content.decode()
+    result = (
+        "No project in scope" in body,
+        "Pick a project in the header" not in body,
+        "hub-mounted" in body,
+    )
+    # Assert
+    assert "Select an available project" in body
+
+
+def test_usage_scope_notice_points_at_header_picker_with_provider(tmp_path):
+    # Arrange -- hub-mounted: the host provider URL is set, so the header
+    # can offer the picker; the notice may direct the user to it.
+    from django.test import override_settings
+
+    _boot()
+    # Act
+    with override_settings(SCITEX_PROJECT_PROVIDER_URL="/stub-projects/"):
+        body = _get(tmp_path, {"tab": "usage", "scope": "project"}).content.decode()
+    result = (
+        "No project in scope" in body,
+        "Pick a project in the header" in body,
+    )
+    # Assert
+    assert "Select an available project" in body
+
+
+def test_usage_project_scope_scans_the_project_directory(tmp_path):
+    # Arrange -- project dir holds the only file; the volume root is empty.
+    _boot()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "paper.pdf").write_bytes(b"x" * 64)
+    # Act
+    body = _get_scoped(
+        tmp_path, {"tab": "usage", "scope": "project"}, username="u", project_path=str(proj)
+    ).content.decode()
+    # Assert
+    assert "Paper Project" in body
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def test_tabs_use_shared_content_tabs_primitive(tmp_path):
+    # Arrange -- converge on the SDK standard (underline-only selected):
+    # shared container + item classes, selected state via aria-selected.
+    _boot()
+    # Act
+    bodies = (
+        _get(tmp_path, {"tab": "usage"}).content.decode(),
+        _get(tmp_path, {"tab": "backup"}).content.decode(),
+    )
+    # Assert
+    assert all(
+        'class="stx-content-tabs"' in body
+        and "stx-content-tabs__tab" in body
+        and "scitex_sdk/ui/css/app/content-tabs.css" in body
+        for body in bodies
+    )
+
+
+def test_leaf_carries_no_private_tabs_variant(tmp_path):
+    # Arrange -- the reinvented .stx-storage-tabs/.stx-storage-tab is gone.
+    import re
+    from pathlib import Path
+
+    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    # Act
+    private = re.findall(r"\.stx-storage-tabs?\b", body)
+    # Assert
+    assert private == []
+
+
+def _leaf_css_block():
+    import re
+    from pathlib import Path
+
+    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+
+
+
+def test_selected_tab_uses_cards_pattern():
+    # Arrange -- operator verdict: transparent bg, 2px solid accent bottom
+    # border, weight 700, NO radius (radius + inset shadow curled the line).
+    # Act
+    body = _leaf_css_block()
+    # Assert
+    assert (
+        "border-bottom: 2px solid var(--accent" in body,
+        "border-radius: 0" in body,
+        "font-weight: 700" in body,
+        "box-shadow: none" in body,
+    ) == (True, True, True, True)
+
+
+def test_picker_pills_keep_pill_radius():
+    # Arrange -- operator verdict: curly OBJECTS are acceptable; only the
+    # selected-state highlight must be straight. Pills stay round.
+    import re
+    from pathlib import Path
+
+    text = (
+        Path("src/scitex_storage/_django/templates/scitex_storage/organize.html")
+    ).read_text()
+    match = re.search(r"\.stx-vol-pick a \{(.*?)\}", text, re.S)
+    # Act
+    block = match.group(1)
+    # Assert
+    assert "border-radius: 999px" in block
+
+
+def test_move_button_uses_sdk_button_primitive():
+    # Arrange -- operator verdict: hardcoded leaf button colors caused
+    # white-on-gold in dark mode; the SDK .stx-button primitive carries
+    # the theme-paired tokens instead.
+    # Act
+    text = (
+        __import__("pathlib").Path(
+            "src/scitex_storage/_django/templates/scitex_storage/organize.html"
+        ).read_text() + __import__("pathlib").Path("src/scitex_storage/_django/templates/scitex_storage/logical_move.html").read_text()
+    )
+    # Assert
+    assert (
+        "stx-button stx-button--primary" in text,
+        "form-controls.css" in text,
+        ".stx-btn {" not in text,
+    ) == (True, True, True)
+
+
+def test_selected_tab_text_stays_monochrome():
+    # Arrange -- operator verdict: only the underline carries accent; the
+    # selected label stays in the monochrome range, never gold/navy text.
+    import re
+    from pathlib import Path
+
+    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    match = re.search(
+        r'\.stx-content-tabs__tab\[aria-selected="true"\]\s*\{(.*?)\}', body, re.S
+    )
+    # Act
+    block = match.group(1)
+    lines = [ln.strip() for ln in block.splitlines()]
+    # Assert -- label monochrome, underline accent: each in its own line.
+    assert (
+        "color: var(--text-primary, inherit);" in lines,
+        "border-bottom: 2px solid var(--accent, #1a2a40);" in lines,
+    ) == (True, True)

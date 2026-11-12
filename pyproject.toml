@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scitex-storage"
-version = "0.5.0"
+version = "0.6.16"
 description = "Research-data storage triage: read-only stat-only scan + referenced-file-aware rotation of versioned build artifacts (e.g. SIF images)"
 readme = "README.md"
 license = "AGPL-3.0-only"
@@ -28,6 +28,8 @@ classifiers = [
 ]
 
 dependencies = [
+    # Versioned native CDC engine; bounded adapter never mmaps a whole input.
+    "fastcdc==1.7.0",
     "click",
     "pydantic>=2.0,<3",
     "scitex-ssh>=1.2.0",
@@ -61,6 +63,10 @@ dependencies = [
     # that extra is released (scitex-io PR #161).
     "pypdf>=4.0",
     "pyyaml>=6.0",
+    # PS-220 mandates scitex-logging for all human-facing output (no
+    # builtin print in src/); _server.py and _system_deps.py use it, so it
+    # is a hard core dependency, mirroring scitex-io.
+    "scitex-logging>=0.2.1",
 ]
 # NOTE: three SYSTEM (non-pip) runtime dependencies, each required by ONE
 # verb: `fd` (fd-find) for `scan`'s directory traversal, `fclones` for
@@ -87,13 +93,13 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "playwright>=1.40",  # real-browser sunburst label security regression
     "pytest-cov",
     "scitex-dev>=0.30.0",  # gui_runtime lives here since 0.30.0
     # Mirror the `gui` runtime extra so `pip install -e .[dev]` runs the
     # full suite. Tests import these unguarded; PS-210 audit invariant.
     "django>=5.0",
-    "scitex-app>=0.3.0",
-    "scitex-ui>=0.8.0",  # shell_context(panes=...) — the pane declaration contract
+    "scitex-sdk[gui]>=0.3.17",  # request-local project picker view + read-only resolution
 ]
 docs = [
     "sphinx>=7.0",
@@ -102,22 +108,12 @@ docs = [
     "sphinx-copybutton>=0.5",
     "sphinx-autodoc-typehints>=1.25",
 ]
-# `scitex-storage[gui]` -- the GUI plugin under src/scitex_storage/_django/
-# (installable standalone via `scitex-storage start-gui`, or as a scitex-hub
-# plugin mounted at /storage/, following the same scitex-app/scitex-ui
-# convention as scitex-writer/scitex-scholar/scitex-todo/figrecipe). Kept
-# OUT of the base `dependencies` above -- same spirit as the `fd`/`fclones`
-# SYSTEM deps noted below: `pip install scitex-storage` (the CLI) must never
-# require Django or these UI packages, only `pip install
-# scitex-storage[gui]` does. The one place these are imported is behind an
-# isolated adapter module (src/scitex_storage/_django/_app_adapter.py) --
-# see that module's docstring for why (scitex-app doesn't have a public
-# embedding API yet; tracked as scitex-dev card
-# scitex-app-embedding-api-needed-20260710).
+# The CLI stays headless. The optional GUI extra supplies Django and the SDK
+# App/UI shell for `scitex-storage gui` and the same leaf mounted in Hub.
+# The adapter uses the public scitex_sdk.app.embed API available in SDK 0.3.1.
 gui = [
     "django>=5.0",
-    "scitex-app>=0.3.0",
-    "scitex-ui>=0.8.0",  # shell_context(panes=...) — the pane declaration contract
+    "scitex-sdk[gui]>=0.3.17",  # request-local project picker view + read-only resolution
     "scitex-dev>=0.30.0",  # gui_runtime, used by the gui {open,serve,status,stop} group at runtime
 ]
 all = [
@@ -137,7 +133,7 @@ Documentation = "https://scitex-storage.readthedocs.io"
 # Generic hub mount (thin-hub rule): ``pip install`` is the whole install.
 # The host mounts ``scitex_storage._django.urls`` at the manifest route
 # (apps/storage/) and lists the tile from ``_django/manifest.json``.
-# Usage/Duplicates/Move tabs are implemented leaf-side (organize.py),
+# Usage/Duplicates/Move/Backup tabs are implemented leaf-side (organize.py),
 # so no host wrapper is needed for them.
 storage = "scitex_storage._django.apps:StorageConfig"
 
@@ -149,6 +145,12 @@ scitex-storage = "scitex_storage"
 
 [project.entry-points."scitex_dev.system_deps"]
 scitex-storage = "scitex_storage._system_deps:provide"
+
+# Leaf scope of the hooks federation: storage's own agent guardrails,
+# declared like scitex-dev's own provider. scitex-dev dispatches; each
+# leaf owns its scope (standing goal 2026-10-22).
+[project.entry-points."scitex_dev.hooks"]
+scitex-storage = "scitex_storage._hook_rules:provide"
 
 [project.entry-points."scitex_hub.dev"]
 storage = "scitex_storage:validate_storage_contract"
@@ -166,6 +168,10 @@ artifacts = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-x -q"
+markers = [
+    "smoke: fast CLI happy-path tests (<60s, runs on every PR)",
+    "e2e: end-to-end workflows against real subsystems (mandatory on every PR)",
+]
 
 [tool.coverage.run]
 parallel = true

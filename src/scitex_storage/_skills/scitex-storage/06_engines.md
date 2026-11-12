@@ -1,0 +1,38 @@
+---
+description: |
+  [TOPIC] scitex-storage engine layout
+  [DETAILS] _transfer/_measure split, broker stage0 status, CLI registry
+  and GUI thin-shell boundaries.
+tags: [scitex-storage-engines]
+---
+
+# Engine layout (`src/scitex_storage/`)
+
+- `_transfer/` — relocates bytes or proves a relocation landed. Every verb
+  splits into `plan_*` (pure, safe to call anywhere) / `apply_*` (mutates).
+  No re-exports: import the module you depend on. Test seam: pass
+  `runner=` to avoid real SSH; tests sandbox `$HOME` (manifest dir resolves
+  fresh every call).
+- `_measure/` — strictly read-only verdicts about trees (scan, duplicates,
+  inodes, survey). Never mutates; this is the line separating it from
+  `_transfer/`.
+- `_observe/` (`df`, hosts), `_render/` (sunburst/bubbles/fleet table),
+  `_alarm/`, `_images/`, `_document_pipeline/` — feature engines.
+- `_broker.py` — typed (pydantic) storage contract: `plan_storage` is a pure
+  plan validator with idempotency keys and audit context. `NasExecutor` /
+  `NodeProjector` are protocols (stage0): no in-repo implementations yet, no
+  adapter into `_transfer` engines. Do not present the broker as an
+  execution engine.
+- `_cli/` — verbs behind a lazy registry (`_lazy.py`): help/completion must
+  never fail because an unrelated verb's dependency is skewed. Three
+  stdlib+click-only exceptions attach eagerly (`list-python-apis`, `mcp`,
+  `skills`) because the CLI audit reads the attached-command mapping.
+  Domain verdict exit codes start at 10; 1/2 stay generic failure/usage error.
+- `_tiers.py` — canonical destination-tier facts (one owner for the NAS-unit
+  mapping; manifests record `destination_tier`). Fleet roles and the shared
+  host registry stay where they are — this answers only the archive-tier
+  question, with honest "unknown".
+- `_django/` — GUI leaf. Usage and Duplicates are read-only. Logical tier Move
+  uses `_transfer/_move.py` with both-root authorization and per-user state.
+  Missing explicit projects fail closed; default All Projects is request-local.
+  Backup has no GUI tab. See `docs/gui-storage.md` for the source-backed contract.
