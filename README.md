@@ -143,6 +143,28 @@ scitex-storage reclaim ./node_modules ./build --yes
 scitex-storage reclaim-restore 2026-0717-154500-123456   # undo a run
 ```
 
+```bash
+# Apply a YAML move plan to a whole tree (reorganize a folder). The plan is
+# SIMULATED in order, so the dry run is exactly what --yes does, including
+# merges into folders that already exist. Identical files at a destination are
+# duplicates (source copy archived); different content is a CONFLICT and the
+# whole plan is refused untouched. Junk (~$ locks, :Zone.Identifier, .tmp,
+# .bak), drops and duplicates are archived under <root>/.old/relocate/<run>/,
+# never deleted. Links are RELATIVE DIRECTORY symlinks only (Windows Explorer
+# cannot open file symlinks via \\wsl.localhost).
+cat > plan.yaml <<'YAML'
+moves:
+  - {from: kk/setup, to: company/01_incorporation}
+  - {from: kk, to: company}          # later moves see earlier ones
+drop: [logs]
+links:
+  - {path: company/04_clients/acme/deck, target: company/09_slides/2026-10-02}
+YAML
+scitex-storage relocate plan.yaml --root ~/proj/docs          # dry-run
+scitex-storage relocate plan.yaml --root ~/proj/docs --yes    # apply
+scitex-storage relocate-restore 2026-1116-093000-123456       # undo a run
+```
+
 ## Verified local moves
 
 `plan_move(source, destination, state_dir=...)` is read-only metadata planning.
@@ -412,7 +434,8 @@ scitex_storage/
 └── _cli/           ← scan, survey, find-duplicates, find-recipe, images,
                       sweep, sweep-status, archive, restore, backup, scrub,
                       validate-inodes, verify-content, reclaim,
-                      reclaim-restore, fleet-status, alarm, document-sorter,
+                      reclaim-restore, relocate, relocate-restore,
+                      fleet-status, alarm, document-sorter,
                       gui, start-gui, skills, mcp, list-python-apis
 ```
 

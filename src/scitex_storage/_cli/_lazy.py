@@ -66,6 +66,8 @@ VERB_REGISTRY: dict[str, str] = {
     "restore": "._archive_cmd:restore_cmd",
     "reclaim": "._reclaim_cmd:reclaim_cmd",
     "reclaim-restore": "._reclaim_cmd:reclaim_restore_cmd",
+    "relocate": "._relocate_cmd:relocate_cmd",
+    "relocate-restore": "._relocate_cmd:relocate_restore_cmd",
     "document-sorter": "._document_sorter_cmd:document_sorter_group",
     "verify-content": "._verify_content_cmd:verify_content_cmd",
     "fleet-status": "._fleet_status_cmd:fleet_status_cmd",

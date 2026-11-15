@@ -15,7 +15,8 @@ tags: [scitex-storage-cli-reference]
 | `archive --to DST [--yes] [--verify-content] [--retire-source]` | tier move + verified delete (or restorable staging) |
 | `sweep-restorable [--yes]` | delete expired restorable-staged trees (dry-run lists) |
 | `backup --to DST [--yes]` | copy-verified second copy, source retained |
-| `restore`, `reclaim-restore` | bring data back |
+| `restore`, `reclaim-restore`, `relocate-restore` | bring data back |
+| `relocate PLAN.yaml --root DIR [--yes]` | apply an ordered move plan: simulated, merge-safe, conflict-refusing, reversible |
 | `verify-content SRC DST` | standalone delete-safety verdict |
 | `scrub MANIFEST [--content]` | cold re-verify vs manifest (read-only; exit 0/16/17) |
 | `images` | SIF image rotation |
