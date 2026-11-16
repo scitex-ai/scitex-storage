@@ -284,6 +284,37 @@ def test_live_transaction_lock_returns_pending_without_copying(move_tree):
     assert (phase, source.exists(), destination.exists()) == ("accepted", True, False)
 
 
+def _note_move_worker_timeout(error, processes, ready, start, state):
+    """Attach observed state after cleanup without replacing the timeout."""
+    records = {}
+    try:
+        for path in sorted(state.glob("*.json")):
+            try:
+                value = json.loads(path.read_text())
+                if not isinstance(value, dict):
+                    raise ValueError("transaction record is not an object")
+                records[path.name] = {
+                    key: value.get(key)
+                    for key in (
+                        "phase",
+                        "error",
+                        "destination_published",
+                        "process_pid",
+                    )
+                }
+            except (OSError, ValueError) as problem:
+                records[path.name] = {"read_error": type(problem).__name__}
+        context = {
+            "ready": {path.name: path.exists() for path in ready},
+            "start": start.exists(),
+            "returncodes": [process.poll() for process in processes],
+            "records": records,
+        }
+    except OSError as problem:
+        context = {"context_read_error": type(problem).__name__}
+    error.add_note("move_worker_context=" + json.dumps(context, sort_keys=True))
+
+
 def test_two_real_move_workers_cannot_overwrite_same_destination(tmp_path):
     # Arrange
     import scitex_storage._transfer._move as module
@@ -333,16 +364,22 @@ except MoveRecoveryRequired:
         for source, marker in zip((source_a, source_b), ready)
     ]
     # Act
+    timeout_error = None
     try:
         for marker in ready:
             _wait_for_path(marker)
         start.write_text("go")
         results = [process.communicate(timeout=10) for process in processes]
+    except subprocess.TimeoutExpired as error:
+        timeout_error = error
+        raise
     finally:
         for process in processes:
             if process.poll() is None:
                 process.kill()
                 process.wait(timeout=5)
+        if timeout_error is not None:
+            _note_move_worker_timeout(timeout_error, processes, ready, start, state)
     receipts = [json.loads(path.read_text()) for path in state.glob("*.json")]
     winner = next(row for row in receipts if row["phase"] == "retired")
     # Assert
@@ -497,3 +534,58 @@ def test_transaction_state_cannot_move_with_the_data(tmp_path, overlap):
         verdict = "refused"
     # Assert
     assert (verdict, sorted(str(p) for p in tmp_path.rglob("*"))) == ("refused", before)
+
+
+def test_worker_timeout_note_preserves_failure_and_observes_real_state(tmp_path):
+    # Arrange -- a real blocked child, owned receipt and malformed receipt.
+    ready = tmp_path / "ready"
+    start = tmp_path / "start"
+    start.write_text("go")
+    state = tmp_path / "records"
+    state.mkdir()
+    (state / "worker.json").write_text(json.dumps({"phase": "copying"}))
+    (state / "broken.json").write_text("{")
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            "-c",
+            "import sys,time;from pathlib import Path;Path(sys.argv[1]).write_text('ready');time.sleep(60)",
+            str(ready),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    # Act -- the controlled short timeout stays a timeout after annotation.
+    failure = None
+    try:
+        _wait_for_path(ready)
+        try:
+            process.communicate(timeout=0.05)
+        except subprocess.TimeoutExpired as error:
+            failure = error
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.communicate(timeout=5)
+    _note_move_worker_timeout(failure, [process], [ready], start, state)
+    context = json.loads(failure.__notes__[0].split("=", 1)[1])
+    # Assert
+    assert (
+        type(failure),
+        failure.timeout,
+        context["start"],
+        context["ready"],
+        context["records"]["worker.json"]["phase"],
+        context["records"]["broken.json"]["read_error"],
+        process.poll() is not None,
+    ) == (
+        subprocess.TimeoutExpired,
+        0.05,
+        True,
+        {"ready": True},
+        "copying",
+        "JSONDecodeError",
+        True,
+    )
