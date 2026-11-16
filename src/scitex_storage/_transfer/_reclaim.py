@@ -416,6 +416,7 @@ def restore_reclaim(run_id: str) -> ReclaimManifest:
         for entry in manifest.entries
     ]
     _validate_destinations(entries)
+    seen_archives = set()
     for entry in entries:
         src = Path(entry.original)
         if not src.exists() and not src.is_symlink():
@@ -423,6 +424,11 @@ def restore_reclaim(run_id: str) -> ReclaimManifest:
                 f"archived copy missing, cannot restore: {src} "
                 "(was it deleted or moved out of the archive?)"
             )
+        # Preserve distinct final symlinks even when they share a target.
+        identity = src.parent.resolve() / src.name
+        if identity in seen_archives:
+            raise ValueError(f"Archive is referenced more than once: {src}")
+        seen_archives.add(identity)
     for entry in entries:
         src = Path(entry.original)
         dst = Path(entry.archived)

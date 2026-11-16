@@ -56,7 +56,9 @@ def archived_run(tmp_path):
             os.environ["HOME"] = previous
 
 
-@pytest.fixture(params=["occupied", "dangling", "missing", "repeated", "alias"])
+@pytest.fixture(
+    params=["occupied", "dangling", "missing", "repeated", "alias", "repeated-archive"]
+)
 def obstructed_run(archived_run, request, tmp_path):
     sources, archived, manifest = archived_run
     error = FileExistsError
@@ -67,6 +69,11 @@ def obstructed_run(archived_run, request, tmp_path):
     elif request.param == "missing":
         archived[1].unlink()
         error = FileNotFoundError
+    elif request.param == "repeated-archive":
+        payload = json.loads(manifest.read_text())
+        payload["entries"][1]["archived"] = payload["entries"][0]["archived"]
+        manifest.write_text(json.dumps(payload))
+        error = ValueError
     else:
         payload = json.loads(manifest.read_text())
         target = sources[0]
@@ -101,3 +108,27 @@ def test_restore_still_returns_every_entry_of_a_clear_run(archived_run):
         [path.exists() for path in archived],
         restored.restored,
     ) == ([b"owned-0", b"owned-1"], [False, False], True)
+
+
+def test_restore_preserves_distinct_symlinks_to_one_target(archived_run, tmp_path):
+    # Arrange -- sharing a link target does not make two archive entries one.
+    target = tmp_path / "owned-target.bin"
+    target.write_bytes(b"retained target")
+    links = [tmp_path / name for name in ("link-a", "link-b")]
+    for link in links:
+        link.symlink_to(target)
+    apply_reclaim(plan_reclaim(links, run_id="links"))
+    # Act
+    restored = restore_reclaim("links")
+    # Assert
+    assert (
+        [link.is_symlink() for link in links],
+        [link.read_bytes() for link in links],
+        target.read_bytes(),
+        restored.restored,
+    ) == (
+        [True, True],
+        [b"retained target", b"retained target"],
+        b"retained target",
+        True,
+    )
