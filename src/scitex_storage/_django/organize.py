@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Organize views for the Storage app: Usage / Duplicates / Move tabs.
+"""Organize views for the Storage app: Usage / Duplicates / Move / Reorganize tabs.
 
 Usage scans an authorized account/project root; filesystem capacity is labeled
 separately from the account's data. Duplicates reports real content matches
@@ -34,12 +34,13 @@ except ImportError as exc:
     ) from exc
 
 #: Tabs this module serves (the organize tabs).
-HANDLED_TABS = ("usage", "duplicates", "move")
+HANDLED_TABS = ("usage", "duplicates", "move", "reorganize")
 
 ORGANIZE_TABS = (
     ("usage", _("Usage"), False),
     ("move", _("Move"), False),
     ("duplicates", _("Duplicates"), False),
+    ("reorganize", _("Reorganize"), False),
 )
 
 #: Bound for the opt-in duplicate walk (fclones --depth). Unbounded content
@@ -625,10 +626,17 @@ def duplicates(request):
 from .logical_move import move  # noqa: E402
 from .logical_move import move_apply as move_apply  # noqa: E402
 
+def _reorganize(request):
+    from . import reorganize
+
+    return reorganize.reorganize(request)
+
+
 _HANDLERS = {
     "usage": usage,
     "duplicates": duplicates,
     "move": move,
+    "reorganize": _reorganize,
 }
 
 

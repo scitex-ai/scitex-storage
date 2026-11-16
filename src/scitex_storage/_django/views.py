@@ -3,7 +3,7 @@
 # File: src/scitex_storage/_django/views.py
 """Views for the scitex-storage GUI plugin.
 
-``index`` serves Usage, Move, and Duplicates with shared tab navigation. There is deliberately no
+``index`` serves Usage, Move, Duplicates, and Reorganize with shared tab navigation. There is deliberately no
 machine/volume browser: per-project storage is the workspace's business,
 and this app only reports usage, duplicates, and move plans.
 """
@@ -120,6 +120,7 @@ TABS = (
     ("usage", gettext_lazy("Usage"), False),
     ("move", gettext_lazy("Move"), False),
     ("duplicates", gettext_lazy("Duplicates"), False),
+    ("reorganize", gettext_lazy("Reorganize"), False),
 )
 
 

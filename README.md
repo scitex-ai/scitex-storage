@@ -304,7 +304,7 @@ python -m scitex_storage._system_deps
 ### GUI plugin (optional)
 
 scitex-storage ships a Django-based GUI plugin
-(`src/scitex_storage/_django/`) with Usage, Move, and Duplicates tabs,
+(`src/scitex_storage/_django/`) with Usage, Move, Duplicates, and Reorganize tabs,
 installable standalone (`scitex-storage gui open`) or as a
 scitex-hub plugin mounted at `/apps/storage/`, following the same
 scitex-sdk convention as scitex-writer/scitex-scholar/figrecipe.

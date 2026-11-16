@@ -1,0 +1,27 @@
+/* Reorganize tab (scitex-storage relocate in the browser). Uses the shared
+   .stx-storage-* tokens so it reads as part of the Storage app. */
+.stx-field--grow { flex: 1 1 260px; }
+.stx-field--grow input { width: 100%; }
+.stx-reorg-plan {
+  width: 100%; min-height: 12rem; box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem;
+  padding: 8px 10px; border-radius: 0; border: 1px solid var(--stx-storage-border);
+  background: transparent; color: inherit;
+}
+.stx-reorg-counts { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; padding: 0; margin: 8px 0 12px; }
+.stx-reorg-bad { color: #d29922; }
+.stx-reorg-table-wrap {
+  overflow: auto; max-height: 60vh; margin-bottom: 12px;
+  border: 1px solid var(--stx-storage-border); -webkit-overflow-scrolling: touch;
+}
+.stx-reorg-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.stx-reorg-table th, .stx-reorg-table td {
+  text-align: left; padding: 6px 8px; vertical-align: top;
+  border-bottom: 1px solid var(--stx-storage-border);
+}
+.stx-reorg-table code { word-break: break-all; }
+@media (max-width: 600px) {
+  .stx-reorg-table { font-size: 0.78rem; }
+  .stx-reorg-form .stx-form-row { flex-direction: column; align-items: stretch; }
+}
+.stx-reorg-notice { margin: 0; }
