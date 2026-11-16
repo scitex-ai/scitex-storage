@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Reject colliding or occupied reclaim destinations before any source moves,
+  including older plans; publish same-filesystem moves without overwriting a
+  destination that appeared after the preview.
+
 - Clear the previous sunburst tooltip when navigating between hierarchy levels.
 - Capture the verified root after native navigation in browser regression tests,
   retaining the required screenshot and all boundary assertions.

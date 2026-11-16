@@ -171,6 +171,19 @@ def _archive_destination(source: Path, run_id: str, archive_root: str | None) ->
     return base / source.name
 
 
+def _validate_destinations(entries: list[ReclaimEntry]) -> None:
+    """Reject ambiguous or occupied archive names before any source moves."""
+    seen = set()
+    for entry in entries:
+        destination = Path(entry.archived)
+        identity = destination.resolve()
+        if identity in seen:
+            raise ValueError(f"Reclaim destinations collide: {destination}")
+        seen.add(identity)
+        if destination.exists() or destination.is_symlink():
+            raise FileExistsError(f"Reclaim destination is occupied: {destination}")
+
+
 def plan_reclaim(
     paths: list[str | Path],
     *,
@@ -205,6 +218,7 @@ def plan_reclaim(
                 file_count=count,
             )
         )
+    _validate_destinations(plan.entries)
     return plan
 
 
@@ -236,7 +250,7 @@ def _same_filesystem(a: Path, b: Path) -> bool:
 def _move_one(entry: ReclaimEntry) -> None:
     """Move a single source to its archive destination, reversibly.
 
-    Same filesystem -> atomic ``os.rename``. Cross filesystem -> ``shutil.move``
+    Same filesystem -> atomic no-overwrite rename. Cross filesystem -> ``shutil.move``
     (copy then delete), which is not atomic; the copy is left in place if it
     fails partway (the source is only removed by shutil AFTER a successful
     copy), so a crash never loses data, at worst duplicates it.
@@ -245,7 +259,9 @@ def _move_one(entry: ReclaimEntry) -> None:
     dst = Path(entry.archived)
     dst.parent.mkdir(parents=True, exist_ok=True)
     if _same_filesystem(src, dst.parent):
-        os.rename(src, dst)
+        from ._durable import rename_noreplace
+
+        rename_noreplace(src, dst)
         return
 
     # CROSS-FILESYSTEM: this is the branch that actually RELIEVES a full
@@ -297,6 +313,7 @@ def _tree_size(path: Path) -> int | None:
 def apply_reclaim(plan: ReclaimPlan) -> ReclaimManifest:
     """Execute a reclaim plan: move every entry, then write the manifest.
 
+    All destination names are checked before any move, including old plans.
     The manifest is written LAST, after all moves succeed, and records the
     exact original->archived mapping so :func:`restore_reclaim` is precise.
     A move that raises aborts the run and propagates — entries already moved
@@ -304,6 +321,7 @@ def apply_reclaim(plan: ReclaimPlan) -> ReclaimManifest:
     partial run, so a partial run is visible as "files in .old with no
     manifest" rather than silently half-recorded.
     """
+    _validate_destinations(plan.entries)
     for entry in plan.entries:
         _move_one(entry)
     manifest = ReclaimManifest(

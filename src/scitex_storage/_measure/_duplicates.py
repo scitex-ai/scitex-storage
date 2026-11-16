@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._scan import MissingSystemDependencyError
+from ._duplicate_identity import _file_key, _regular_copies, reclaimable_bytes
 
 if TYPE_CHECKING:
     from ._classify import Signal
@@ -87,6 +88,10 @@ def find_duplicates(
     raising ``TimeoutError``; partial output is never returned as a result.
     ``None`` preserves the existing unbounded CLI/library behavior.
 
+    Final symlinks and repeated regular-file inodes are excluded from groups.
+    A reported path that can no longer be inspected raises RuntimeError rather
+    than silently turning incomplete identity evidence into a clean scan.
+
     Read-only in the sense that nothing is moved, linked, or deleted —
     ``fclones group`` (not ``fclones link``/``remove``/``dedupe``) only
     ever reports.
@@ -133,41 +138,17 @@ def find_duplicates(
     payload = json.loads(proc.stdout.decode("utf-8"))
     groups: list[list[Path]] = []
     for group in payload.get("groups", []):
-        paths = sorted(Path(p) for p in group.get("files", []))
+        try:
+            copies, _ = _regular_copies(group.get("files", []))
+        except OSError as exc:
+            raise RuntimeError(
+                "A duplicate file changed or could not be inspected; run the scan again"
+            ) from exc
+        paths = [path for path, _ in copies]
         if len(paths) >= 2:
             groups.append(paths)
     groups.sort(key=lambda g: len(g), reverse=True)
     return groups
-
-
-def reclaimable_bytes(groups: list[list[Path]]) -> int | None:
-    """Bytes recoverable by keeping ONE copy from each duplicate group.
-
-    Sums ``(len(group) - 1) * size`` -- deleting every copy would be data
-    loss, not reclamation, so the first is never counted. Sizes come from
-    ``lstat`` on the first readable member: fclones has already proven the
-    group byte-identical, so any member's size is the group's size.
-
-    Returns ``None`` -- never 0 -- when no group could be measured at all.
-    Zero is a MEASUREMENT ("duplicates exist but recover nothing", which is
-    real for empty files) and must stay distinct from "the question was not
-    answered".
-    """
-    total = 0
-    measured_any = False
-    for group in groups:
-        size = None
-        for member in group:
-            try:
-                size = member.lstat().st_size
-                break
-            except OSError:
-                continue
-        if size is None:
-            continue
-        measured_any = True
-        total += (len(group) - 1) * size
-    return total if measured_any else None
 
 
 def duplicates_signal(groups: list[list[Path]] | None) -> "Signal":
@@ -239,13 +220,17 @@ def _resolve_dir_roots(roots: list[str | Path]) -> list[Path]:
     root is; fail-loud on a bad root in both stages.
     """
     resolved: list[Path] = []
+    seen: set[Path] = set()
     for raw_root in roots:
         p = Path(raw_root).expanduser()
         if not p.exists():
             raise FileNotFoundError(f"path does not exist: {p}")
         if not p.is_dir():
             raise NotADirectoryError(f"not a directory: {p}")
-        resolved.append(p.resolve())
+        canonical = p.resolve()
+        if canonical not in seen:
+            seen.add(canonical)
+            resolved.append(canonical)
     return resolved
 
 
@@ -266,6 +251,7 @@ def size_groups(
     size first. Empty dict means no candidates, not an error.
     """
     by_size: dict[int, list[Path]] = {}
+    seen_files = set()
 
     def walk(directory: str, depth: int) -> None:
         try:
@@ -282,10 +268,15 @@ def size_groups(
                         walk(entry.path, depth + 1)
                 elif entry.is_file(follow_symlinks=False):
                     try:
-                        size = entry.stat(follow_symlinks=False).st_size
+                        info = entry.stat(follow_symlinks=False)
+                        size = info.st_size
                     except OSError:
                         continue
-                    by_size.setdefault(size, []).append(Path(entry.path))
+                    path = Path(entry.path)
+                    key = _file_key(path, info)
+                    if key not in seen_files:
+                        seen_files.add(key)
+                        by_size.setdefault(size, []).append(path)
             except OSError:
                 continue
 

@@ -81,9 +81,9 @@ def test_wholly_unmeasurable_groups_are_none_not_zero(tmp_path):
     assert recoverable is None
 
 
-def test_a_group_falls_back_to_a_readable_member(tmp_path):
-    # fclones already proved the group byte-identical, so any member's size
-    # is the group's size -- one unreadable member must not lose the group.
+def test_missing_members_do_not_inflate_known_reclaim(tmp_path):
+    # A missing name is not an additional independently stored copy.
+    # Retain one of the two known regular files.
     # Arrange
     real = _group(tmp_path, "a", 2, 80)
     groups = [[tmp_path / "missing.bin"] + real]
@@ -92,7 +92,7 @@ def test_a_group_falls_back_to_a_readable_member(tmp_path):
     recoverable = reclaimable_bytes(groups)
 
     # Assert
-    assert recoverable == 160
+    assert recoverable == 80
 
 
 # --- the signal's verdict direction ---------------------------------------
