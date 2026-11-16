@@ -24,6 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 try:
+    from django.conf import settings
     from django.http import HttpResponse, HttpResponseForbidden
     from django.shortcuts import render
     from django.views.decorators.http import require_POST
@@ -57,8 +58,6 @@ def _parse_plan(text: str) -> dict:
 
 def _registered_project_roots(request) -> list[Path]:
     """Roots of every project the host knows; [] in a plain standalone app."""
-    from django.conf import settings
-
     from . import project_files
 
     try:
