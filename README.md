@@ -153,6 +153,9 @@ not establish interruption recovery or crash safety.
 Reclaim run IDs must be single non-empty filename components; path separators,
 `.` and `..` are refused before moves or manifest access. A manifest's recorded
 run ID must match the requested run before restoration.
+Restore checks every recorded archive and destination before its first move;
+same-filesystem publication also refuses an occupied destination atomically.
+A whole restore run is not an atomic transaction or a crash-recovery protocol.
 
 ```bash
 # Apply a YAML move plan to a whole tree (reorganize a folder). The plan is

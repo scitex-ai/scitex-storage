@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Preflight all reclaim-restore entries before moving any, including missing
+  archives and colliding/occupied destinations; publish same-filesystem
+  restores with an atomic no-overwrite rename.
+
 - Refuse reclaim run IDs that escape archive/manifest roots, including legacy
   caller-created plans; refuse restore when a manifest records another run ID.
 

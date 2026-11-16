@@ -406,24 +406,31 @@ def restore_reclaim(run_id: str) -> ReclaimManifest:
     is the classifier's error rate, recorded rather than estimated (see
     :func:`restore_rate`). Fail-loud if an original path is now occupied — a
     restore must never overwrite something that took the vacated spot.
+    All recorded destinations and archived entries are preflighted before
+    the first move. Same-filesystem publication also refuses a racing
+    occupant. This is not an atomic transaction across the entire run.
     """
     manifest = load_manifest(run_id)
-    for entry in manifest.entries:
-        src = Path(entry.archived)
-        dst = Path(entry.original)
+    entries = [
+        ReclaimEntry(entry.archived, entry.original, entry.size_bytes, entry.file_count)
+        for entry in manifest.entries
+    ]
+    _validate_destinations(entries)
+    for entry in entries:
+        src = Path(entry.original)
         if not src.exists() and not src.is_symlink():
             raise FileNotFoundError(
                 f"archived copy missing, cannot restore: {src} "
                 "(was it deleted or moved out of the archive?)"
             )
-        if dst.exists() or dst.is_symlink():
-            raise FileExistsError(
-                f"refusing to restore over an existing path: {dst} "
-                "(something occupied the original location since reclaim)"
-            )
+    for entry in entries:
+        src = Path(entry.original)
+        dst = Path(entry.archived)
         dst.parent.mkdir(parents=True, exist_ok=True)
         if _same_filesystem(src, dst.parent):
-            os.rename(src, dst)
+            from ._durable import rename_noreplace
+
+            rename_noreplace(src, dst)
         else:
             shutil.move(str(src), str(dst))
     manifest.restored = True
