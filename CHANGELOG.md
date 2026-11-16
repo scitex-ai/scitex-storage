@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Report duplicate-engine, malformed JSON and disappearing-file inspection
+  failures as readable CLI stderr errors, preserving nonzero exit and empty
+  stdout rather than presenting partial results as a successful scan.
+
 - Preflight all reclaim-restore entries before moving any, including missing
   archives and colliding/occupied destinations; publish same-filesystem
   restores with an atomic no-overwrite rename.

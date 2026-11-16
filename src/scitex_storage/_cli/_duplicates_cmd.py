@@ -11,9 +11,13 @@ import click
 from .._measure._duplicates import find_duplicates as _find_duplicates
 from .._measure._duplicates import overlap_bytes as _overlap_bytes
 from .._measure._duplicates import size_groups as _size_groups
-from .._report import duplicates_to_json_dict, format_duplicates_report
-from .._report import format_overlap_report, format_size_groups_report
 from .._measure._scan import MissingSystemDependencyError
+from .._report import (
+    duplicates_to_json_dict,
+    format_duplicates_report,
+    format_overlap_report,
+    format_size_groups_report,
+)
 from ._compat import spec_command_kwargs
 
 
@@ -81,7 +85,7 @@ def find_duplicates_cmd(
         return
     try:
         groups = _find_duplicates(list(paths), max_depth=max_depth)
-    except MissingSystemDependencyError as exc:
+    except (MissingSystemDependencyError, RuntimeError, json.JSONDecodeError) as exc:
         raise click.ClickException(str(exc)) from exc
     overlap = (
         _overlap_bytes(groups, list(paths)) if len(paths) >= 2 else {}
