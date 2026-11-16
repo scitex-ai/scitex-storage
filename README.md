@@ -413,6 +413,13 @@ deliberately separate pipelines, not a shared one: `scan` must stay
 stat-only (safe to point at a 100%-full disk), and finding exact
 duplicates fundamentally requires reading bytes, which `scan` never does.
 
+Duplicate groups contain regular-file copies, once per filesystem inode.
+Symlinks are excluded; repeated or overlapping roots do not create extra copies.
+Savings are conservative logical file bytes: hard-linked inodes are retained,
+missing names add no space, and filesystem compression/reflinks are not measured.
+See `tests/scitex_storage/_measure/test__duplicate_identity.py` for native
+link, inode and savings controls.
+
 Library callers can bound the actual hashing process with
 `find_duplicates(roots, timeout_s=60)`. A finite positive deadline kills and
 reaps `fclones` before raising `TimeoutError`; partial output is not treated as
