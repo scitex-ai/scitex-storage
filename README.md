@@ -541,7 +541,7 @@ scitex-storage restore SOURCE [--delete-remote] [--yes|-y] [--dry-run] [--json]
 |---|---|---|
 | `SOURCE` | (required) | Directory to archive / the original path to restore to |
 | `--to` | (required, `archive` only) | `nas` or `nas2` — the `~/.ssh/config` alias to sync to |
-| `--remote-path` | mirrors `SOURCE` under `~/scitex-storage-archive` | Explicit remote path override |
+| `--remote-path` | mirrors `SOURCE` under `~/scitex-storage-archive` | Explicit `/...` or `~/...` path; ambiguous relative paths are refused |
 | `--exclude PATTERN` | — | Glob to exclude from the sync (repeatable) |
 | `--checksum` / `--no-checksum` | on | Read every byte on both sides (rsync `--checksum`) before removing the local copy |
 | `--delete-remote` | off | `restore` only: remove the remote copy after a verified pull |
