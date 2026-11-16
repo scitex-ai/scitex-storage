@@ -7,6 +7,17 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Preflight all reclaim-restore entries before moving any, including missing
+  archives and colliding/occupied destinations; publish same-filesystem
+  restores with an atomic no-overwrite rename.
+
+- Refuse reclaim run IDs that escape archive/manifest roots, including legacy
+  caller-created plans; refuse restore when a manifest records another run ID.
+
+- Correct reclaim documentation/help to distinguish completed copy/restore
+  from independent verification, resumability and crash durability; add real
+  separate-filesystem file/directory round-trip coverage.
+
 - Render the Usage parent without duplicating the folder scan performed by
   its separately loaded sunburst; show deferred details instead of a premature
   zero-byte total. Preserve chart scope checks and existing scan deadlines.
