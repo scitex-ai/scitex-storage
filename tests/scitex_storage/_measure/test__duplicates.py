@@ -123,11 +123,15 @@ sys.exit(2)
 
 def test_find_duplicates_parses_fclones_json_groups(tmp_path, isolated_path_bin_dir):
     # Arrange
-    _write_executable(isolated_path_bin_dir / "fclones", _FAKE_FCLONES_ONE_GROUP)
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.write_bytes(b"x")
+    b.write_bytes(b"x")
+    payload = _FAKE_FCLONES_ONE_GROUP.replace('"/a", "/b"', f"{str(a)!r}, {str(b)!r}")
+    _write_executable(isolated_path_bin_dir / "fclones", payload)
     # Act
     groups = find_duplicates([tmp_path])
     # Assert
-    assert sorted(str(p) for p in groups[0]) == ["/a", "/b"]
+    assert groups[0] == [a, b]
 
 
 def test_find_duplicates_raises_runtime_error_on_fclones_nonzero_exit(
@@ -471,6 +475,8 @@ def test_explicit_deadline_preserves_completed_group_protocol(
 ):
     # Arrange
     left, right = tmp_path / "a.txt", tmp_path / "b.txt"
+    left.write_text("owned protocol file")
+    right.write_bytes(left.read_bytes())
     payload = json.dumps({"groups": [{"files": [str(left), str(right)]}]})
     _write_executable(isolated_path_bin_dir / "fclones", f"print({payload!r})\n")
     # Act

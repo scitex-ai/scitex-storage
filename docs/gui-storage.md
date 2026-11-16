@@ -38,6 +38,12 @@ fclones is shown as unavailable rather than an empty successful report. The GUI
 passes a 60-second deadline to the hashing subprocess itself; expiry kills and
 reaps it instead of leaving it behind after a request timeout. A report with
 more than 50 groups displays its actual total and labels the displayed subset.
+Groups exclude symlink targets and repeated inode aliases. The savings estimate
+counts independently removable single-link copies while retaining a physical
+copy; removing one hardlink name is not treated as freeing its inode. Missing
+files are not assumed to occupy space. These are logical file bytes, not a
+measurement of compression, sparse allocation or reflink sharing. The owning
+controls are `tests/scitex_storage/_measure/test__duplicate_identity.py`.
 
 ## Logical tiers and estimates
 
