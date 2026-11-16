@@ -27,5 +27,8 @@
 @media (max-width: 600px) {
   .stx-reorg-table { font-size: 0.78rem; }
   .stx-reorg-form .stx-form-row { flex-direction: column; align-items: stretch; }
+  /* In a column, flex-basis becomes a HEIGHT: 260px of empty space under the
+     folder input (seen in iOS Simulator Safari, PDCA cycle 2). */
+  .stx-reorg-form .stx-field--grow { flex: 0 0 auto; }
 }
 .stx-reorg-notice { margin: 0; }
