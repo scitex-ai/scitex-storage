@@ -1,8 +1,9 @@
 # Storage GUI contract
 
 The implementation lives in `_django/organize.py`, `_django/logical_move.py`,
-`_django/volumes.py`, and `_logical_tiers.py`. The only organize tabs are Usage,
-Move, and Duplicates. The CLI backup operation is independent of these tabs.
+`_django/reorganize.py`, `_django/volumes.py`, and `_logical_tiers.py`. The organize
+tabs are Usage, Move, Duplicates, and Reorganize. The CLI backup operation is
+independent of these tabs.
 
 ## Scope and identity
 
@@ -109,3 +110,23 @@ performs no background operation merely because it was opened.
 
 Regression evidence: `test_logical_move.py`, `test__move.py`,
 `test__retention.py`, `test__logical_tiers.py`, and the scoped GUI tests.
+
+## Reorganize
+
+Reorganize is the browser front of `scitex-storage relocate`. The user picks one of
+their own locations (a volume key; the option text is the logical display path, never
+the volume label, which may be a physical host name) plus a relative folder, and pastes
+a YAML plan. The flow is Preview, then Apply, then Undo; every POST re-authorizes the folder.
+
+- **Folder:** containment-checked with `contained_dir`. A volume root is refused.
+- **Project scope:** the folder must lie inside a project the user may edit.
+- **All scope:** a folder containing a registered project root is refused, so a project
+  cannot be relocated silently.
+- **Apply:** re-plans and compares `plan_fingerprint` with the previewed fingerprint
+  (run ids excluded). A changed tree or plan is refused with a request to preview again.
+  Conflicts refuse the whole plan.
+- **Manifests:** stored in the user's jailed home
+  (`.scitex/scitex-storage/runtime/relocate-manifests`). Undo accepts only a run id whose
+  root lies inside the user's own volumes; path-like ids are rejected.
+- **Pages:** show folder-relative paths only. Physical mount paths and volume labels
+  never appear.

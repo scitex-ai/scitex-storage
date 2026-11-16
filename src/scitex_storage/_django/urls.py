@@ -17,7 +17,7 @@ except ImportError as exc:
         "scitex-storage URLs require Django: pip install scitex-storage[gui]"
     ) from exc
 
-from . import logical_move, organize, views
+from . import logical_move, organize, reorganize, views
 
 app_name = "scitex_storage"
 
@@ -32,6 +32,7 @@ urlpatterns = [
     path("usage-sunburst/", organize.usage_sunburst, name="usage_sunburst"),
     path("move-apply/", organize.move_apply, name="move_apply"),
     path("move-status/", logical_move.move_status, name="move_status"),
+    path("reorganize/", reorganize.reorganize_action, name="reorganize_action"),
     path("healthz", views.healthz, name="healthz"),
     # Project-scoped file API (compass §14). Machine-facing JSON/attachment
     # routes; authz + project scope come from the hub via `request`. The

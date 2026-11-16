@@ -110,11 +110,11 @@ class RelocateManifest:
 # ----------------------------------------------------------------- plan file
 
 
-def load_plan_file(path: str | Path) -> dict:
-    """Read a YAML (or JSON) plan and check its shape, failing loud."""
+def load_plan_text(text: str) -> dict:
+    """Parse a YAML (or JSON) plan from a string and check its shape, failing loud."""
     import yaml
 
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    data = yaml.safe_load(text) or {}
     if not isinstance(data, dict):
         raise ValueError(f"plan must be a mapping, got {type(data).__name__}")
     unknown = set(data) - {"moves", "drop", "junk", "links", "skip"}
@@ -127,6 +127,11 @@ def load_plan_file(path: str | Path) -> dict:
         if not isinstance(ln, dict) or set(ln) != {"path", "target"}:
             raise ValueError(f"links[{i}] must be {{path, target}}, got {ln!r}")
     return data
+
+
+def load_plan_file(path: str | Path) -> dict:
+    """Read a YAML (or JSON) plan file and check its shape, failing loud."""
+    return load_plan_text(Path(path).read_text(encoding="utf-8"))
 
 
 def _norm(rel: str) -> str:
@@ -343,12 +348,38 @@ def plan_relocate(
 # ------------------------------------------------------------------- applying
 
 
-def _manifest_dir() -> Path:
-    return Path(_MANIFEST_SUBDIR).expanduser()
+def _manifest_dir(override: str | Path | None = None) -> Path:
+    """Where run manifests live. Hosts (the GUI) pass a jailed per-user folder."""
+    return Path(override) if override is not None else Path(_MANIFEST_SUBDIR).expanduser()
 
 
-def _write_manifest(m: RelocateManifest) -> Path:
-    p = _manifest_dir() / f"{m.run_id}.json"
+def plan_fingerprint(plan: RelocatePlan) -> str:
+    """sha256 over root + every planned operation + conflicts, in order.
+
+    A GUI previews a plan, then applies on a later request. Re-planning at apply
+    time and comparing fingerprints refuses to run anything the user did not see
+    (the tree or the plan changed in between)."""
+    payload = json.dumps(
+        {
+            "root": plan.root,
+            # The run id is fresh on every request; archive destinations embed
+            # it, so it is stripped or no preview could ever match its apply.
+            "ops": [
+                {**asdict(o), "dst": o.dst.removeprefix(f"{plan.run_id}/")}
+                if o.kind == "archive"
+                else asdict(o)
+                for o in plan.ops
+            ],
+            "conflicts": plan.conflicts,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _write_manifest(m: RelocateManifest, manifest_dir: str | Path | None = None) -> Path:
+    p = _manifest_dir(manifest_dir) / f"{m.run_id}.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(
         json.dumps(m.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8"
@@ -399,7 +430,9 @@ def _prune_empty_parents(path: Path, stop: Path) -> None:
         p = p.parent
 
 
-def apply_relocate(plan: RelocatePlan) -> RelocateManifest:
+def apply_relocate(
+    plan: RelocatePlan, *, manifest_dir: str | Path | None = None
+) -> RelocateManifest:
     """Execute a conflict-free plan in order. The manifest is written even on failure."""
     if plan.conflicts:
         raise RelocateConflict(f"{len(plan.conflicts)} conflict(s); nothing changed")
@@ -426,20 +459,24 @@ def apply_relocate(plan: RelocatePlan) -> RelocateManifest:
             done.append(op)
         manifest.complete = True
     finally:
-        _write_manifest(manifest)
+        _write_manifest(manifest, manifest_dir)
     return manifest
 
 
-def load_manifest(run_id: str) -> RelocateManifest:
-    p = _manifest_dir() / f"{run_id}.json"
+def load_manifest(run_id: str, *, manifest_dir: str | Path | None = None) -> RelocateManifest:
+    if not run_id or "/" in run_id or "\\" in run_id or run_id.startswith("."):
+        raise FileNotFoundError(f"invalid relocate run id: {run_id!r}")
+    p = _manifest_dir(manifest_dir) / f"{run_id}.json"
     if not p.exists():
         raise FileNotFoundError(f"no relocate manifest for run {run_id!r} at {p}")
     return RelocateManifest.from_dict(json.loads(p.read_text(encoding="utf-8")))
 
 
-def restore_relocate(run_id: str) -> RelocateManifest:
+def restore_relocate(
+    run_id: str, *, manifest_dir: str | Path | None = None
+) -> RelocateManifest:
     """Replay a run backwards: unlink links, move back, un-archive. Never overwrites."""
-    m = load_manifest(run_id)
+    m = load_manifest(run_id, manifest_dir=manifest_dir)
     if m.restored:
         raise ValueError(f"run {run_id} was already restored")
     root, arch = Path(m.root), Path(m.archive_root)
@@ -455,7 +492,7 @@ def restore_relocate(run_id: str) -> RelocateManifest:
         elif op.kind == "archive":
             _move(arch / op.dst, root / op.src)
     m.restored = True
-    _write_manifest(m)
+    _write_manifest(m, manifest_dir)
     return m
 
 
