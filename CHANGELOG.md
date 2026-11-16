@@ -11,6 +11,9 @@ versions follow [Semantic Versioning](https://semver.org/).
   its separately loaded sunburst; show deferred details instead of a premature
   zero-byte total. Preserve chart scope checks and existing scan deadlines.
 
-- Reject colliding or occupied reclaim destinations before any source moves,
-  including older plans; publish same-filesystem moves without overwriting a
-  destination that appeared after the preview.
+- Preserve files and symlinks named by a directory-only backup exclude;
+  count and content baselines now distinguish real directories as rsync does.
+
+- Clear the previous sunburst tooltip when navigating between hierarchy levels.
+- Capture the verified root after native navigation in browser regression tests,
+  retaining the required screenshot and all boundary assertions.
