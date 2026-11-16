@@ -27,8 +27,8 @@
         {% endif %}
         <section class="stx-storage-card">
             <h2 class="stx-storage-machine">{% translate "Reorganize a folder" %}</h2>
-            <p>
-                {% translate "Paste a move plan and preview it. Previewing changes no files. Applying merges into existing folders, refuses the whole plan if any file would be overwritten with different content, and never deletes: cleared and duplicate files are kept aside, and every run can be undone." %}
+            <p class="stx-reorg-intro">
+                {% translate "Preview a move plan, then apply it. Nothing is deleted, and every run can be undone." %}
             </p>
             <form method="post"
                   action="{% url 'scitex_storage:reorganize_action' %}"
@@ -70,7 +70,7 @@
                               required
                               spellcheck="false"
                               autocapitalize="off"
-                              placeholder="moves: - {from: kk/setup, to: company/01_incorporation} - {from: kk, to: company} drop: [logs]">{{ reorg_form.plan }}</textarea>
+                              placeholder="moves:&#10;  - {from: kk/setup, to: company/01_incorporation}&#10;  - {from: kk, to: company}&#10;drop: [logs]">{{ reorg_form.plan }}</textarea>
                 </div>
                 <div class="stx-form-row">
                     <button class="stx-button stx-button--primary"
@@ -91,26 +91,44 @@
                     {% endif %}
                 </h2>
                 <p class="stx-storage-note">{{ reorg_folder_display }}</p>
-                <ul class="stx-reorg-counts">
-                    <li>
-                        <strong>{{ reorg_summary.moves }}</strong> {% translate "moves" %}
-                    </li>
-                    <li>
-                        <strong>{{ reorg_summary.duplicates }}</strong> {% translate "duplicates set aside" %}
-                    </li>
-                    <li>
-                        <strong>{{ reorg_summary.junk }}</strong> {% translate "temporary files set aside" %}
-                    </li>
-                    <li>
-                        <strong>{{ reorg_summary.drops }}</strong> {% translate "items set aside" %}
-                    </li>
-                    <li>
-                        <strong>{{ reorg_summary.links }}</strong> {% translate "folder links" %}
-                    </li>
-                    <li class="{% if reorg_summary.conflicts %}stx-reorg-bad{% endif %}">
-                        <strong>{{ reorg_summary.conflicts }}</strong> {% translate "conflicts" %}
-                    </li>
-                </ul>
+                <dl class="stx-reorg-counts">
+                    <div>
+                        <dt>{% translate "Moves" %}</dt>
+                        <dd>
+                            {{ reorg_summary.moves }}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>{% translate "Duplicates set aside" %}</dt>
+                        <dd>
+                            {{ reorg_summary.duplicates }}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>{% translate "Temporary files set aside" %}</dt>
+                        <dd>
+                            {{ reorg_summary.junk }}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>{% translate "Dropped (set aside)" %}</dt>
+                        <dd>
+                            {{ reorg_summary.drops }}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>{% translate "Folder links" %}</dt>
+                        <dd>
+                            {{ reorg_summary.links }}
+                        </dd>
+                    </div>
+                    <div class="{% if reorg_summary.conflicts %}stx-reorg-bad{% endif %}">
+                        <dt>{% translate "Conflicts" %}</dt>
+                        <dd>
+                            {{ reorg_summary.conflicts }}
+                        </dd>
+                    </div>
+                </dl>
                 {% if reorg_plan.conflicts %}
                     <div class="stx-storage-warn" role="alert">
                         <strong>{% translate "Refused: these files would be overwritten with different content. Nothing will change until they are resolved." %}</strong>

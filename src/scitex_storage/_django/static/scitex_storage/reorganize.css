@@ -8,7 +8,11 @@
   padding: 8px 10px; border-radius: 0; border: 1px solid var(--stx-storage-border);
   background: transparent; color: inherit;
 }
-.stx-reorg-counts { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; padding: 0; margin: 8px 0 12px; }
+.stx-reorg-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 6px 16px; margin: 8px 0 12px; }
+.stx-reorg-counts > div { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--stx-storage-border); }
+.stx-reorg-counts dt { color: var(--stx-storage-muted); font-size: 0.85rem; }
+.stx-reorg-counts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stx-reorg-intro { margin: 4px 0 10px; }
 .stx-reorg-bad { color: #d29922; }
 .stx-reorg-table-wrap {
   overflow: auto; max-height: 60vh; margin-bottom: 12px;
