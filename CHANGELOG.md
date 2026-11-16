@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Render the Usage parent without duplicating the folder scan performed by
+  its separately loaded sunburst; show deferred details instead of a premature
+  zero-byte total. Preserve chart scope checks and existing scan deadlines.
+
 - Clear the previous sunburst tooltip when navigating between hierarchy levels.
 - Capture the verified root after native navigation in browser regression tests,
   retaining the required screenshot and all boundary assertions.
