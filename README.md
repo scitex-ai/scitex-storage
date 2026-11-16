@@ -133,8 +133,8 @@ scitex-storage find-duplicates ~/proj/old-scan
 ```
 
 ```bash
-# Move a path ASIDE into a reversible archive instead of deleting it, so a
-# rough cleanup call costs a `reclaim-restore`, not lost data. Dry-run by
+# Move a path ASIDE into an archive. Completed runs can be reversed with
+# `reclaim-restore` using their recorded source paths. Dry-run by
 # default; --yes to act; `reclaim --status` shows the restore rate (the
 # accuracy metric). Default archive is an adjacent atomic `.old/<ts>/`
 # (tidies, doesn't free inodes); --archive-root on another filesystem frees
@@ -142,6 +142,14 @@ scitex-storage find-duplicates ~/proj/old-scan
 scitex-storage reclaim ./node_modules ./build --yes
 scitex-storage reclaim-restore 2026-0717-154500-123456   # undo a run
 ```
+
+Cross-filesystem reclaim currently uses copy-and-delete (`shutil.move`), without
+independent checksum read-back or resumable transfer. A partial run may leave
+archive entries without a completed manifest; crash durability is not established.
+The requested resumable rsync transport remains outstanding. Completed file and
+directory round trips across two real devices are covered by
+`tests/scitex_storage/_transfer/test__reclaim_cross_filesystem.py`; those tests do
+not establish interruption recovery or crash safety.
 
 ```bash
 # Apply a YAML move plan to a whole tree (reorganize a folder). The plan is

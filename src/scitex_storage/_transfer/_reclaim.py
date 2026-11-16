@@ -24,15 +24,17 @@ DESTINATION IS A PARAMETER, and it is the one real decision here:
 * DEFAULT — an adjacent ``.old/<timestamp>/`` beside each source (the
   constitution's "archive superseded files to ``.old/<timestamp>/`` instead
   of deleting"). Same filesystem, so the move is an atomic ``os.rename``:
-  instant regardless of size, and it cannot half-complete. This serves the
+  instant regardless of size; a successful rename publishes the new name atomically. This serves the
   *migration/reorg* use — move the ambiguous mass aside, test the new shape
   on a clean slate — but note it does NOT reduce the source filesystem's
   inode or space usage: the files are still there, just relocated.
 * OVERRIDE (``archive_root``) — any directory, including one on a DIFFERENT
   filesystem with headroom. That IS inode/space relief (the files leave the
   full filesystem), at the cost of atomicity: a cross-filesystem move is a
-  copy-then-delete (``shutil.move``), which can be interrupted, so it is
-  verified before the source is removed.
+  copy-then-delete (``shutil.move``). It is not resumable and performs no
+  independent checksum read-back before removing the copied source. The
+  requested resumable rsync transport remains outstanding; this path must
+  not be described as verified or crash-durable.
 
 So one mechanism serves both jobs; WHERE you point it decides which. The
 verb never guesses the destination — the caller states it, because "free
@@ -43,7 +45,9 @@ NOT in scope here, deliberately: the *classifier* (which paths are
 disposable) is a separate, advisory concern — this module moves exactly the
 paths it is handed, nothing inferred. And DELETE is a separate, later verb
 against things that have already sat archived and unmissed; this module only
-ever moves, never unlinks user data. The archive is the safety buffer
+ever relocates user data, rather than providing archive deletion. A
+cross-filesystem move does unlink successfully copied source entries. The
+archive is the safety buffer
 between "moved aside" and "gone", and collapsing the two would remove the
 only thing that makes a rough decision safe.
 """
@@ -250,10 +254,11 @@ def _same_filesystem(a: Path, b: Path) -> bool:
 def _move_one(entry: ReclaimEntry) -> None:
     """Move a single source to its archive destination, reversibly.
 
-    Same filesystem -> atomic no-overwrite rename. Cross filesystem -> ``shutil.move``
-    (copy then delete), which is not atomic; the copy is left in place if it
-    fails partway (the source is only removed by shutil AFTER a successful
-    copy), so a crash never loses data, at worst duplicates it.
+    Same filesystem -> atomic no-overwrite rename. Cross filesystem uses
+    ``shutil.move`` (copy then delete), without resumability or independent
+    checksum read-back. A copy error can leave partial destination data;
+    interruption of a directory's later removal can leave a partial source.
+    No crash-durability guarantee is established by this implementation.
     """
     src = Path(entry.original)
     dst = Path(entry.archived)
@@ -269,10 +274,9 @@ def _move_one(entry: ReclaimEntry) -> None:
     # the destination could hold what it was about to copy. `sweep` learned
     # this (card sweep-writes-tar-to-source-filesystem-20260722): a verb
     # that relieves a constrained resource must measure the resource it
-    # depends on. shutil.move copies THEN deletes, so a destination that
-    # fills mid-copy loses nothing -- but it leaves a partial copy on a
-    # filesystem that is now also full, which is a bad place to discover
-    # the problem.
+    # depends on. shutil.move normally removes the source only after its
+    # copy call returns. A full destination can leave a partial copy; this
+    # capacity check is not independent content or crash verification.
     needed = _tree_size(src)
     verdict = check_space(needed, free_bytes(dst.parent))
     if verdict.ok is False:
@@ -281,10 +285,9 @@ def _move_one(entry: ReclaimEntry) -> None:
             f"Source untouched. Point --archive-root at a filesystem with "
             f"room, or free space on this one."
         )
-    # ok is None (destination unstat-able) proceeds: shutil.move is
-    # copy-then-delete, so the failure mode is a partial copy rather than
-    # data loss, and refusing a move because df was unreadable would block
-    # the relief this verb exists to provide.
+    # ok is None (destination unstat-able) preserves the existing attempt
+    # policy. Unknown capacity is not evidence of sufficient space or of a
+    # verified/durable copy.
     shutil.move(str(src), str(dst))
 
 

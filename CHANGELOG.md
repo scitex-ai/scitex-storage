@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Correct reclaim documentation/help to distinguish completed copy/restore
+  from independent verification, resumability and crash durability; add real
+  separate-filesystem file/directory round-trip coverage.
+
 - Render the Usage parent without duplicating the folder scan performed by
   its separately loaded sunburst; show deferred details instead of a premature
   zero-byte total. Preserve chart scope checks and existing scan deadlines.

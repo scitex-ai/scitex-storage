@@ -49,17 +49,18 @@ def _run_id(now: float) -> str:
         description=(
             "Relocates each PATH into an archive directory and records where "
             "it came from, so the move can be undone with `reclaim-restore`. "
-            "This makes a disposal decision safe to be ROUGH -- a wrong call "
-            "costs a move back, not lost data -- which is what lets a "
-            "cleanup ship before its classifier is perfect. By default the "
+            "Completed runs can be restored using their recorded paths. "
+            "By default the "
             "archive is an adjacent `.old/<timestamp>/` beside each source "
             "(same filesystem, so the move is an instant atomic rename); this "
             "tidies a tree but does NOT free the source filesystem's inodes "
             "or space -- the files are merely relocated. Pass --archive-root "
             "pointing at a DIFFERENT filesystem to actually reclaim "
             "inodes/space (the files leave the full filesystem; the move is "
-            "then a verified copy, not atomic). Deleting archived data is a "
-            "separate, later step -- this verb never unlinks anything. "
+            "then copy-and-delete, not atomic). That cross-filesystem copy is "
+            "not independently checksum-verified or resumable; rsync support "
+            "remains outstanding. Successfully copied source entries are removed. "
+            "Deleting the archived copy is a separate, later step. "
             "Defaults to a dry-run."
         ),
         examples=(
