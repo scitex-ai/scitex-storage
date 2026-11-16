@@ -198,6 +198,18 @@ def _rsync_binary() -> str:
     raise MissingSystemDependencyError(_RSYNC_INSTALL_HINT)
 
 
+def _validate_remote_path(path: str) -> str:
+    """Require an explicit remote root shared by transport and verification."""
+    if path.strip() in _UNSAFE_REMOTE_PATHS:
+        raise ValueError(f"refusing an unsafe remote path: {path!r}")
+    if not path.startswith(("/", "~/")):
+        raise ValueError(
+            f"use an absolute remote path or ~/path, not {path!r}; "
+            "relative paths can resolve differently during transfer and verification"
+        )
+    return path
+
+
 def _quote_remote_path(path: str) -> str:
     """shlex.quote ``path`` for a remote shell without breaking a leading
     ``~`` home-dir shortcut.
