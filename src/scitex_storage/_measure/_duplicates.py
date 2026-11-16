@@ -37,8 +37,9 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ._scan import MissingSystemDependencyError
 from ._duplicate_identity import _file_key, _regular_copies, reclaimable_bytes
+from ._duplicate_protocol import _reported_groups
+from ._scan import MissingSystemDependencyError
 
 if TYPE_CHECKING:
     from ._classify import Signal
@@ -137,9 +138,9 @@ def find_duplicates(
 
     payload = json.loads(proc.stdout.decode("utf-8"))
     groups: list[list[Path]] = []
-    for group in payload.get("groups", []):
+    for files in _reported_groups(payload):
         try:
-            copies, _ = _regular_copies(group.get("files", []))
+            copies, _ = _regular_copies(files)
         except OSError as exc:
             raise RuntimeError(
                 "A duplicate file changed or could not be inspected; run the scan again"
