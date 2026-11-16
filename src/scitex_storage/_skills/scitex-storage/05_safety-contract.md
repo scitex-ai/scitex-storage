@@ -21,6 +21,12 @@ tags: [scitex-storage-safety-contract]
    baseline before retirement. Manifests record `verification_method=content`
    and the canonical content digest. Copy-only mode may retain the cheaper
    tally verification; that does not authorize removing the original.
+   Every baseline (count/size tally and content digest) measures the SAME
+   population the transport sends: `--exclude` patterns apply to it with
+   rsync semantics (basename at any depth; `/`-anchored at the root). The
+   remote count is BusyBox-portable (`find -print0 | tr -dc '\000' | wc -c`;
+   QNAP has no GNU `find -printf`), so an unsupported primitive cannot read
+   as "0 entries".
 4. `checksum` defaults on (rsync `--checksum` reads every byte in flight);
    destination free-space preflight before a byte moves.
 5. Manifests live at `~/.scitex/scitex-storage/runtime/archive-manifests`

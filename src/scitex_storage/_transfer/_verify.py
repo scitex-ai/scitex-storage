@@ -236,13 +236,57 @@ def verify_transfer(
 #: Count every non-directory entry -- regular files, symlinks (including
 #: symlinks to directories, which rsync -a writes as symlinks), devices.
 #: `-type f` is the wrong baseline and cost a false alarm on 2026-07-23.
+#:
+#: PORTABLE on purpose. QNAP NASes ship BusyBox 1.24 ``find``, which has no
+#: ``-printf``; with ``2>/dev/null`` the old ``-printf x | wc -c`` form printed
+#: NOTHING and was read as "0 entries", a false MISMATCH on a complete copy
+#: (measured 2026-11-16 on scitex-nas-01/02). ``-print0 | tr -dc '\\000' | wc -c``
+#: counts one NUL per entry on GNU and BusyBox alike and is safe for any
+#: filename, newlines included.
 REMOTE_TALLY_CMD = (
-    "find {path} ! -type d -printf x 2>/dev/null | wc -c; "
+    "find {path} ! -type d -print0 2>/dev/null | tr -dc '\\000' | wc -c; "
     "du -sb {path} 2>/dev/null | cut -f1"
 )
 
 
-def local_tally(path: str) -> RemoteTally:
+def is_excluded(rel: str, patterns: tuple[str, ...]) -> bool:
+    """True when ``rel`` (a path relative to the transfer root) matches an
+    rsync-style ``--exclude`` pattern, so a baseline measures exactly the
+    population the transport sends.
+
+    A pattern without ``/`` matches any single path component (rsync's
+    basename rule: ``.venv`` excludes ``.venv`` at any depth). A pattern with
+    ``/`` matches the relative path, anchored at the root when it starts with
+    ``/``. A trailing ``/`` (directory-only in rsync) is accepted and
+    stripped. Without this, ``backup --exclude .worktrees`` counted the
+    excluded trees in the baseline (104,258 entries vs about 11k sent), and
+    verification could never pass (measured 2026-11-16).
+    """
+    import fnmatch
+
+    if not patterns:
+        return False
+    parts = rel.replace("\\", "/").split("/")
+    for raw in patterns:
+        pat = raw.rstrip("/")
+        if not pat:
+            continue
+        if "/" not in pat:
+            if any(fnmatch.fnmatchcase(part, pat) for part in parts):
+                return True
+        else:
+            anchored = pat.startswith("/")
+            pat = pat.lstrip("/")
+            if fnmatch.fnmatchcase(rel, pat) or fnmatch.fnmatchcase(rel, pat + "/*"):
+                return True
+            if not anchored and any(
+                fnmatch.fnmatchcase("/".join(parts[i:]), pat) for i in range(1, len(parts))
+            ):
+                return True
+    return False
+
+
+def local_tally(path: str, *, exclude: tuple[str, ...] = ()) -> RemoteTally:
     """Tally the SOURCE with exactly the semantics :data:`REMOTE_TALLY_CMD` uses.
 
     This exists so both sides of the comparison are measured the same way.
@@ -287,6 +331,8 @@ def local_tally(path: str) -> RemoteTally:
         ):
             for name in filenames:
                 full = os.path.join(root, name)
+                if exclude and is_excluded(os.path.relpath(full, path), exclude):
+                    continue
                 entries += 1
                 total += os.lstat(full).st_size
             # A symlink pointing at a directory lands in dirnames, not
@@ -294,6 +340,8 @@ def local_tally(path: str) -> RemoteTally:
             keep: list[str] = []
             for name in dirnames:
                 full = os.path.join(root, name)
+                if exclude and is_excluded(os.path.relpath(full, path), exclude):
+                    continue  # excluded trees are never sent, so never counted
                 if os.path.islink(full):
                     entries += 1
                     total += os.lstat(full).st_size

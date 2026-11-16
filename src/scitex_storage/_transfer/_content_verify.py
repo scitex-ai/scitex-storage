@@ -115,6 +115,8 @@ class DigestCancelled(RuntimeError):
     """The caller cancelled a cooperative content-hash operation."""
 
 
+from ._verify import is_excluded
+
 def digest_file(path: str, *, cancelled=None) -> str:
     """sha256 of a single entry, hex.
 
@@ -142,7 +144,7 @@ def digest_file(path: str, *, cancelled=None) -> str:
     return h.hexdigest()
 
 
-def digest_tree(root: str, *, cancelled=None) -> ContentManifest:
+def digest_tree(root: str, *, cancelled=None, exclude: tuple[str, ...] = ()) -> ContentManifest:
     """Hash every non-directory entry under ``root``.
 
     The population is deliberately IDENTICAL to
@@ -179,10 +181,15 @@ def digest_tree(root: str, *, cancelled=None) -> ContentManifest:
             root, followlinks=False, onerror=walk_failed
         ):
             for name in filenames:
-                record(os.path.join(dirpath, name))
+                full = os.path.join(dirpath, name)
+                if exclude and is_excluded(os.path.relpath(full, root), exclude):
+                    continue
+                record(full)
             keep: list[str] = []
             for name in dirnames:
                 full = os.path.join(dirpath, name)
+                if exclude and is_excluded(os.path.relpath(full, root), exclude):
+                    continue  # same population as local_tally and the transport
                 if os.path.islink(full):
                     record(full)
                 else:

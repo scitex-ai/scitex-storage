@@ -298,7 +298,7 @@ def apply_archive(
     # A move always uses an independent content baseline, even when an older
     # caller explicitly passes the former opt-in flag as False.
     baseline = (
-        digest_tree(str(plan.source)) if remove_source or verify_content_too else None
+        digest_tree(str(plan.source), exclude=exclude) if remove_source or verify_content_too else None
     )
     if baseline is not None and (not baseline.usable or baseline.unreadable):
         refusal = ArchiveManifest(
@@ -390,7 +390,7 @@ def apply_archive(
     # symlinks-to-directories, while `rsync -a` writes them. Comparing
     # against it would fail a perfectly good archive -- the 2026-07-23
     # to_nas false alarm exactly.
-    expected = local_tally(str(plan.source))
+    expected = local_tally(str(plan.source), exclude=exclude)
     probe = exec_remote(
         plan.destination,
         REMOTE_TALLY_CMD.format(path=_quote_remote_path(plan.remote_path)),
@@ -436,7 +436,7 @@ def apply_archive(
         # The source was hashed anyway: keep its canonical digest as the
         # scrub baseline at zero marginal cost.
         content_digest = tree_digest(source_manifest)
-        unchanged = verify_content(source_manifest, digest_tree(str(plan.source)))
+        unchanged = verify_content(source_manifest, digest_tree(str(plan.source), exclude=exclude))
         if not unchanged.may_remove_source:
             verdict = unchanged
 
@@ -493,7 +493,7 @@ def apply_archive(
         )
 
     if remove_source:
-        current = digest_tree(str(plan.source))
+        current = digest_tree(str(plan.source), exclude=exclude)
         identity = plan.source.stat().st_dev, plan.source.stat().st_ino
         if (
             identity != source_identity
