@@ -46,11 +46,11 @@ jobs:
     uses: scitex-ai/.github/.github/workflows/rtd-sphinx-build.yml@8c646081e9f1352077d3d8674052cce7ec75a1b7
     secrets: inherit
 
-  # Keep the real integration suite on the admitted org runner workflow.
-  # The pinned callee preserves fd/fclones installation and full pytest,
-  # with membership/fork admission before native checkout.
-  # Qualified 2026-11-08 maintenance: bounded APT waits, job-owned downloads,
-  # isolated dev profile and required matching Chromium headless shell.
-  # The original repository-specific admission gate remains intact.
+  # Use the shared actor/fork admission already used by the matrix jobs.
+  # This immutable revision binds admission and the native body together:
+  # pre-approved numeric actor IDs select the restricted Organization pool;
+  # untrusted contexts remain hosted and native backstops precede checkout.
+  # fd/fclones, bounded APT bootstrap, matching Chromium, and full pytest
+  # commands are unchanged from the previously qualified integration body.
   fd-fclones-integration:
-    uses: scitex-ai/.github/.github/workflows/fd-fclones-integration.yml@8e57b1ddc49e22d5f8ad2344aba7764fff70b9fd
+    uses: scitex-ai/.github/.github/workflows/fd-fclones-integration.yml@9fe54476f605d598fe25b353ba7b05570290c3c9
