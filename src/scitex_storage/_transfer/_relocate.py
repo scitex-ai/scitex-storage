@@ -193,12 +193,24 @@ class _VTree:
         self.dirs -= moved
         self.dirs |= {dst + k[len(src) :] for k in moved}
         self._mkparents(dst)
+        self.prune_up(src)
+
+    def prune_up(self, path: str) -> None:
+        """Drop ancestors of ``path`` left empty, exactly as apply's
+        ``_prune_empty_parents`` removes them on disk. Without this, the
+        simulation kept a folder the apply had already deleted, and a later
+        step tried to move a path that no longer existed (2026-11-16)."""
+        parent = path.rsplit("/", 1)[0] if "/" in path else ""
+        while parent and parent in self.dirs and not self.children(parent):
+            self.dirs.discard(parent)
+            parent = parent.rsplit("/", 1)[0] if "/" in parent else ""
 
     def remove(self, p: str) -> None:
         pre = p + "/"
         for k in [k for k in self.files if k == p or k.startswith(pre)]:
             del self.files[k]
         self.dirs = {k for k in self.dirs if not (k == p or k.startswith(pre))}
+        self.prune_up(p)
 
     def _mkparents(self, p: str) -> None:
         parts = p.split("/")[:-1]
