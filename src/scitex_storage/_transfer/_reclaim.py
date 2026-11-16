@@ -56,7 +56,6 @@ import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from ._durable import rename_noreplace
 from ._sweep import InsufficientSpaceError, check_space, free_bytes
 
 #: Where reclaim manifests live. Resolved per-call (not a module constant) so
@@ -260,6 +259,8 @@ def _move_one(entry: ReclaimEntry) -> None:
     dst = Path(entry.archived)
     dst.parent.mkdir(parents=True, exist_ok=True)
     if _same_filesystem(src, dst.parent):
+        from ._durable import rename_noreplace
+
         rename_noreplace(src, dst)
         return
 
