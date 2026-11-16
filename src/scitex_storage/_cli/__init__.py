@@ -63,7 +63,9 @@ _GROUP_KWARGS = spec_group_kwargs(
             "--archive-root on another filesystem to free inodes) instead of "
             "deleting it, so a rough cleanup call costs only a "
             "`reclaim-restore`; the fraction of runs restored is reported as "
-            "the honest accuracy metric. `fleet-status` renders a "
+            "the honest accuracy metric. `relocate` applies a YAML move plan "
+            "(simulated in order, merge-safe, conflict-refusing, reversible via "
+            "`relocate-restore`). `fleet-status` renders a "
             "self-contained HTML dashboard of every host's space% and inode% "
             "grouped by role/tier, carrying the same three-state verdicts "
             "(measured / not-applicable / could-not-look) so a filesystem it "
@@ -96,6 +98,8 @@ _GROUP_KWARGS = spec_group_kwargs(
                     "restore",
                     "reclaim",
                     "reclaim-restore",
+                    "relocate",
+                    "relocate-restore",
                     "fleet-status",
                 ),
             ),

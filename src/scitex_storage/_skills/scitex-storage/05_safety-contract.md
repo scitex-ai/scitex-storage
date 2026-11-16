@@ -96,3 +96,14 @@ a backup. Its deletion additionally requires `allow_manual_delete=True` or
 `--allow-manual-quarantine`; ordinary `--yes` and TTL alone are insufficient.
 Older records without this policy/copy proof remain deferred for explicit
 investigation, even when the manual opt-in is supplied.
+
+9. Relocate (`relocate PLAN.yaml --root DIR`) is all-or-nothing. The plan is
+   simulated in order on a virtual index before any mutation. Any CONFLICT
+   (different content at a destination, or a file where a folder is needed)
+   refuses the whole plan, and nothing changes. Identical-content files dedupe.
+   Junk, drops and duplicates are moved under `<archive-root>/<run-id>/` with
+   their relative paths, never unlinked. Every operation is recorded in order at
+   `~/.scitex/scitex-storage/runtime/relocate-manifests/<run-id>.json`, and the
+   manifest is written even when a run fails partway. `relocate-restore` replays
+   it backwards and refuses to overwrite. Links are relative directory symlinks
+   only; file and absolute links are refused.
