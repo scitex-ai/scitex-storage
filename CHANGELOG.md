@@ -7,6 +7,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Refuse ambiguous relative remote archive/backup paths before transport or
+  verification; require an explicit absolute path or `~/path`.
+
 - Render the Usage parent without duplicating the folder scan performed by
   its separately loaded sunburst; show deferred details instead of a premature
   zero-byte total. Preserve chart scope checks and existing scan deadlines.

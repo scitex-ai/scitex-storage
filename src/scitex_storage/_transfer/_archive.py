@@ -84,6 +84,7 @@ from ._archive_transport import (
     _manifest_dir,
     _manifest_path,
     _quote_remote_path,
+    _validate_remote_path,
     _rsync_binary,
     manifest_sidecar_remote_path,
     resolve_destination,
@@ -137,7 +138,8 @@ def plan_archive(
 
     Read-only: measures ``source`` with the same walk as ``scan``;
     never touches the network. Fail-loud on a missing / non-directory
-    ``source`` or an unrecognised ``destination``.
+    ``source``, unrecognised ``destination``, or ambiguous relative remote path.
+    Remote paths must start with / or ~/ so transfer and probes share a root.
 
     Deliberately does NOT require ``rsync``: planning is genuinely
     transport-free, and the ``runner`` seam on :func:`apply_archive` means a
@@ -163,10 +165,8 @@ def plan_archive(
         raise NotADirectoryError(f"not a directory: {source}")
     source = source.resolve()
 
+    remote = _validate_remote_path(remote_path or _default_remote_path(source))
     size, file_count, _newest_mtime, _err = _measure_dir(source)
-    remote = remote_path or _default_remote_path(source)
-    if remote.strip() in _UNSAFE_REMOTE_PATHS:
-        raise ValueError(f"refusing an unsafe remote path: {remote!r}")
 
     return ArchivePlan(
         source=source,
@@ -295,6 +295,7 @@ def apply_archive(
     demanding a binary it will never invoke would make the seam
     environment-dependent and fail honest callers for no reason.
     """
+    _validate_remote_path(plan.remote_path)
     # A move always uses an independent content baseline, even when an older
     # caller explicitly passes the former opt-in flag as False.
     baseline = (

@@ -26,7 +26,7 @@ from .._transfer._archive_transport import (
     probe_transport,
     resolve_destination,
 )
-from ._archive_cmd import _require_rsync
+from ._archive_cmd import _remote_path_option, _require_rsync
 from .._report import archive_plan_to_json_dict, format_archive_report
 from ._compat import spec_command_kwargs
 
@@ -62,7 +62,8 @@ from ._compat import spec_command_kwargs
 @click.option(
     "--remote-path",
     default=None,
-    help="Remote path on the destination. Default: mirror SOURCE's "
+    callback=_remote_path_option,
+    help="Remote path starting with / or ~/. Default: mirror SOURCE's "
     "absolute path under ~/scitex-storage-archive.",
 )
 @click.option(
