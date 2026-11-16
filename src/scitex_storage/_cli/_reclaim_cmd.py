@@ -211,7 +211,7 @@ def _emit_status(as_json: bool) -> None:
 def reclaim_restore_cmd(run_id: str, as_json: bool) -> None:
     try:
         manifest = restore_reclaim(run_id)
-    except (FileNotFoundError, FileExistsError) as exc:
+    except (FileNotFoundError, FileExistsError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     if as_json:
         click.echo(

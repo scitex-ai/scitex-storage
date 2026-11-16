@@ -7,6 +7,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Refuse reclaim run IDs that escape archive/manifest roots, including legacy
+  caller-created plans; refuse restore when a manifest records another run ID.
+
 - Correct reclaim documentation/help to distinguish completed copy/restore
   from independent verification, resumability and crash durability; add real
   separate-filesystem file/directory round-trip coverage.

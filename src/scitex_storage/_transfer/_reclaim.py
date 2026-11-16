@@ -70,6 +70,17 @@ _MANIFEST_SUBDIR = "~/.scitex/scitex-storage/runtime/reclaim-manifests"
 _ADJACENT_ARCHIVE_DIRNAME = ".old"
 
 
+def _validate_run_id(run_id: str) -> None:
+    """Keep a caller-supplied run identifier inside its archive/manifest root."""
+    if (
+        not isinstance(run_id, str)
+        or not run_id
+        or run_id in {".", ".."}
+        or any(character in run_id for character in ("/", "\\", "\x00"))
+    ):
+        raise ValueError("run_id must be one non-empty filename component, not . or ..")
+
+
 def _manifest_dir() -> Path:
     return Path(_MANIFEST_SUBDIR).expanduser()
 
@@ -118,6 +129,7 @@ class ReclaimManifest:
 
     @classmethod
     def from_dict(cls, data: dict) -> ReclaimManifest:
+        _validate_run_id(data["run_id"])
         entries = [ReclaimEntry(**e) for e in data.get("entries", [])]
         return cls(
             run_id=data["run_id"],
@@ -168,6 +180,7 @@ def _archive_destination(source: Path, run_id: str, archive_root: str | None) ->
     The ``run_id`` layer groups one invocation's moves and prevents two
     sources with the same basename from colliding across runs.
     """
+    _validate_run_id(run_id)
     if archive_root is None:
         base = source.parent / _ADJACENT_ARCHIVE_DIRNAME / run_id
     else:
@@ -200,8 +213,10 @@ def plan_reclaim(
     nothing. Fail-loud on a missing source or a source that is itself the
     archive area — a bad path is never silently skipped. ``run_id`` is
     supplied by the caller (a timestamp, typically) so the value is explicit
-    and testable rather than wall-clock-dependent inside here.
+    and testable rather than wall-clock-dependent inside here. It must be
+    a single non-empty filename component, without path separators.
     """
+    _validate_run_id(run_id)
     plan = ReclaimPlan(run_id=run_id, archive_root=archive_root)
     for raw in paths:
         source = Path(raw).expanduser()
@@ -324,6 +339,7 @@ def apply_reclaim(plan: ReclaimPlan) -> ReclaimManifest:
     partial run, so a partial run is visible as "files in .old with no
     manifest" rather than silently half-recorded.
     """
+    _validate_run_id(plan.run_id)
     _validate_destinations(plan.entries)
     for entry in plan.entries:
         _move_one(entry)
@@ -344,6 +360,7 @@ def _now() -> float:
 
 
 def _manifest_path(run_id: str) -> Path:
+    _validate_run_id(run_id)
     return _manifest_dir() / f"{run_id}.json"
 
 
@@ -361,7 +378,10 @@ def load_manifest(run_id: str) -> ReclaimManifest:
             f"no reclaim manifest for run {run_id!r} at {path} "
             "-- was anything reclaimed under this run id?"
         )
-    return ReclaimManifest.from_dict(json.loads(path.read_text()))
+    manifest = ReclaimManifest.from_dict(json.loads(path.read_text()))
+    if manifest.run_id != run_id:
+        raise ValueError("reclaim manifest run_id does not match the requested run_id")
+    return manifest
 
 
 def list_manifests() -> list[ReclaimManifest]:

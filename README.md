@@ -150,6 +150,9 @@ The requested resumable rsync transport remains outstanding. Completed file and
 directory round trips across two real devices are covered by
 `tests/scitex_storage/_transfer/test__reclaim_cross_filesystem.py`; those tests do
 not establish interruption recovery or crash safety.
+Reclaim run IDs must be single non-empty filename components; path separators,
+`.` and `..` are refused before moves or manifest access. A manifest's recorded
+run ID must match the requested run before restoration.
 
 ```bash
 # Apply a YAML move plan to a whole tree (reorganize a folder). The plan is
