@@ -260,6 +260,8 @@ def is_excluded(rel: str, patterns: tuple[str, ...], *, is_dir: bool = False) ->
     """
     import fnmatch
 
+    if not patterns:
+        return False
     relative = rel.replace("\\", "/")
     parts = relative.split("/")
     for raw in patterns:
