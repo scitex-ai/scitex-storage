@@ -203,7 +203,24 @@ def test_cli_find_duplicates_sizes_only_json_reports_bytes_at_stake(
 
 
 @pytest.mark.parametrize("as_json", [False, True])
-@pytest.mark.parametrize("failure", ["exit", "vanished", "malformed"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "exit",
+        "vanished",
+        "malformed",
+        "missing-groups",
+        "root-array",
+        "groups-null",
+        "groups-object",
+        "row-null",
+        "missing-files",
+        "files-string",
+        "nonpath",
+        "empty-path",
+        "nul-path",
+    ],
+)
 def test_duplicate_failure_is_readable_without_a_success_payload(
     tmp_path, failure, as_json
 ):
@@ -216,9 +233,31 @@ def test_duplicate_failure_is_readable_without_a_success_payload(
     binaries = tmp_path / "bin"
     binaries.mkdir()
     payload = json.dumps({"groups": [{"files": [str(left), str(right)]}]})
+    invalid_reports = {
+        "missing-groups": {"error": "owned scan failed"},
+        "root-array": [],
+        "groups-null": {"groups": None},
+        "groups-object": {"groups": {}},
+        "row-null": {"groups": [None]},
+        "missing-files": {"groups": [{}]},
+        "files-string": {"groups": [{"files": str(left)}]},
+        "nonpath": {"groups": [{"files": [None, str(left)]}]},
+        "empty-path": {"groups": [{"files": ["", str(left)]}]},
+        "nul-path": {"groups": [{"files": ["\0", str(left)]}]},
+    }
     bodies = {
-        "exit": "import sys\nprint('owned engine read failure', file=sys.stderr)\nsys.exit(3)\n",
-        "vanished": f"from pathlib import Path\nPath({str(right)!r}).unlink()\nprint({payload!r})\n",
+        **{
+            name: f"print({json.dumps(report)!r})\n"
+            for name, report in invalid_reports.items()
+        },
+        "exit": (
+            "import sys\nprint('owned engine read failure', file=sys.stderr)\n"
+            "sys.exit(3)\n"
+        ),
+        "vanished": (
+            f"from pathlib import Path\nPath({str(right)!r}).unlink()\n"
+            f"print({payload!r})\n"
+        ),
         "malformed": "print('invalid engine JSON')\n",
     }
     executable = binaries / "fclones"
@@ -236,6 +275,7 @@ def test_duplicate_failure_is_readable_without_a_success_payload(
     )
     # Assert: failure stays nonzero, no clean/partial JSON answer is emitted.
     expected = {
+        **dict.fromkeys(invalid_reports, "Invalid fclones JSON report"),
         "exit": "`fclones group` exited 3: owned engine read failure",
         "vanished": "A duplicate file changed or could not be inspected",
         "malformed": "Expecting value",

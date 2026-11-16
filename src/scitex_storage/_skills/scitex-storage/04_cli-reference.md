@@ -32,7 +32,8 @@ load lazily — help never fails because an unrelated verb's dep is skewed.
 `find-duplicates` reads file contents through `fclones`; `--sizes-only` is
 the stat-only candidate prepass, not proof of equal content. Exact groups
 exclude final symlinks and repeated regular-file inodes. Engine errors,
-invalid engine JSON and files disappearing before identity inspection fail
+invalid engine JSON (including missing/malformed group or path arrays), and
+files disappearing before identity inspection fail
 with exit 1 and a readable stderr error, including with `--json`; stdout
 does not contain a successful or partial duplicate result. A vanished-file
 count with partial results is not implemented yet. Controls:
