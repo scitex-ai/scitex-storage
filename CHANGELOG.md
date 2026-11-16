@@ -7,6 +7,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Preserve files and symlinks named by a directory-only backup exclude;
+  count and content baselines now distinguish real directories as rsync does.
+
 - Clear the previous sunburst tooltip when navigating between hierarchy levels.
 - Capture the verified root after native navigation in browser regression tests,
   retaining the required screenshot and all boundary assertions.

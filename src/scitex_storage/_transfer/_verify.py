@@ -249,40 +249,45 @@ REMOTE_TALLY_CMD = (
 )
 
 
-def is_excluded(rel: str, patterns: tuple[str, ...]) -> bool:
-    """True when ``rel`` (a path relative to the transfer root) matches an
-    rsync-style ``--exclude`` pattern, so a baseline measures exactly the
-    population the transport sends.
+def is_excluded(rel: str, patterns: tuple[str, ...], *, is_dir: bool = False) -> bool:
+    """Match a transfer-relative entry against rsync-style excludes.
 
-    A pattern without ``/`` matches any single path component (rsync's
-    basename rule: ``.venv`` excludes ``.venv`` at any depth). A pattern with
-    ``/`` matches the relative path, anchored at the root when it starts with
-    ``/``. A trailing ``/`` (directory-only in rsync) is accepted and
-    stripped. Without this, ``backup --exclude .worktrees`` counted the
-    excluded trees in the baseline (104,258 entries vs about 11k sent), and
-    verification could never pass (measured 2026-11-16).
+    A trailing slash matches real directories and their descendants, never
+    a same-named file or symlink. Callers inspecting an actual directory
+    pass ``is_dir=True``; path prefixes already identify ancestor directories.
+    Basename, root-anchored and relative path matching remain shared by the
+    count and independent content verification baselines.
     """
     import fnmatch
 
-    if not patterns:
-        return False
-    parts = rel.replace("\\", "/").split("/")
+    relative = rel.replace("\\", "/")
+    parts = relative.split("/")
     for raw in patterns:
         pat = raw.rstrip("/")
         if not pat:
             continue
-        if "/" not in pat:
-            if any(fnmatch.fnmatchcase(part, pat) for part in parts):
-                return True
-        else:
-            anchored = pat.startswith("/")
-            pat = pat.lstrip("/")
-            if fnmatch.fnmatchcase(rel, pat) or fnmatch.fnmatchcase(rel, pat + "/*"):
-                return True
-            if not anchored and any(
-                fnmatch.fnmatchcase("/".join(parts[i:]), pat) for i in range(1, len(parts))
-            ):
-                return True
+        candidates = [relative]
+        if raw.endswith("/"):
+            candidates = [
+                "/".join(parts[:count]) for count in range(1, len(parts) + int(is_dir))
+            ]
+        for candidate in candidates:
+            components = candidate.split("/")
+            if "/" not in pat:
+                if any(fnmatch.fnmatchcase(part, pat) for part in components):
+                    return True
+            else:
+                anchored = pat.startswith("/")
+                pattern = pat.lstrip("/")
+                if fnmatch.fnmatchcase(candidate, pattern) or fnmatch.fnmatchcase(
+                    candidate, pattern + "/*"
+                ):
+                    return True
+                if not anchored and any(
+                    fnmatch.fnmatchcase("/".join(components[i:]), pattern)
+                    for i in range(1, len(components))
+                ):
+                    return True
     return False
 
 
@@ -340,7 +345,11 @@ def local_tally(path: str, *, exclude: tuple[str, ...] = ()) -> RemoteTally:
             keep: list[str] = []
             for name in dirnames:
                 full = os.path.join(root, name)
-                if exclude and is_excluded(os.path.relpath(full, path), exclude):
+                if exclude and is_excluded(
+                    os.path.relpath(full, path),
+                    exclude,
+                    is_dir=not os.path.islink(full),
+                ):
                     continue  # excluded trees are never sent, so never counted
                 if os.path.islink(full):
                     entries += 1
@@ -379,7 +388,10 @@ def parse_remote_tally(stdout: str) -> RemoteTally:
         size = int(lines[1])
     except ValueError:
         size = None
-    detail = "" if count is not None and size is not None else f"unparseable: {stdout!r}"
+    detail = (
+        "" if count is not None and size is not None else f"unparseable: {stdout!r}"
+    )
     return RemoteTally(entry_count=count, size_bytes=size, detail=detail)
+
 
 # EOF
