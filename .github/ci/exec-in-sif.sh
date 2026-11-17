@@ -79,6 +79,27 @@ fi
     exit 1
 }
 
+# Qualified nonsecret pins are provided by the existing Infra release profile.
+# Check real complete image/runtime entrypoint bytes before executing either.
+verify_release_pin() {
+    local release_path="$1" release_expected="$2" release_label="$3"
+    local release_hash_line
+    [[ "$release_expected" =~ ^[0-9a-f]{64}$ ]] || {
+        echo "::error::$release_label requires a qualified lowercase SHA256 pin"
+        exit 1
+    }
+    if ! release_hash_line="$(timeout 120 sha256sum -- "$release_path")"; then
+        echo "::error::bounded $release_label byte verification failed"
+        exit 1
+    fi
+    [ "${release_hash_line%% *}" = "$release_expected" ] || {
+        echo "::error::$release_label bytes differ from the qualified release pin"
+        exit 1
+    }
+}
+verify_release_pin "$SIF" "${SCITEX_CI_SIF_SHA256:?qualified SIF SHA256 required}" "CI SIF"
+verify_release_pin "$APPTAINER" "${SCITEX_CI_APPTAINER_SHA256:?qualified apptainer SHA256 required}" "Apptainer entrypoint"
+
 # Apptainer scratch. On Spartan the GPFS project scratch (shared FS) keeps HOME
 # clean; everywhere else that path does not exist, and `mkdir -p` under it would
 # be a hard failure, so fall back to host-local scratch under $HOME.

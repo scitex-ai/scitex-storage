@@ -34,6 +34,12 @@ export LC_ALL=C.UTF-8 LANG=C.UTF-8
 # + ephemeral and per-version-isolated so concurrent matrix legs don't collide.
 export TMPDIR="/tmp/ci-scitex_storage-${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-0}-$V"
 rm -rf "$TMPDIR"
+# Remove the scratch on every exit (pass, fail, INT/TERM). Container /tmp is the
+# HOST /tmp here (no /tmp rebind), so a leaked dir (up to several GB with the
+# installed [all,dev] site + caches) persists on the runner host: 83 such dirs
+# filled scitex-compute-02's / to 100% (2026-11-17). The trap does not change
+# the script's exit status, so pytest's result still reaches the runner step.
+trap 'rm -rf --one-file-system -- "$TMPDIR"' EXIT
 mkdir -p "$TMPDIR/site" "$TMPDIR/uv-cache"
 
 # The HPC compute-node $HOME is READ-ONLY inside the container, so uv/pip cannot
@@ -65,6 +71,9 @@ uv pip install --python "$VENV/bin/python" --target="$TMPDIR/site" -e ".[all,dev
 
 export PYTHONPATH="$TMPDIR/site:$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 
+# --target installs console scripts under site/bin; e2e tests use that entry point.
+export PATH="$VENV/bin:$TMPDIR/site/bin:$PATH"
+
 # Parallelise with pytest-xdist if available (no-op fallback to plain -q if
 # pytest-xdist isn't in scitex-storage's [dev] extras). Worker count: use ALL
 # cores (each matrix leg runs on its own dedicated self-hosted node, no
@@ -82,9 +91,10 @@ else
 fi
 
 # nice -n 19 ionice -c 3: lowest CPU + idle I/O priority so CI yields to any
-# higher-priority process if the node is ever shared. exec replaces the shell so
-# signals/exit code propagate to the runner step.
-exec nice -n 19 ionice -c 3 \
+# higher-priority process if the node is ever shared. Not `exec`: the shell must
+# survive pytest so the EXIT trap above removes $TMPDIR; under `set -e` pytest's
+# exit code is still the script's exit code.
+nice -n 19 ionice -c 3 \
     python -m pytest tests/ "${XDIST_ARGS[@]}" -q \
     --cov=src/scitex_storage --cov-report=xml --cov-report=term \
     -p no:cacheprovider

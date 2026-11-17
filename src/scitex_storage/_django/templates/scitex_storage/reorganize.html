@@ -1,0 +1,228 @@
+{% extends "scitex_storage/organize.html" %}
+{% load i18n scitex_static %}
+{% block extra_css %}
+    {{ block.super }}
+    <link rel="stylesheet"
+          href="{% app_static 'scitex_storage/reorganize.css' %}">
+{% endblock %}
+{% block scitex_app_content %}
+    <div id="stx-storage-app"
+         class="stx-storage stx-layout-fill"
+         data-app-name="scitex_storage">
+        {% include "scitex_storage/_app_header.html" %}
+        <nav class="stx-content-tabs"
+             role="tablist"
+             aria-label="{% translate 'Storage sections' %}">
+            {% for t in tabs %}
+                <a class="stx-content-tabs__tab"
+                   role="tab"
+                   aria-selected="{% if t.active %}true{% else %}false{% endif %}"
+                   href="?tab={{ t.key }}{{ scope_qs }}">{{ t.label }}</a>
+            {% endfor %}
+        </nav>
+        {% if scope_notice %}
+            <div class="stx-storage-warn">
+                <p class="stx-storage-note stx-reorg-notice">{{ scope_notice }}</p>
+            </div>
+        {% endif %}
+        <section class="stx-storage-card">
+            <h2 class="stx-storage-machine">{% translate "Reorganize a folder" %}</h2>
+            <p class="stx-reorg-intro">
+                {% translate "Preview a move plan, then apply it. Nothing is deleted, and every run can be undone." %}
+            </p>
+            <form method="post"
+                  action="{% url 'scitex_storage:reorganize_action' %}"
+                  class="stx-reorg-form"
+                  aria-label="{% translate 'Reorganize plan' %}">
+                {% csrf_token %}
+                <input type="hidden" name="scope" value="{{ scope }}">
+                {% if pscope %}<input type="hidden" name="project" value="{{ pscope.project_id }}">{% endif %}
+                <div class="stx-form-row">
+                    <div class="stx-field">
+                        <label for="reorg-volume">{% translate "Location" %}</label>
+                        <select class="stx-select" id="reorg-volume" name="volume" required>
+                            <option value="">{% translate "Choose location" %}</option>
+                            {% for v in reorg_volumes %}
+                                <option value="{{ v.key }}"
+                                        {% if reorg_form.volume == v.key %}selected{% endif %}>{{ v.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="stx-field stx-field--grow">
+                        <label for="reorg-folder">{% translate "Folder within location" %}</label>
+                        <input class="stx-input"
+                               id="reorg-folder"
+                               name="folder"
+                               value="{{ reorg_form.folder }}"
+                               placeholder="proj/business"
+                               required
+                               autocomplete="off"
+                               autocapitalize="off"
+                               spellcheck="false">
+                    </div>
+                </div>
+                <div class="stx-field">
+                    <label for="reorg-plan">{% translate "Plan (YAML)" %}</label>
+                    <textarea class="stx-input stx-reorg-plan"
+                              id="reorg-plan"
+                              name="plan"
+                              rows="10"
+                              required
+                              spellcheck="false"
+                              autocapitalize="off"
+                              placeholder="moves:&#10;  - {from: kk/setup, to: company/01_incorporation}&#10;  - {from: kk, to: company}&#10;drop: [logs]">{{ reorg_form.plan }}</textarea>
+                </div>
+                <div class="stx-form-row">
+                    <button class="stx-button stx-button--primary"
+                            type="submit"
+                            name="action"
+                            value="preview">{% translate "Preview" %}</button>
+                </div>
+            </form>
+            {% if reorg_error %}<p class="stx-storage-warn" role="alert">{{ reorg_error }}</p>{% endif %}
+        </section>
+        {% if reorg_summary %}
+            <section class="stx-storage-card" aria-live="polite">
+                <h2 class="stx-storage-machine">
+                    {% if reorg_applied %}
+                        {% translate "Applied" %}
+                    {% else %}
+                        {% translate "Preview (not applied)" %}
+                    {% endif %}
+                </h2>
+                <p class="stx-storage-note">{{ reorg_folder_display }}</p>
+                <dl class="stx-reorg-counts">
+                    <div>
+                        <dt>{% translate "Moves" %}</dt>
+                        <dd>
+                            {{ reorg_summary.moves }}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>{% translate "Duplicates set aside" %}</dt>
+                        <dd>
+                            {{ reorg_summary.duplicates }}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>{% translate "Temporary files set aside" %}</dt>
+                        <dd>
+                            {{ reorg_summary.junk }}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>{% translate "Dropped (set aside)" %}</dt>
+                        <dd>
+                            {{ reorg_summary.drops }}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>{% translate "Folder links" %}</dt>
+                        <dd>
+                            {{ reorg_summary.links }}
+                        </dd>
+                    </div>
+                    <div class="{% if reorg_summary.conflicts %}stx-reorg-bad{% endif %}">
+                        <dt>{% translate "Conflicts" %}</dt>
+                        <dd>
+                            {{ reorg_summary.conflicts }}
+                        </dd>
+                    </div>
+                </dl>
+                {% if reorg_plan.conflicts %}
+                    <div class="stx-storage-warn" role="alert">
+                        <strong>{% translate "Refused: these files would be overwritten with different content. Nothing will change until they are resolved." %}</strong>
+                        <ul class="stx-dup-paths">
+                            {% for c in reorg_plan.conflicts %}
+                                <li>
+                                    <code>{{ c }}</code>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endif %}
+                <div class="stx-reorg-table-wrap"
+                     tabindex="0"
+                     aria-label="{% translate 'Planned operations' %}">
+                    <table class="stx-storage-table stx-reorg-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">{% translate "Action" %}</th>
+                                <th scope="col">{% translate "From" %}</th>
+                                <th scope="col">{% translate "To / reason" %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for op in reorg_rows %}
+                                <tr>
+                                    <td>
+                                        {% if op.kind == "move" %}
+                                            {% translate "Move" %}
+                                        {% elif op.kind == "link" %}
+                                            {% translate "Link" %}
+                                        {% else %}
+                                            {% translate "Set aside" %}
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <code>{{ op.src }}</code>
+                                    </td>
+                                    <td>
+                                        {% if op.kind == "archive" %}
+                                            {{ op.reason }}
+                                        {% else %}
+                                            <code>{{ op.dst }}</code>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if reorg_truncated %}
+                    <p class="stx-storage-note">
+                        {% blocktranslate with n=reorg_rows|length %}Showing the first {{ n }} operations; the counts above cover the whole plan.{% endblocktranslate %}
+                    </p>
+                {% endif %}
+                {% if reorg_applied %}
+                    <div class="stx-storage-ok">
+                        <strong>{% translate "Reorganization applied." %}</strong>
+                        <p>
+                            {% translate "Run:" %} <code>{{ reorg_applied }}</code>
+                        </p>
+                        <form method="post" action="{% url 'scitex_storage:reorganize_action' %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="undo">
+                            <input type="hidden" name="run_id" value="{{ reorg_applied }}">
+                            <input type="hidden" name="scope" value="{{ scope }}">
+                            {% if pscope %}<input type="hidden" name="project" value="{{ pscope.project_id }}">{% endif %}
+                            <button type="submit" class="stx-button">{% translate "Undo this run" %}</button>
+                        </form>
+                    </div>
+                {% elif not reorg_plan.conflicts %}
+                    <form method="post" action="{% url 'scitex_storage:reorganize_action' %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="apply">
+                        <input type="hidden" name="scope" value="{{ scope }}">
+                        {% if pscope %}<input type="hidden" name="project" value="{{ pscope.project_id }}">{% endif %}
+                        {% for key, value in reorg_form.items %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+                        <label class="stx-checkbox-label">
+                            <input class="stx-checkbox"
+                                   type="checkbox"
+                                   name="confirm"
+                                   value="yes"
+                                   required>
+                            {% translate "Apply exactly this preview. Set-aside files stay recoverable." %}
+                        </label>
+                        <button type="submit" class="stx-button stx-button--primary">{% translate "Apply reorganization" %}</button>
+                    </form>
+                {% endif %}
+            </section>
+        {% endif %}
+        {% if reorg_restored %}
+            <div class="stx-storage-ok" role="status">
+                <strong>{% translate "Run undone." %}</strong> <code>{{ reorg_restored }}</code>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

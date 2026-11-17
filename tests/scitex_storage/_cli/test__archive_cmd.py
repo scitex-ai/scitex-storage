@@ -145,6 +145,20 @@ def test_cli_archive_yes_with_dry_run_does_not_mutate(tmp_path, sandbox_home):
 
 
 @pytest.mark.requires_fd
+def test_cli_archive_retire_source_flag_is_accepted_on_dry_run(tmp_path, sandbox_home):
+    # Arrange -- the flag only changes the post-verify fate; the dry-run
+    # still only measures. --yes is not passed, so nothing moves.
+    source = tmp_path / "source"
+    f = _touch(source / "a.bin")
+    runner = CliRunner()
+    # Act
+    result = runner.invoke(
+        main, ["archive", str(source), "--to", "nas", "--retire-source"])
+    # Assert
+    assert (result.exit_code, f.exists()) == (0, True)
+
+
+@pytest.mark.requires_fd
 def test_cli_archive_json_reports_the_destination(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"

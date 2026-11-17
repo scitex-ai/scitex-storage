@@ -207,4 +207,95 @@ def test_snapshot_dict_round_trips_through_json():
     assert restored["total_hosts"] == payload["total_hosts"]
 
 
+# --------------------------------------------------------------------------
+# --gather: fleet sweep writing the three snapshots the GUI views serve.
+# --------------------------------------------------------------------------
+# SCITEX_DIR (not HOME) selects the runtime tree for gather mode, matching
+# _observe.default_snapshot_path. No host is contacted: --demo renders the
+# seeded snapshot, so these run offline.
+
+
+def _gather_env(tmp_path):
+    return {"SCITEX_DIR": str(tmp_path), "HOME": str(tmp_path)}
+
+
+def test_gather_demo_exits_zero(runner, tmp_path):
+    # Arrange
+    # Act
+    result = runner.invoke(
+        fleet_status_cmd, ["--gather", "--demo"], env=_gather_env(tmp_path)
+    )
+    # Assert
+    assert result.exit_code == 0
+
+
+def test_gather_demo_writes_the_fleet_table(runner, tmp_path):
+    # Arrange
+    # Act
+    runner.invoke(fleet_status_cmd, ["--gather", "--demo"], env=_gather_env(tmp_path))
+    # Assert
+    assert (tmp_path / "scitex-storage/runtime/fleet-dashboard.html").exists()
+
+
+def test_gather_demo_writes_the_bubbles(runner, tmp_path):
+    # Arrange
+    # Act
+    runner.invoke(fleet_status_cmd, ["--gather", "--demo"], env=_gather_env(tmp_path))
+    # Assert
+    assert (tmp_path / "scitex-storage/runtime/fleet-bubbles.html").exists()
+
+
+def test_gather_demo_writes_the_sunburst(runner, tmp_path):
+    # Arrange
+    # Act
+    runner.invoke(fleet_status_cmd, ["--gather", "--demo"], env=_gather_env(tmp_path))
+    # Assert
+    assert (tmp_path / "scitex-storage/runtime/fleet-sunburst.html").exists()
+
+
+def test_gather_demo_table_is_a_complete_document(runner, tmp_path):
+    # Arrange
+    runner.invoke(fleet_status_cmd, ["--gather", "--demo"], env=_gather_env(tmp_path))
+    # Act
+    html = (tmp_path / "scitex-storage/runtime/fleet-dashboard.html").read_text(
+        encoding="utf-8"
+    )
+    # Assert
+    assert html.startswith("<!doctype html>")
+
+
+def test_gather_demo_does_not_write_the_legacy_single_file(runner, tmp_path):
+    # Arrange -- gather mode serves the three GUI views, not the legacy
+    # fleet-status.html single-file output.
+    # Act
+    runner.invoke(fleet_status_cmd, ["--gather", "--demo"], env=_gather_env(tmp_path))
+    # Assert
+    assert not (tmp_path / ".scitex/scitex-storage/runtime/fleet-status.html").exists()
+
+
+def test_gather_output_overrides_only_the_table_path(runner, tmp_path):
+    # Arrange
+    out = tmp_path / "board.html"
+    # Act
+    result = runner.invoke(
+        fleet_status_cmd,
+        ["--gather", "--demo", "--output", str(out)],
+        env=_gather_env(tmp_path),
+    )
+    # Assert
+    assert result.exit_code == 0 and out.exists()
+
+
+def test_gather_json_echoes_the_snapshot_without_ssh(runner, tmp_path):
+    # Arrange
+    # Act
+    result = runner.invoke(
+        fleet_status_cmd,
+        ["--gather", "--demo", "--json"],
+        env=_gather_env(tmp_path),
+    )
+    # Assert
+    assert json.loads(result.output)["total_filesystems"] == 7
+
+
 # EOF

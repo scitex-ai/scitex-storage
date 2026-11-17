@@ -15,6 +15,7 @@ All pure functions or real tmp_path trees, so nothing here needs
 from __future__ import annotations
 
 import os
+import stat
 
 import pytest
 
@@ -344,5 +345,98 @@ def test_an_unknown_verdict_is_refused():
     # Assert
     with raised:
         TransferVerdict(**kwargs)
+
+@pytest.fixture(params=["walk", "stat"])
+def unreadable_tally_tree(tmp_path, request):
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "visible.txt").write_bytes(b"visible")
+    blocked = root / "blocked"
+    blocked.mkdir()
+    (blocked / "hidden.txt").write_bytes(b"hidden")
+    target = blocked if request.param == "walk" else root
+    previous_mode = stat.S_IMODE(target.stat().st_mode)
+    try:
+        target.chmod(0 if request.param == "walk" else 0o400)
+        try:
+            if request.param == "walk":
+                with os.scandir(blocked):
+                    pass
+            else:
+                os.lstat(root / "visible.txt")
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("this runtime can bypass fixture directory permissions")
+        yield root, target, previous_mode
+    finally:
+        target.chmod(previous_mode)
+
+
+def test_unreadable_source_count_is_unknown(unreadable_tally_tree):
+    # Arrange
+    root, _, _ = unreadable_tally_tree
+    # Act
+    tally = local_tally(str(root))
+    # Assert
+    assert tally.entry_count is None
+
+
+def test_unreadable_source_bytes_are_unknown(unreadable_tally_tree):
+    # Arrange
+    root, _, _ = unreadable_tally_tree
+    # Act
+    tally = local_tally(str(root))
+    # Assert
+    assert tally.size_bytes is None
+
+
+def test_restored_source_tally_counts_every_entry(unreadable_tally_tree):
+    # Arrange
+    root, target, mode = unreadable_tally_tree
+    # Act
+    target.chmod(mode)
+    tally = local_tally(str(root))
+    # Assert
+    assert tally.entry_count == 2
+
+
+def test_restored_source_tally_measures_payload_bytes(unreadable_tally_tree):
+    # Arrange
+    root, target, mode = unreadable_tally_tree
+    # Act
+    target.chmod(mode)
+    tally = local_tally(str(root))
+    # Assert
+    assert tally.size_bytes == len(b"visible") + len(b"hidden")
+
+
+@pytest.mark.parametrize("count, size", [(None, 7), (1, None), (None, None)])
+def test_unknown_source_baseline_refuses_verification(count, size):
+    # Arrange
+    observed = RemoteTally(entry_count=0, size_bytes=0)
+    # Act
+    verdict = verify_transfer(count, size, observed)
+    # Assert
+    assert verdict.verdict == COULD_NOT_LOOK
+
+
+@pytest.mark.parametrize("count, size", [(None, 7), (1, None), (None, None)])
+def test_unknown_source_baseline_never_authorizes_removal(count, size):
+    # Arrange
+    observed = RemoteTally(entry_count=0, size_bytes=0)
+    # Act
+    verdict = verify_transfer(count, size, observed)
+    # Assert
+    assert verdict.may_remove_source is False
+
+
+def test_measured_empty_source_stays_distinct_from_unknown():
+    # Arrange
+    observed = RemoteTally(entry_count=0, size_bytes=0)
+    # Act
+    verdict = verify_transfer(0, 0, observed)
+    # Assert
+    assert verdict.verdict == VERIFIED
 
 # EOF
