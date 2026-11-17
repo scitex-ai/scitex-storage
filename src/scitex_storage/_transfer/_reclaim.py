@@ -148,28 +148,28 @@ def _measure(path: Path) -> tuple[int, int]:
     A file counts as itself; a directory is walked (stat-only, symlinks never
     followed — a symlink is one inode, its target is not ours to count). Kept
     local and dependency-free: reclaim must work where ``fd`` is absent, and
-    a reclaim target is being moved, not scanned at scale.
+    a reclaim target is being moved, not scanned at scale. Inspection errors
+    propagate: a missing or inaccessible entry cannot become a partial plan.
     """
-    if path.is_symlink() or path.is_file():
-        try:
-            return path.lstat().st_size, 1
-        except OSError:
-            return 0, 1
+
+    def walk_error(error: OSError) -> None:
+        raise error
+
+    info = path.lstat()
+    if stat.S_ISLNK(info.st_mode) or stat.S_ISREG(info.st_mode):
+        return info.st_size, 1
     total = 0
     count = 0
-    for root, dirs, files in os.walk(path):
+    for root, dirs, files in os.walk(path, onerror=walk_error):
         # Do not descend into symlinked dirs (os.walk already won't unless
         # followlinks=True, which we never pass) and count them as leaves.
         for name in files:
             fp = Path(root) / name
-            try:
-                total += fp.lstat().st_size
-            except OSError:
-                pass
+            total += fp.lstat().st_size
             count += 1
         for name in dirs:
             dp = Path(root) / name
-            if dp.is_symlink():
+            if stat.S_ISLNK(dp.lstat().st_mode):
                 count += 1  # a symlinked dir is one inode, not a descent
     return total, count
 
@@ -217,6 +217,8 @@ def plan_reclaim(
     supplied by the caller (a timestamp, typically) so the value is explicit
     and testable rather than wall-clock-dependent inside here. It must be
     a single non-empty filename component, without path separators.
+    Any source inspection failure aborts planning before a plan is returned;
+    successful plans contain measured values, never unknown-as-zero placeholders.
     """
     _validate_run_id(run_id)
     plan = ReclaimPlan(run_id=run_id, archive_root=archive_root)

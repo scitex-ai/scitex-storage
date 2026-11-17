@@ -64,7 +64,10 @@ def _run_id(now: float) -> str:
             "Defaults to a dry-run."
         ),
         examples=(
-            ("{prog} reclaim ./node_modules", "preview moving one tree aside (dry-run)"),
+            (
+                "{prog} reclaim ./node_modules",
+                "preview moving one tree aside (dry-run)",
+            ),
             ("{prog} reclaim ./build ./dist --yes", "actually move two trees to .old/"),
             (
                 "{prog} reclaim ./huge --archive-root /scratch/archive --yes",
@@ -113,7 +116,10 @@ def reclaim_cmd(
     import time
 
     run_id = _run_id(time.time())
-    plan = plan_reclaim(list(paths), run_id=run_id, archive_root=archive_root)
+    try:
+        plan = plan_reclaim(list(paths), run_id=run_id, archive_root=archive_root)
+    except OSError as exc:
+        raise click.ClickException(f"Cannot plan reclaim: {exc}") from exc
     manifest = apply_reclaim(plan) if confirmed else None
 
     if as_json:
@@ -124,7 +130,11 @@ def reclaim_cmd(
             "total_size_bytes": plan.total_size,
             "total_files": plan.total_files,
             "entries": [
-                {"original": e.original, "archived": e.archived, "file_count": e.file_count}
+                {
+                    "original": e.original,
+                    "archived": e.archived,
+                    "file_count": e.file_count,
+                }
                 for e in plan.entries
             ],
         }

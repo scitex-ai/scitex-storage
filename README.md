@@ -157,6 +157,11 @@ An unknown estimate is not a positive free-space verdict. The current transfer
 policy still attempts the copy when capacity is unknown; this correction does
 not add checksum verification, resumability or a new refusal policy. Controls:
 `tests/integration/scitex_storage/_transfer/test_reclaim_size_errors.py`.
+Public `plan_reclaim` also refuses source inspection errors rather than returning
+an empty or partial plan. The CLI reports a nonzero exit with a readable stderr
+error and no successful JSON output, before applying any moves. A genuinely
+empty readable source remains a valid zero-size plan. Controls:
+`tests/integration/scitex_storage/_transfer/test_reclaim_plan_errors.py`.
 Reclaim run IDs must be single non-empty filename components; path separators,
 `.` and `..` are refused before moves or manifest access. A manifest's recorded
 run ID must match the requested run before restoration.
