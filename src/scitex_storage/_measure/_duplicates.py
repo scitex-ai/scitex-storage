@@ -312,13 +312,17 @@ def overlap_bytes(
     under root B -- the "how much of dump A is inside dump B" answer for
     same-content-different-layout trees, where a name-based diff reports
     zero overlap. ``matrix[A][A]`` is the redundant bytes strictly inside
-    A. Every pair is present (0 when nothing overlaps); sizes come from
+    A. For nested selected roots, each file belongs to the most specific
+    canonical root, independent of argument order. Matrix rows and columns
+    retain the caller's root order. Every pair is present (0 when nothing
+    overlaps); sizes come from
     ``lstat`` on a readable member, like :func:`reclaimable_bytes`.
     """
     resolved = [Path(r).expanduser().resolve() for r in roots]
+    ownership_roots = sorted(resolved, key=lambda root: len(root.parts), reverse=True)
 
     def owner(path: Path) -> str | None:
-        for root in resolved:
+        for root in ownership_roots:
             if path == root or root in path.parents:
                 return str(root)
         return None
