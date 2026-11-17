@@ -199,9 +199,9 @@ def duplicates_signal(groups: list[list[Path]] | None) -> "Signal":
         return Signal(
             "duplicates",
             COULD_NOT_LOOK,
-            f"{len(groups)} duplicate group(s) found but NONE could be "
-            f"sized (every member unreadable) -- the reclaim cannot be "
-            f"quantified, so it must not be reported as a number",
+            f"{len(groups)} duplicate group(s) found but size/identity "
+            f"evidence is unavailable or inconsistent -- the reclaim cannot "
+            f"be quantified, so it must not be reported as a number",
         )
     redundant = sum(len(g) - 1 for g in groups)
     return Signal(

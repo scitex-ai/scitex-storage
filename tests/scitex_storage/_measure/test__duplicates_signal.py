@@ -188,3 +188,15 @@ def test_groups_found_but_none_sizeable_is_could_not_look(tmp_path):
     assert signal.verdict == COULD_NOT_LOOK
 
 # EOF
+
+
+def test_partial_identity_failure_is_could_not_look(tmp_path):
+    # Arrange
+    groups = [_group(tmp_path, "known", 2, 80)]
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_bytes(b"not a directory")
+    groups.append([blocker / "uninspectable.bin"])
+    # Act
+    signal = duplicates_signal(groups)
+    # Assert
+    assert signal.verdict == COULD_NOT_LOOK

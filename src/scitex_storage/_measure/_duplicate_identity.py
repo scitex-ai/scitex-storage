@@ -13,14 +13,14 @@ def _file_key(path: Path, info: os.stat_result):
 
 
 def _regular_copies(paths, *, ignore_missing=False):
-    """Keep each regular-file inode once; never follow a final symlink."""
+    """Keep regular-file inodes once; only ignore genuinely vanished paths."""
     seen = set()
     copies = []
     observed = False
     for path in sorted(set(map(Path, paths))):
         try:
             info = path.lstat()
-        except OSError:
+        except FileNotFoundError:
             if ignore_missing:
                 continue
             raise
@@ -42,13 +42,17 @@ def reclaimable_bytes(groups: list[list[Path]]) -> int | None:
     free their data. Other single-link copies can be removed while retaining
     one physical copy. Missing members are not assumed to occupy space.
     This does not measure filesystem compression, sparse allocation or reflinks.
-    ``None`` means no member could be inspected; measured zero stays zero.
+    ``None`` means identity/size evidence is unavailable or inconsistent,
+    including a non-missing filesystem error. Measured zero stays zero.
     """
     total = 0
     measured = False
     seen = set()
     for group in groups:
-        copies, observed = _regular_copies(group, ignore_missing=True)
+        try:
+            copies, observed = _regular_copies(group, ignore_missing=True)
+        except OSError:
+            return None  # Permission/I/O/path errors are not vanished files.
         measured = measured or observed
         fresh = []
         for path, info in copies:
