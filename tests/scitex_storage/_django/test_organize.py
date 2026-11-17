@@ -198,3 +198,48 @@ def test_usage_does_not_recurse_escaping_directory_symlinks(usage_scope, query):
         "bob-paper-only.bin" in body,
         _contents(usage_scope),
     ) == (200, False, False, before)
+
+
+def _usage_page(query):
+    from django.test import RequestFactory
+    from scitex_storage._django import organize
+
+    request = RequestFactory().get("/?tab=usage&" + query)
+    request.user = SimpleNamespace(username="alice", is_authenticated=True)
+    return organize.usage(request)
+
+
+def test_parent_usage_page_defers_folder_scan_even_without_fd(usage_scope, tmp_path):
+    # Arrange
+    previous = os.environ.get("PATH")
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    os.environ["PATH"] = str(empty)
+    # Act
+    try:
+        response = _usage_page("scope=all&volume=workspace")
+    finally:
+        if previous is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = previous
+    body = response.content.decode()
+    # Assert
+    assert (
+        response.status_code,
+        "Sizes and folder details load in the chart below." in body,
+        "Per-folder breakdown is unavailable here" in body,
+        "usage-sunburst/" in body,
+    ) == (200, True, False, True)
+
+
+@pytest.mark.parametrize("query", [
+    "scope=all&volume=../bob", "scope=project&project=bob%2Fpaper"
+])
+def test_parent_usage_keeps_foreign_scope_refusal(usage_scope, query):
+    # Arrange
+    before = _contents(usage_scope)
+    # Act
+    response = _usage_page(query)
+    # Assert
+    assert (response.status_code, _contents(usage_scope)) == (403, before)

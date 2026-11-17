@@ -886,12 +886,20 @@ def test_picker_availability_requires_a_configured_provider(tmp_path):
 # EOF
 
 
+def _leaf_resource_text(relative_path):
+    """Read the active package's resource in source and installed-wheel runs."""
+    from importlib.resources import files
+
+    return files("scitex_storage").joinpath("_django", relative_path).read_text(
+        encoding="utf-8"
+    )
+
+
 def _leaf_storage_block():
     """Declarations of the leaf ``.stx-storage`` rule, comments stripped."""
     import re
-    from pathlib import Path
 
-    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    css = _leaf_resource_text("static/scitex_storage/index.css")
     stripped = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     match = re.search(r"^\.stx-storage \{(.*?)\}", stripped, re.M | re.S)
     if match is None:
@@ -966,9 +974,8 @@ def test_leaf_bottom_reserve_stays_tight():
     """The dock reserve must not balloon the pane bottom (operator: 76px)."""
     # Arrange -- read the shipped stylesheet, not a constant.
     import re
-    from pathlib import Path
 
-    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    css = _leaf_resource_text("static/scitex_storage/index.css")
     body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     match = re.search(r"^\.stx-storage \{(.*?)\}", body, re.M | re.S)
     # Act
@@ -983,9 +990,8 @@ def test_leaf_pane_padding_stays_tight():
     the last row)."""
     # Arrange -- read the shipped stylesheet, not a constant.
     import re
-    from pathlib import Path
 
-    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    css = _leaf_resource_text("static/scitex_storage/index.css")
     body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     match = re.search(r"^\.stx-storage \{(.*?)\}", body, re.M | re.S)
     # Act
@@ -1167,9 +1173,8 @@ def test_tabs_use_shared_content_tabs_primitive(tmp_path):
 def test_leaf_carries_no_private_tabs_variant(tmp_path):
     # Arrange -- the reinvented .stx-storage-tabs/.stx-storage-tab is gone.
     import re
-    from pathlib import Path
 
-    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    css = _leaf_resource_text("static/scitex_storage/index.css")
     body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     # Act
     private = re.findall(r"\.stx-storage-tabs?\b", body)
@@ -1179,9 +1184,8 @@ def test_leaf_carries_no_private_tabs_variant(tmp_path):
 
 def _leaf_css_block():
     import re
-    from pathlib import Path
 
-    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    css = _leaf_resource_text("static/scitex_storage/index.css")
     return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
 
 
@@ -1205,11 +1209,8 @@ def test_picker_pills_keep_pill_radius():
     # Arrange -- operator verdict: curly OBJECTS are acceptable; only the
     # selected-state highlight must be straight. Pills stay round.
     import re
-    from pathlib import Path
 
-    text = (
-        Path("src/scitex_storage/_django/templates/scitex_storage/organize.html")
-    ).read_text()
+    text = _leaf_resource_text("templates/scitex_storage/organize.html")
     match = re.search(r"\.stx-vol-pick a \{(.*?)\}", text, re.S)
     # Act
     block = match.group(1)
@@ -1223,9 +1224,8 @@ def test_move_button_uses_sdk_button_primitive():
     # the theme-paired tokens instead.
     # Act
     text = (
-        __import__("pathlib").Path(
-            "src/scitex_storage/_django/templates/scitex_storage/organize.html"
-        ).read_text() + __import__("pathlib").Path("src/scitex_storage/_django/templates/scitex_storage/logical_move.html").read_text()
+        _leaf_resource_text("templates/scitex_storage/organize.html")
+        + _leaf_resource_text("templates/scitex_storage/logical_move.html")
     )
     # Assert
     assert (
@@ -1239,9 +1239,8 @@ def test_selected_tab_text_stays_monochrome():
     # Arrange -- operator verdict: only the underline carries accent; the
     # selected label stays in the monochrome range, never gold/navy text.
     import re
-    from pathlib import Path
 
-    css = Path("src/scitex_storage/_django/static/scitex_storage/index.css").read_text()
+    css = _leaf_resource_text("static/scitex_storage/index.css")
     body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     match = re.search(
         r'\.stx-content-tabs__tab\[aria-selected="true"\]\s*\{(.*?)\}', body, re.S

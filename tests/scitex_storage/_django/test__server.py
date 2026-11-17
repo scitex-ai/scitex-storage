@@ -97,6 +97,12 @@ def standalone_pages(tmp_path):
                 except HTTPError as error:
                     pages[name] = error.code, error.read().decode()
                     error.close()
+                except (URLError, TimeoutError) as error:
+                    log.seek(0)
+                    raise RuntimeError(
+                        f"standalone GET {route!r} failed at the existing 2s request limit; "
+                        f"server log tail:\n{log.read()[-4000:]}"
+                    ) from error
             ui_source = Path(importlib.util.find_spec("scitex_sdk.ui").origin).parent
             pages["expected_css"] = (ui_source / "static/scitex_sdk/ui/css/shell/app-shell.css").read_bytes()
             yield pages

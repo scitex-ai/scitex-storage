@@ -321,8 +321,6 @@ def usage(request):
     if free_total > 0:
         fleet_items.append((str(_("Free")), free_total))
 
-    folder_items: list[tuple[str, int]] = []
-    folder_note = ""
     folder_volume = _selected_volume(request, user_volumes, statuses)
     if request.GET.get("volume") and folder_volume is None:
         return HttpResponseForbidden(str(_("That volume is not yours.")))
@@ -331,57 +329,8 @@ def usage(request):
         return HttpResponseForbidden(
             str(_("Select an available project to view its storage."))
         )
-    pscope = scope_ctx["pscope"]
-    folder_label = folder_volume.label if folder_volume is not None else ""
-    scan_root = None
-    if scope_ctx["scope"] == "project" and pscope is not None:
-        # Project scope wins over the volume picker: the breakdown answers
-        # "where do THIS project's bytes live", not "what is on the volume".
-        scan_root = pscope.project_dir
-        folder_label = scope_ctx["project_name"]
-    if folder_volume is not None or scan_root is not None:
-        try:
-            from scitex_storage import scan as _scan
-        except ImportError:
-            _scan = None
-        if _scan is None:
-            folder_note = str(
-                _("Per-folder breakdown needs the scitex-storage package.")
-            )
-        else:
-            root = scan_root if scan_root is not None else folder_volume.path
-            ok, result = _run_bounded(lambda: _scan(root), SCAN_TIMEOUT_S)
-            if ok:
-                top = result.by_size()[:8]
-                folder_items = [(c.name, c.size) for c in top]
-                rest = result.by_size()[8:]
-                rest_bytes = sum(c.size for c in rest)
-                if rest_bytes > 0:
-                    folder_items.append((str(_("Other")), rest_bytes))
-                if result.children and not folder_items:
-                    folder_note = str(_("Everything under this volume is empty."))
-            else:
-                err = result
-                name = type(err).__name__
-                if name == "MissingSystemDependencyError":
-                    folder_note = str(
-                        _(
-                            "Per-folder breakdown is unavailable here: "
-                            "the `fd` binary is not installed on this host. "
-                            "Volume totals above are unaffected."
-                        )
-                    )
-                elif isinstance(err, TimeoutError):
-                    folder_note = str(
-                        _(
-                            "Per-folder scan timed out; "
-                            "filesystem capacity is shown separately."
-                        )
-                    )
-                else:
-                    folder_note = str(
-                        _("Per-folder scan failed: %(err)s") % {"err": err}
-                    )
+    # Folder traversal belongs to the separately loaded, sandboxed chart.
+    # Rendering this parent must not duplicate its potentially slow scan.
 
     from urllib.parse import urlencode
 
@@ -398,10 +347,6 @@ def usage(request):
         "statuses": statuses,
         "reachable": volumes.REACHABLE,
         "folder_volume": folder_volume,
-        "folder_label": folder_label,
-        "folder_segments": donut_segments(folder_items),
-        "folder_total": sum(v for _label, v in folder_items),
-        "folder_note": folder_note,
         "fleet_available": _fleet_views_available(),
     }
     return render(request, "scitex_storage/organize.html", context)

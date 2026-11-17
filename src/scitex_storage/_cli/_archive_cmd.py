@@ -25,10 +25,21 @@ from .._transfer._archive import (
 )
 from .._transfer._archive_transport import (
     RETIRED_DESTINATIONS,
+    _validate_remote_path,
     probe_transport,
     resolve_destination,
 )
 from ._compat import spec_command_kwargs
+
+
+def _remote_path_option(ctx, param, value):
+    """Reject ambiguous remote paths before transport checks or source scans."""
+    if value:
+        try:
+            _validate_remote_path(value)
+        except ValueError as exc:
+            raise click.BadParameter(str(exc), ctx=ctx, param=param) from exc
+    return value
 
 
 def _require_rsync() -> None:
@@ -92,7 +103,8 @@ def _require_rsync() -> None:
 @click.option(
     "--remote-path",
     default=None,
-    help="Remote path on the destination. Default: mirror SOURCE's "
+    callback=_remote_path_option,
+    help="Remote path starting with / or ~/. Default: mirror SOURCE's "
     "absolute path under ~/scitex-storage-archive.",
 )
 @click.option(

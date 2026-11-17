@@ -54,13 +54,9 @@ Reuses the upstream .stx-storage-* classes so the tabs feel like one app.
         <section class="stx-storage-card">
             <h2 class="stx-storage-machine"><i class="fas fa-chart-pie" aria-hidden="true"></i> {% translate "Storage contents" %}</h2>
             {% if scope == "project" and pscope %}
-            <p class="stx-storage-note">{% blocktranslate with name=project_name size=folder_total|filesizeformat %}Showing only {{ name }}: {{ size }}.{% endblocktranslate %}</p>
-            {% else %}
-            <p class="stx-storage-note">{% blocktranslate with total=folder_total|filesizeformat %}{{ total }} in the selected storage location.{% endblocktranslate %}</p>
+            <p class="stx-storage-note">{% blocktranslate with name=project_name %}Showing only {{ name }}.{% endblocktranslate %}</p>
             {% endif %}
-            {% if folder_note %}
-                <div class="stx-storage-warn"><p class="stx-storage-note" style="margin: 0">{{ folder_note }}</p></div>
-            {% endif %}
+            <p class="stx-storage-note">{% translate "Sizes and folder details load in the chart below." %}</p>
             {% if scope != "project" or not pscope %}
             <div class="stx-vol-pick">
                 <span class="stx-storage-note">{% translate "Sunburst root:" %}</span>
