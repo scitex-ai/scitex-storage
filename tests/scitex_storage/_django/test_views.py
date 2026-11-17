@@ -311,14 +311,18 @@ def test_duplicates_unavailable_lists_would_scan_roots(tmp_path):
     _touch(tmp_path / "alpha" / "a.bin", 100)
     # Act
     body = _get(tmp_path, {"tab": "duplicates"}).content.decode()
+    # The authorized volume label stays visible; the raw host root stays private.
     result = (
         "Duplicates unavailable" in body,
         "Would scan:" in body,
-        str(tmp_path) in body,
+        "Mine" in body,
+        str(tmp_path) not in body,
         "find-duplicates" in body,
+        "fclones" in body,
+        "No byte-identical duplicates found" not in body,
     )
     # Assert
-    assert result == (True, True, True, True)
+    assert result == (True, True, True, True, True, True, True)
 
 
 def test_index_declares_every_shell_pane_so_none_reserves_width(tmp_path):
