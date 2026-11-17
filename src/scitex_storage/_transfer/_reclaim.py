@@ -62,6 +62,7 @@ import stat
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from ._reclaim_runs import _claim_run, _require_unused_run, _validate_record_location
 from ._sweep import InsufficientSpaceError, check_space, free_bytes
 
 #: Where reclaim manifests live. Resolved per-call (not a module constant) so
@@ -227,6 +228,7 @@ def plan_reclaim(
     successful plans contain measured values, never unknown-as-zero placeholders.
     """
     _validate_run_id(run_id)
+    _require_unused_run(_manifest_path(run_id))
     plan = ReclaimPlan(run_id=run_id, archive_root=archive_root)
     for raw in paths:
         source = Path(raw).expanduser()
@@ -248,6 +250,7 @@ def plan_reclaim(
             )
         )
     _validate_destinations(plan.entries)
+    _validate_record_location(_manifest_path(run_id), plan.entries)
     return plan
 
 
@@ -355,20 +358,24 @@ def apply_reclaim(plan: ReclaimPlan) -> ReclaimManifest:
     exact original->archived mapping so :func:`restore_reclaim` is precise.
     A move that raises aborts the run and propagates — entries already moved
     stay in the archive (recoverable), and no manifest is written for a
-    partial run, so a partial run is visible as "files in .old with no
-    manifest" rather than silently half-recorded.
+    partial run. A separate started record retains the plan before any move;
+    completed or started run IDs cannot be reused. This does not resume a run.
     """
     _validate_run_id(plan.run_id)
+    _require_unused_run(_manifest_path(plan.run_id))
     _validate_destinations(plan.entries)
-    for entry in plan.entries:
-        _move_one(entry)
-    manifest = ReclaimManifest(
-        run_id=plan.run_id,
-        reclaimed_at=_now(),
-        archive_root=plan.archive_root,
-        entries=list(plan.entries),
-    )
-    _write_manifest(manifest)
+    _validate_record_location(_manifest_path(plan.run_id), plan.entries)
+    with _claim_run(_manifest_path(plan.run_id), plan):
+        _validate_destinations(plan.entries)
+        for entry in plan.entries:
+            _move_one(entry)
+        manifest = ReclaimManifest(
+            run_id=plan.run_id,
+            reclaimed_at=_now(),
+            archive_root=plan.archive_root,
+            entries=list(plan.entries),
+        )
+        _write_manifest(manifest)
     return manifest
 
 
@@ -384,9 +391,10 @@ def _manifest_path(run_id: str) -> Path:
 
 
 def _write_manifest(manifest: ReclaimManifest) -> None:
+    from ._durable import atomic_json
+
     path = _manifest_path(manifest.run_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest.to_dict(), indent=2))
+    atomic_json(path, manifest.to_dict())
 
 
 def load_manifest(run_id: str) -> ReclaimManifest:

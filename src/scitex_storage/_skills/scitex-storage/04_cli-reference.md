@@ -79,3 +79,13 @@ with a readable error and no successful JSON report. Caller-created plans and
 restore manifests receive the same boundary checks. This is a preflight snapshot,
 not concurrent-path or crash protection. Owning controls:
 `tests/scitex_storage/_transfer/test__reclaim_paths.py`.
+
+Reclaim run IDs are single-use, including restored runs and failed started
+attempts. Existing malformed/dangling records also block reuse. A selected tree
+cannot contain the records or their access path, including symlinked state. Apply uses
+a nonblocking per-run advisory lock and saves a `.started` plan beside the
+manifest before the first move; the intent remains for manual inspection.
+Completed/restored manifests use flushed atomic JSON writes. Planning or apply
+failures exit nonzero with a readable error and no successful JSON result.
+This is not automatic resume, verified cross-filesystem transfer or crash-safe
+multi-entry recovery. Controls: `tests/scitex_storage/_transfer/test__reclaim_runs.py`.

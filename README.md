@@ -169,6 +169,18 @@ are resolved, while final symlinks remain separate link entries. The same checks
 apply to caller-created plans and restore manifests. These are preflight checks,
 not a guarantee against concurrent path changes. Controls:
 `tests/scitex_storage/_transfer/test__reclaim_paths.py`.
+Reclaim run IDs are single-use: an existing completed or restored manifest,
+or a started attempt, blocks reuse before any source moves. Cooperating apply
+processes use the existing nonblocking per-run advisory lock; distinct run IDs
+remain independent. Selecting a directory containing the run records or their
+access path (including a home with symlinked `.scitex`) is refused. Before
+moving, apply writes a separate `.started` intent
+beside the manifest, containing the plan. It remains after success or failure,
+so an interrupted attempt cannot be silently reused. Inspect that record and
+the files manually; automatic resume/recovery is not implemented. Completed
+and restored manifests use the existing flushed atomic JSON writer. Metadata
+write durability does not establish move durability or race-free source data.
+Controls: `tests/scitex_storage/_transfer/test__reclaim_runs.py`.
 Reclaim run IDs must be single non-empty filename components; path separators,
 `.` and `..` are refused before moves or manifest access. A manifest's recorded
 run ID must match the requested run before restoration.

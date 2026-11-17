@@ -120,7 +120,10 @@ def reclaim_cmd(
         plan = plan_reclaim(list(paths), run_id=run_id, archive_root=archive_root)
     except (OSError, ValueError) as exc:
         raise click.ClickException(f"Cannot plan reclaim: {exc}") from exc
-    manifest = apply_reclaim(plan) if confirmed else None
+    try:
+        manifest = apply_reclaim(plan) if confirmed else None
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(f"Cannot apply reclaim: {exc}") from exc
 
     if as_json:
         payload = {
