@@ -140,17 +140,31 @@ def test_retired_backup_tab_has_no_backup_controls(tmp_path):
     # Act
     body = _get(tmp_path, {"tab": "backup"}).content.decode()
     # Assert — old bookmarks fall back to Usage and cannot expose a planner.
-    assert "Storage contents" in body and "Plan a backup" not in body and '?tab=backup' not in body
+    assert (
+        "Storage contents" in body
+        and "Plan a backup" not in body
+        and "?tab=backup" not in body
+    )
 
 
 def test_retired_backup_route_ignores_backup_plan_parameters(tmp_path):
     # Arrange — legacy URLs must not execute or expose a backup plan.
     _boot()
     # Act
-    response = _get(tmp_path, {"tab": "backup", "plan": "1", "volume": "mine", "dir": "paper", "destination": "unconfigured"})
+    response = _get(
+        tmp_path,
+        {
+            "tab": "backup",
+            "plan": "1",
+            "volume": "mine",
+            "dir": "paper",
+            "destination": "unconfigured",
+        },
+    )
     # Assert
-    assert response.status_code == 200 and "Backup plan" not in response.content.decode()
-
+    assert (
+        response.status_code == 200 and "Backup plan" not in response.content.decode()
+    )
 
 
 def test_usage_tab_renders_usage_section(tmp_path):
@@ -233,10 +247,17 @@ def test_usage_project_scope_shows_only_project_bytes(tmp_path):
     (proj / "paper.pdf").write_bytes(b"x" * 64)
     # Act
     body = _get_scoped(
-        tmp_path, {"tab": "usage", "scope": "project"}, username="u", project_path=str(proj)
+        tmp_path,
+        {"tab": "usage", "scope": "project"},
+        username="u",
+        project_path=str(proj),
     ).content.decode()
     # Assert
-    result = ("Showing only" in body, "Paper Project" in body, "stx-storage-grid" in body)
+    result = (
+        "Showing only" in body,
+        "Paper Project" in body,
+        "stx-storage-grid" in body,
+    )
     assert result == (True, True, False)
 
 
@@ -261,7 +282,10 @@ def test_usage_scope_hides_the_root_picker(tmp_path):
     (proj / "paper.pdf").write_bytes(b"x" * 64)
     # Act
     body = _get_scoped(
-        tmp_path, {"tab": "usage", "scope": "project"}, username="u", project_path=str(proj)
+        tmp_path,
+        {"tab": "usage", "scope": "project"},
+        username="u",
+        project_path=str(proj),
     ).content.decode()
     # Assert
     assert "Sunburst root:" not in body
@@ -556,7 +580,9 @@ def test_sunburst_view_serves_a_gathered_snapshot(scitex_dir):
     assert "FLEET-SENTINEL" in body
 
 
-def _get_usage_sunburst(tmp_path, params, username=None, project_path=None, project_name="Paper Project"):
+def _get_usage_sunburst(
+    tmp_path, params, username=None, project_path=None, project_name="Paper Project"
+):
     """GET through the usage-sunburst route with the test volumes provider."""
     from django.test import RequestFactory, override_settings
 
@@ -589,7 +615,12 @@ def test_usage_sunburst_serves_interactive_page(tmp_path):
     response = _get_usage_sunburst(tmp_path, {})
     body = response.content.decode()
     # Assert -- dynamic UI: zoomable page, embedded data, no CDN.
-    result = (response.status_code, "Usage" in body, "alpha" in body, 'src="http' in body)
+    result = (
+        response.status_code,
+        "Usage" in body,
+        "alpha" in body,
+        'src="http' in body,
+    )
     assert result == (200, True, True, False)
 
 
@@ -894,8 +925,10 @@ def _leaf_resource_text(relative_path):
     """Read the active package's resource in source and installed-wheel runs."""
     from importlib.resources import files
 
-    return files("scitex_storage").joinpath("_django", relative_path).read_text(
-        encoding="utf-8"
+    return (
+        files("scitex_storage")
+        .joinpath("_django", relative_path)
+        .read_text(encoding="utf-8")
     )
 
 
@@ -972,8 +1005,6 @@ def test_leaf_sets_no_max_width_rule(tmp_path):
     assert "max-width" not in props
 
 
-
-
 def test_leaf_bottom_reserve_stays_tight():
     """The dock reserve must not balloon the pane bottom (operator: 76px)."""
     # Arrange -- read the shipped stylesheet, not a constant.
@@ -1021,7 +1052,9 @@ class _ScopeProject:
         return Path(self._path)
 
 
-def _get_scoped(tmp_path, params, username=None, project_path=None, project_name="Paper Project"):
+def _get_scoped(
+    tmp_path, params, username=None, project_path=None, project_name="Paper Project"
+):
     """GET through the index view with an optional authed user + project seam."""
     from django.test import RequestFactory, override_settings
 
@@ -1079,37 +1112,42 @@ def test_usage_project_scope_without_project_names_no_project(tmp_path):
     assert "Select an available project" in body
 
 
-def test_usage_scope_notice_names_hub_mount_without_provider(tmp_path):
-    # Arrange -- standalone: no host provider URL, so the header renders no
-    # picker (operator "No Project Selected": the notice must not point at
-    # a control that does not exist).
+def test_usage_project_scope_requires_project_without_provider(tmp_path):
+    # Arrange -- no authenticated project, and no standalone picker provider.
+    from django.test import override_settings
+
     _boot()
     # Act
-    body = _get(tmp_path, {"tab": "usage", "scope": "project"}).content.decode()
-    result = (
-        "No project in scope" in body,
+    with override_settings(SCITEX_PROJECT_PROVIDER_URL=""):
+        response = _get(tmp_path, {"tab": "usage", "scope": "project"})
+    body = response.content.decode()
+    # Assert -- refuse instead of silently rendering all volumes or a fake picker.
+    assert (
+        response.status_code,
+        "Select an available project" in body,
+        "Storage contents" not in body,
         "Pick a project in the header" not in body,
-        "hub-mounted" in body,
-    )
-    # Assert
-    assert "Select an available project" in body
+        str(tmp_path) not in body,
+    ) == (403, True, True, True, True)
 
 
-def test_usage_scope_notice_points_at_header_picker_with_provider(tmp_path):
-    # Arrange -- hub-mounted: the host provider URL is set, so the header
-    # can offer the picker; the notice may direct the user to it.
+def test_usage_provider_url_does_not_authorize_project_scope(tmp_path):
+    # Arrange -- a configured picker endpoint does not supply project authority.
     from django.test import override_settings
 
     _boot()
     # Act
     with override_settings(SCITEX_PROJECT_PROVIDER_URL="/stub-projects/"):
-        body = _get(tmp_path, {"tab": "usage", "scope": "project"}).content.decode()
-    result = (
-        "No project in scope" in body,
-        "Pick a project in the header" in body,
-    )
-    # Assert
-    assert "Select an available project" in body
+        response = _get(tmp_path, {"tab": "usage", "scope": "project"})
+    body = response.content.decode()
+    # Assert -- the same explicit refusal applies with a host picker configured.
+    assert (
+        response.status_code,
+        "Select an available project" in body,
+        "Storage contents" not in body,
+        "Pick a project in the header" not in body,
+        str(tmp_path) not in body,
+    ) == (403, True, True, True, True)
 
 
 def test_usage_project_scope_scans_the_project_directory(tmp_path):
@@ -1120,40 +1158,13 @@ def test_usage_project_scope_scans_the_project_directory(tmp_path):
     (proj / "paper.pdf").write_bytes(b"x" * 64)
     # Act
     body = _get_scoped(
-        tmp_path, {"tab": "usage", "scope": "project"}, username="u", project_path=str(proj)
+        tmp_path,
+        {"tab": "usage", "scope": "project"},
+        username="u",
+        project_path=str(proj),
     ).content.decode()
     # Assert
     assert "Paper Project" in body
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_tabs_use_shared_content_tabs_primitive(tmp_path):
@@ -1193,8 +1204,6 @@ def _leaf_css_block():
     return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
 
 
-
-
 def test_selected_tab_uses_cards_pattern():
     # Arrange -- operator verdict: transparent bg, 2px solid accent bottom
     # border, weight 700, NO radius (radius + inset shadow curled the line).
@@ -1227,10 +1236,9 @@ def test_move_button_uses_sdk_button_primitive():
     # white-on-gold in dark mode; the SDK .stx-button primitive carries
     # the theme-paired tokens instead.
     # Act
-    text = (
-        _leaf_resource_text("templates/scitex_storage/organize.html")
-        + _leaf_resource_text("templates/scitex_storage/logical_move.html")
-    )
+    text = _leaf_resource_text(
+        "templates/scitex_storage/organize.html"
+    ) + _leaf_resource_text("templates/scitex_storage/logical_move.html")
     # Assert
     assert (
         "stx-button stx-button--primary" in text,
