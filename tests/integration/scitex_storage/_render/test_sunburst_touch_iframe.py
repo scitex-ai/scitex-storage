@@ -55,12 +55,15 @@ def test_touch_at_inner_disk_edge_in_scoped_iframe(tmp_path, sunburst_browser):
         outer = page.locator("iframe")
         frame = outer.element_handle().content_frame()
         frame.locator("#centre").wait_for()
-        frame.evaluate("""document.addEventListener('pointerdown',e=>{
-          const p=new DOMPoint(e.clientX,e.clientY).matrixTransform(
-            document.querySelector('#sb').getScreenCTM().inverse());
-          window.hit={radius:Math.hypot(p.x-280,p.y-280),
-            center:!!e.target.closest('#centre')};
-        },true)""")
+        frame.evaluate("""window.hits=[];
+          for(const type of ['pointerdown','touchstart','click'])
+            document.addEventListener(type,e=>{
+              const point=e.touches?e.touches[0]:e;
+              const p=new DOMPoint(point.clientX,point.clientY).matrixTransform(
+                document.querySelector('#sb').getScreenCTM().inverse());
+              window.hits.push({type,radius:Math.hypot(p.x-280,p.y-280),
+                center:!!e.target.closest('#centre')});
+            },true)""")
         geometry = frame.locator("#sb").evaluate("""s=>{
           const m=s.getScreenCTM(),p=new DOMPoint(280,349.8).matrixTransform(m);
           return {x:p.x,y:p.y,a:m.a,d:m.d,e:m.e,f:m.f};
@@ -75,20 +78,41 @@ def test_touch_at_inner_disk_edge_in_scoped_iframe(tmp_path, sunburst_browser):
             and geometry["e"] == 16
             and geometry["f"] % 1 == 0.5
         )
-        # Act -- native touch, including its compatibility click, not JS zoom.
-        page.touchscreen.tap(
-            round(geometry["x"] + box["x"]),
-            math.floor(geometry["y"] + box["y"]),
+        tap = {
+            "x": round(geometry["x"] + box["x"]),
+            "y": math.floor(geometry["y"] + box["y"]),
+        }
+        # Measure the identical requested touch BEFORE browser target adjustment.
+        # Native iframe event coordinates can round outside the circle even when
+        # the requested point is inside; the same point must still navigate up.
+        requested = frame.evaluate(
+            """point=>{
+          const p=new DOMPoint(point.x,point.y).matrixTransform(
+            document.querySelector('#sb').getScreenCTM().inverse());
+          return {radius:Math.hypot(p.x-280,p.y-280),
+            center:!!document.elementFromPoint(point.x,point.y)?.closest('#centre')};
+        }""",
+            {"x": tap["x"] - box["x"], "y": tap["y"] - box["y"]},
         )
+        # Act -- native touch, including its compatibility click, not JS zoom.
+        page.touchscreen.tap(tap["x"], tap["y"])
         expect(frame.locator("#crumb")).to_have_text("Workspace files")
-        observation = frame.evaluate("window.hit")
-        # Assert -- a genuinely interior event must retain the parent target.
+        hits = frame.evaluate("window.hits")
+        # Assert -- keep the original edge/iframe geometry and require all native
+        # event targets to retain the parent control through compatibility click.
         assert (
             exact_geometry,
-            observation["radius"] < 70,
-            observation["center"],
+            requested["radius"] < 70,
+            requested["center"],
+            [(hit["type"], hit["center"]) for hit in hits],
             frame.locator("#centre").get_attribute("aria-disabled"),
-        ) == (True, True, True, "true")
+        ) == (
+            True,
+            True,
+            True,
+            [("pointerdown", True), ("touchstart", True), ("click", True)],
+            "true",
+        )
     finally:
         page.close()
         server.shutdown()

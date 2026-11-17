@@ -57,8 +57,12 @@ checks those contents remain unchanged. The tests prove existing protections;
 they do not add an unrestricted path or parent-navigation API.
 
 `test_sunburst_touch_iframe.py` retains the observed phone iframe dimensions and
-fractional SVG translation. A native touch inside radius 70 must navigate to
-the loaded parent even after the browser generates its compatibility click.
+fractional SVG translation. The requested native touch is measured inside radius 70 before dispatch, and
+must navigate to the loaded parent through pointerdown, touchstart and the
+compatibility click. Browser-adjusted iframe event coordinates may round just
+outside that radius; they are not the original requested point. Keep the same
+edge coordinates/iframe geometry and require all three native targets to remain
+the center. A pre-layer-fix renderer must still fail this navigation control.
 The center is painted after arcs; its radius and ring bounds stay unchanged.
 
 `test_sunburst_full_annulus.py` uses the native SVG fill engine and real
