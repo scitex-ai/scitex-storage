@@ -29,8 +29,63 @@ Conventions: dry-run by default, `--yes/-y` mutates; `--json` for machine
 output; domain verdict exit codes start at 10 (1/2 stay generic). Verbs
 load lazily — help never fails because an unrelated verb's dep is skewed.
 
+`find-duplicates` reads file contents through `fclones`; `--sizes-only` is
+the stat-only candidate prepass, not proof of equal content. Exact groups
+exclude final symlinks and repeated regular-file inodes. Engine errors,
+non-informational stderr diagnostics even with exit zero, positive reported
+missing-file counts,
+invalid engine JSON (including missing/malformed group or path arrays), and
+files disappearing before identity inspection fail
+with exit 1 and a readable stderr error, including with `--json`; stdout
+does not contain a successful or partial duplicate result. A vanished-file
+count with partial results is not implemented yet. Unknown diagnostics are
+conservatively refused; known timestamped fclones informational logs are allowed.
+Diagnostic controls: `tests/integration/scitex_storage/_measure/test_engine_diagnostics.py`.
+Other controls:
+`tests/scitex_storage/_cli/test__duplicates_cmd.py` exercises the real CLI
+process with owned engine-protocol fixtures; native identity controls are
+in `tests/scitex_storage/_measure/test__duplicate_identity.py`.
+
+The `--sizes-only` walk skips entries that vanish while walking, but propagates
+other inspection failures (for example permission denial). Such a failure exits
+nonzero with a readable stderr diagnostic and no successful or partial JSON
+result. It does not count skipped entries or prove content equality. Controls:
+`tests/integration/scitex_storage/_measure/test_size_scan_errors.py`.
+
+`find-duplicates --group-by parent|top-level` adds a location breakdown of each
+confirmed content group. Default output is unchanged. JSON adds `group_by` and
+`location_groups`; each item retains its zero-based content `group_index`,
+`relationship` (`within-location` or `across-locations`) and sorted `locations`
+with canonical `directory` and `files`. Parent mode uses the immediate parent.
+Top-level mode uses the most specific selected root's first child directory;
+files directly under that root use the root itself. Root argument order and
+directory aliases do not change ownership. Missing members and files outside
+all top-level roots fail rather than being omitted. `--sizes-only --group-by`
+is refused before hashing. This breakdown makes no keeper/deletion decision.
+Controls: `tests/integration/scitex_storage/_measure/test_duplicate_locations.py`
+and `test_duplicate_locations_cli.py` in the same directory, including native
+fclones CLI checks.
+
 Content versions: `versions --store ROOT inspect VERSION_ID` keeps its JSON
 default; `--human` selects readable metadata (manifest verified, contents not
 verified). `versions --store ROOT create-pointer VERSION_ID NEW_PATH --yes`
 creates a new pointer without overwrite. Legacy `pointer` forwards the same
 arguments, with a shared deprecation warning when Dev is available.
+
+`reclaim` refuses nested source selections, archives inside selected source trees
+and nested archive destinations before moving anything. Parent aliases are
+resolved; final symlinks are separate entries. Planning refusals exit nonzero
+with a readable error and no successful JSON report. Caller-created plans and
+restore manifests receive the same boundary checks. This is a preflight snapshot,
+not concurrent-path or crash protection. Owning controls:
+`tests/scitex_storage/_transfer/test__reclaim_paths.py`.
+
+Reclaim run IDs are single-use, including restored runs and failed started
+attempts. Existing malformed/dangling records also block reuse. A selected tree
+cannot contain the records or their access path, including symlinked state. Apply uses
+a nonblocking per-run advisory lock and saves a `.started` plan beside the
+manifest before the first move; the intent remains for manual inspection.
+Completed/restored manifests use flushed atomic JSON writes. Planning or apply
+failures exit nonzero with a readable error and no successful JSON result.
+This is not automatic resume, verified cross-filesystem transfer or crash-safe
+multi-entry recovery. Controls: `tests/scitex_storage/_transfer/test__reclaim_runs.py`.

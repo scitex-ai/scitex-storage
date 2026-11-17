@@ -12,6 +12,35 @@ The package exposes public names lazily on first access. For example,
 functions in their owning transfer modules. Explicit module imports remain
 available when a caller needs a specific implementation.
 
+## Inspect duplicate locations
+
+```python
+from scitex_storage import find_duplicates, group_duplicates
+
+roots = ["/path/to/reviewed-tree"]
+groups = find_duplicates(roots, max_depth=3)  # reads contents through fclones
+locations = group_duplicates(groups, by="top-level", roots=roots)
+```
+
+The second call is a metadata-only breakdown of already-confirmed groups,
+without moving/deleting/linking files or selecting a keeper. Parent mode
+(`by="parent"`, the default) uses immediate canonical parents. Top-level mode
+requires directory roots and uses the most specific root's first child folder,
+or that root for direct child files. Each item reports its input `group_index`,
+`relationship` and `locations` (`directory`, `files`). Symlinks/repeated inodes
+are excluded. Inspection failures and top-level members outside the roots are
+errors. No content rehash or live GUI/MCP adoption is implied. Owning controls:
+`tests/integration/scitex_storage/_measure/test_duplicate_locations.py`.
+
+For bounded callers, `group_duplicates(..., deadline=..., cancelled=...)` accepts
+an absolute finite `time.monotonic()` timestamp and a callable cancellation
+predicate such as `threading.Event.is_set`. Expiry or cancellation raises
+`TimeoutError` without partial returned rows. Checks surround identity and
+canonical-path metadata operations; a blocking OS/filesystem call itself cannot
+be interrupted. These options do not enable a GUI integration or alter the
+hashing engine's separate subprocess deadline. Controls:
+`tests/integration/scitex_storage/_measure/test_duplicate_grouping_budget.py`.
+
 ## Plan without transferring data
 
 Use an existing source directory and a supported destination alias. Planning

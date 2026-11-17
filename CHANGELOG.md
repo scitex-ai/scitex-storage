@@ -7,6 +7,48 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Reject duplicate-engine inspection warnings even with a zero exit code; retain
+  explicit errors rather than presenting unreadable trees as clean reports.
+
+- Add read-only parent/top-level folder grouping for duplicate reports in Python,
+  CLI and the scoped GUI, with cooperative metadata deadlines and logical paths.
+
+- Refuse incomplete or overlapping reclaim plans, reused run IDs and attempts to
+  move their own state. Retain started intent and use per-run apply locks/atomic
+  completed metadata; automatic recovery and resumable cross-device transfer
+  remain outstanding.
+
+- Strengthen native iframe touch, unavailable-engine and project-refusal tests
+  while preserving geometry, authorization, test limits and all existing cases.
+
+- Refuse incomplete or malformed duplicate-engine report structures instead
+  of reporting a clean scan when the required groups/files arrays are absent.
+
+- Report duplicate-engine, malformed JSON and disappearing-file inspection
+  failures as readable CLI stderr errors, preserving nonzero exit and empty
+  stdout rather than presenting partial results as a successful scan.
+
+- Preflight all reclaim-restore entries before moving any, including missing
+  archives and colliding/occupied destinations; publish same-filesystem
+  restores with an atomic no-overwrite rename.
+
+- Refuse reclaim run IDs that escape archive/manifest roots, including legacy
+  caller-created plans; refuse restore when a manifest records another run ID.
+
+- Correct reclaim documentation/help to distinguish completed copy/restore
+  from independent verification, resumability and crash durability; add real
+  separate-filesystem file/directory round-trip coverage.
+
+- Refuse ambiguous relative remote archive/backup paths before transport or
+  verification; require an explicit absolute path or `~/path`.
+
+- Render the Usage parent without duplicating the folder scan performed by
+  its separately loaded sunburst; show deferred details instead of a premature
+  zero-byte total. Preserve chart scope checks and existing scan deadlines.
+
+- Preserve files and symlinks named by a directory-only backup exclude;
+  count and content baselines now distinguish real directories as rsync does.
+
 - Clear the previous sunburst tooltip when navigating between hierarchy levels.
 - Capture the verified root after native navigation in browser regression tests,
   retaining the required screenshot and all boundary assertions.
@@ -23,7 +65,6 @@ versions follow [Semantic Versioning](https://semver.org/).
   an argument-preserving compatibility alias with unchanged confirmation gates.
 - Declare actual storage actions alarm/backup/scrub through the existing leaf
   vocabulary SPI, without adding output flags or changing their behavior.
-
 
 - Regress Usage scope boundaries with registered SDK providers: reject encoded/foreign selectors, ignore free-form root overrides, preserve project narrowing, and avoid descent through escaping directory symlinks. No backend authorization policy changes.
 

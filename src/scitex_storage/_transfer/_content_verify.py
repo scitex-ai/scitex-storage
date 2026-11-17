@@ -188,7 +188,11 @@ def digest_tree(root: str, *, cancelled=None, exclude: tuple[str, ...] = ()) -> 
             keep: list[str] = []
             for name in dirnames:
                 full = os.path.join(dirpath, name)
-                if exclude and is_excluded(os.path.relpath(full, root), exclude):
+                if exclude and is_excluded(
+                    os.path.relpath(full, root),
+                    exclude,
+                    is_dir=not os.path.islink(full),
+                ):
                     continue  # same population as local_tally and the transport
                 if os.path.islink(full):
                     record(full)

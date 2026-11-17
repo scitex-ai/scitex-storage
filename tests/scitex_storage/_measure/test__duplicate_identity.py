@@ -11,7 +11,9 @@ from scitex_storage._measure._duplicates import (
     size_groups,
 )
 
-native = pytest.mark.skipif(not shutil.which("fclones"), reason="requires native fclones")
+native = pytest.mark.skipif(
+    not shutil.which("fclones"), reason="requires native fclones"
+)
 
 
 def copies(tmp_path):
@@ -111,3 +113,25 @@ def test_size_candidates_deduplicate_overlapping_roots(tmp_path):
     result = size_groups([tmp_path, child])
     # Assert
     assert result == {}
+
+
+def test_uninspectable_group_does_not_leave_a_partial_total(tmp_path):
+    # Arrange
+    a, b = copies(tmp_path)
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_bytes(b"not a directory")
+    # Act
+    result = reclaimable_bytes([[a, b], [blocker / "member.bin"]])
+    # Assert
+    assert result is None
+
+
+def test_parent_symlink_loop_makes_savings_unknown(tmp_path):
+    # Arrange
+    a, b = copies(tmp_path)
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop, target_is_directory=True)
+    # Act
+    result = reclaimable_bytes([[a, b, loop / "member.bin"]])
+    # Assert
+    assert result is None

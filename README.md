@@ -133,8 +133,8 @@ scitex-storage find-duplicates ~/proj/old-scan
 ```
 
 ```bash
-# Move a path ASIDE into a reversible archive instead of deleting it, so a
-# rough cleanup call costs a `reclaim-restore`, not lost data. Dry-run by
+# Move a path ASIDE into an archive. Completed runs can be reversed with
+# `reclaim-restore` using their recorded source paths. Dry-run by
 # default; --yes to act; `reclaim --status` shows the restore rate (the
 # accuracy metric). Default archive is an adjacent atomic `.old/<ts>/`
 # (tidies, doesn't free inodes); --archive-root on another filesystem frees
@@ -143,10 +143,57 @@ scitex-storage reclaim ./node_modules ./build --yes
 scitex-storage reclaim-restore 2026-0717-154500-123456   # undo a run
 ```
 
+Cross-filesystem reclaim currently uses copy-and-delete (`shutil.move`), without
+independent checksum read-back or resumable transfer. A partial run may leave
+archive entries without a completed manifest; crash durability is not established.
+The requested resumable rsync transport remains outstanding. Completed file and
+directory round trips across two real devices are covered by
+`tests/scitex_storage/_transfer/test__reclaim_cross_filesystem.py`; those tests do
+not establish interruption recovery or crash safety.
+Reclaim's cross-filesystem capacity estimate reports unknown when source
+inspection fails; an unreadable or incomplete tree is not measured zero.
+Symlinks contribute their own metadata size, without following their targets.
+An unknown estimate is not a positive free-space verdict. The current transfer
+policy still attempts the copy when capacity is unknown; this correction does
+not add checksum verification, resumability or a new refusal policy. Controls:
+`tests/integration/scitex_storage/_transfer/test_reclaim_size_errors.py`.
+Public `plan_reclaim` also refuses source inspection errors rather than returning
+an empty or partial plan. The CLI reports a nonzero exit with a readable stderr
+error and no successful JSON output, before applying any moves. A genuinely
+empty readable source remains a valid zero-size plan. Controls:
+`tests/integration/scitex_storage/_transfer/test_reclaim_plan_errors.py`.
+Reclaim preflights source and destination boundaries: selecting a directory
+and its child, placing an archive inside any selected source tree, or nesting
+archive destinations is refused before the first move. Parent-directory aliases
+are resolved, while final symlinks remain separate link entries. The same checks
+apply to caller-created plans and restore manifests. These are preflight checks,
+not a guarantee against concurrent path changes. Controls:
+`tests/scitex_storage/_transfer/test__reclaim_paths.py`.
+Reclaim run IDs are single-use: an existing completed or restored manifest,
+or a started attempt, blocks reuse before any source moves. Cooperating apply
+processes use the existing nonblocking per-run advisory lock; distinct run IDs
+remain independent. Selecting a directory containing the run records or their
+access path (including a home with symlinked `.scitex`) is refused. Before
+moving, apply writes a separate `.started` intent
+beside the manifest, containing the plan. It remains after success or failure,
+so an interrupted attempt cannot be silently reused. Inspect that record and
+the files manually; automatic resume/recovery is not implemented. Completed
+and restored manifests use the existing flushed atomic JSON writer. Metadata
+write durability does not establish move durability or race-free source data.
+Controls: `tests/scitex_storage/_transfer/test__reclaim_runs.py`.
+Reclaim run IDs must be single non-empty filename components; path separators,
+`.` and `..` are refused before moves or manifest access. A manifest's recorded
+run ID must match the requested run before restoration.
+Restore checks every recorded archive and destination before its first move,
+including repeated archive references and colliding destinations;
+same-filesystem publication also refuses an occupied destination atomically.
+A whole restore run is not an atomic transaction or a crash-recovery protocol.
+
 ```bash
 # Apply a YAML move plan to a whole tree (reorganize a folder). The plan is
-# SIMULATED in order, so the dry run is exactly what --yes does, including
-# merges into folders that already exist. Identical files at a destination are
+# SIMULATED in order, including merges into folders that already exist.
+# Execution still depends on filesystem state at apply time.
+# Identical files at a destination are
 # duplicates (source copy archived); different content is a CONFLICT and the
 # whole plan is refused untouched. Junk (~$ locks, :Zone.Identifier, .tmp,
 # .bak), drops and duplicates are archived under <root>/.old/relocate/<run>/,
@@ -164,6 +211,17 @@ scitex-storage relocate plan.yaml --root ~/proj/docs          # dry-run
 scitex-storage relocate plan.yaml --root ~/proj/docs --yes    # apply
 scitex-storage relocate-restore 2026-1116-093000-123456       # undo a run
 ```
+
+Planning conflicts refuse the whole relocation before its first move. Execution
+is not an atomic transaction: if a later operation fails, completed operations
+remain in place without automatic rollback. Normal exception handling writes an
+incomplete manifest of those completed operations. Inspect that manifest and the
+filesystem before using `relocate-restore`, which reverses only recorded
+operations and refuses to overwrite. An interrupted operation may need separate
+recovery; manifest-write failure and process crashes are not covered by this
+guarantee. Real partial-run and recorded-operation recovery controls live in
+`tests/integration/scitex_storage/_transfer/test_relocate_partial_run.py`, alongside
+the planning-conflict controls in `tests/scitex_storage/_transfer/test__relocate.py`.
 
 ## Verified local moves
 
@@ -420,6 +478,72 @@ missing names add no space, and filesystem compression/reflinks are not measured
 See `tests/scitex_storage/_measure/test__duplicate_identity.py` for native
 link, inode and savings controls.
 
+A zero engine exit code alone does not establish a complete scan. Non-informational
+engine diagnostics (including unreadable-directory warnings) or a positive
+reported missing-file count raise an error; the CLI exits 1 without a successful
+JSON result, and the GUI shows the report as unavailable. Known timestamped
+`fclones` informational logs are accepted. Unknown diagnostics are conservatively
+refused. Skipped-file counts and explicit partial reports are not implemented.
+Owning protocol and CLI controls:
+`tests/integration/scitex_storage/_measure/test_engine_diagnostics.py`.
+
+With multiple roots, duplicate reports include a cross-root overlap matrix.
+For nested selected roots, each file belongs to the most specific canonical
+root; reversing parent/child arguments does not change the byte attribution.
+Rows and columns retain the requested root order. Owning controls:
+`tests/integration/scitex_storage/_measure/test_overlap_roots.py`.
+
+Use `--group-by parent` to distinguish copies in one immediate parent from
+copies across parents, or `--group-by top-level` to collect nested parents under
+each selected root's first child directory:
+
+```bash
+scitex-storage find-duplicates ~/proj/business --group-by parent --json
+scitex-storage find-duplicates dump-a dump-b --group-by top-level
+```
+
+Grouping retains the original content groups and adds `group_by` and
+`location_groups` to JSON only when requested. Each location group has a
+zero-based `group_index`, a `relationship` (`within-location` or
+`across-locations`), and sorted `locations` containing `directory` and `files`.
+Python callers can use `group_duplicates(groups, by="parent")` or
+`group_duplicates(groups, by="top-level", roots=roots)` after `find_duplicates`.
+The grouping helper checks file identity; it does not hash content again.
+Python callers can pass an absolute `time.monotonic()` `deadline` and a
+`cancelled` predicate (for example, `threading.Event.is_set`). Expiry or
+cancellation raises `TimeoutError` instead of returning partial location rows.
+Checks occur around metadata operations and group boundaries; they cannot
+interrupt an individual blocking filesystem call. Omitting these keywords
+preserves the existing grouping behavior. Owning budget controls:
+`tests/integration/scitex_storage/_measure/test_duplicate_grouping_budget.py`.
+
+Top-level ownership uses the most specific canonical selected root, independent
+of argument order. Files directly inside that root use the root itself as their
+location; deeper files use its first child directory. Directory aliases resolve
+to the same locations. Symlinks and repeated regular-file inodes do not become
+extra copies. Missing/uninspectable members fail rather than produce a partial
+breakdown; top-level members outside every selected root are refused.
+`--sizes-only` cannot be combined with `--group-by`: equal sizes do not establish
+equal content. Locations describe where copies are, without selecting a keeper
+or authorizing deletion, directory replacement or links. Owning controls:
+`tests/integration/scitex_storage/_measure/test_duplicate_locations.py` and
+`test_duplicate_locations_cli.py` in the same directory.
+
+The server-rendered Duplicates tab exposes the same parent/top-level grouping
+through its **Group paths by** selector. **Content groups** keeps the flat
+default. Updating this GET form preserves project scope and never resolves,
+deletes, moves or links files. The existing 50-group/10-path display limits and
+logical display paths apply to grouped reports. Grouping and savings checks
+cooperate with the scan budget inside the bounded worker; individual blocked
+filesystem calls remain an OS boundary. See `docs/gui-storage.md` for source
+contracts, qualification limits and owning controls. Availability in an
+installed/hosted service requires that service to adopt this source.
+
+The `--sizes-only` pre-pass reads metadata only. Entries that vanish during
+traversal are skipped. Other filesystem inspection errors propagate to Python
+callers; the CLI exits nonzero with a diagnostic on stderr. Owning controls:
+`tests/integration/scitex_storage/_measure/test_size_scan_errors.py`.
+
 Library callers can bound the actual hashing process with
 `find_duplicates(roots, timeout_s=60)`. A finite positive deadline kills and
 reaps `fclones` before raising `TimeoutError`; partial output is not treated as
@@ -541,7 +665,7 @@ scitex-storage restore SOURCE [--delete-remote] [--yes|-y] [--dry-run] [--json]
 |---|---|---|
 | `SOURCE` | (required) | Directory to archive / the original path to restore to |
 | `--to` | (required, `archive` only) | `nas` or `nas2` — the `~/.ssh/config` alias to sync to |
-| `--remote-path` | mirrors `SOURCE` under `~/scitex-storage-archive` | Explicit remote path override |
+| `--remote-path` | mirrors `SOURCE` under `~/scitex-storage-archive` | Explicit `/...` or `~/...` path; ambiguous relative paths are refused |
 | `--exclude PATTERN` | — | Glob to exclude from the sync (repeatable) |
 | `--checksum` / `--no-checksum` | on | Read every byte on both sides (rsync `--checksum`) before removing the local copy |
 | `--delete-remote` | off | `restore` only: remove the remote copy after a verified pull |

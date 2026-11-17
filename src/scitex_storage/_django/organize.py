@@ -25,7 +25,7 @@ from urllib.parse import quote
 # PS-233/PS-148 so a GUI import without the extra names the remedy instead
 # of a bare ModuleNotFoundError.
 try:
-    from django.http import HttpResponse, HttpResponseForbidden
+    from django.http import HttpResponse, HttpResponseBadRequest, HttpResponseForbidden
     from django.shortcuts import render
     from django.utils.translation import gettext_lazy as _
 except ImportError as exc:
@@ -321,8 +321,6 @@ def usage(request):
     if free_total > 0:
         fleet_items.append((str(_("Free")), free_total))
 
-    folder_items: list[tuple[str, int]] = []
-    folder_note = ""
     folder_volume = _selected_volume(request, user_volumes, statuses)
     if request.GET.get("volume") and folder_volume is None:
         return HttpResponseForbidden(str(_("That volume is not yours.")))
@@ -331,57 +329,8 @@ def usage(request):
         return HttpResponseForbidden(
             str(_("Select an available project to view its storage."))
         )
-    pscope = scope_ctx["pscope"]
-    folder_label = folder_volume.label if folder_volume is not None else ""
-    scan_root = None
-    if scope_ctx["scope"] == "project" and pscope is not None:
-        # Project scope wins over the volume picker: the breakdown answers
-        # "where do THIS project's bytes live", not "what is on the volume".
-        scan_root = pscope.project_dir
-        folder_label = scope_ctx["project_name"]
-    if folder_volume is not None or scan_root is not None:
-        try:
-            from scitex_storage import scan as _scan
-        except ImportError:
-            _scan = None
-        if _scan is None:
-            folder_note = str(
-                _("Per-folder breakdown needs the scitex-storage package.")
-            )
-        else:
-            root = scan_root if scan_root is not None else folder_volume.path
-            ok, result = _run_bounded(lambda: _scan(root), SCAN_TIMEOUT_S)
-            if ok:
-                top = result.by_size()[:8]
-                folder_items = [(c.name, c.size) for c in top]
-                rest = result.by_size()[8:]
-                rest_bytes = sum(c.size for c in rest)
-                if rest_bytes > 0:
-                    folder_items.append((str(_("Other")), rest_bytes))
-                if result.children and not folder_items:
-                    folder_note = str(_("Everything under this volume is empty."))
-            else:
-                err = result
-                name = type(err).__name__
-                if name == "MissingSystemDependencyError":
-                    folder_note = str(
-                        _(
-                            "Per-folder breakdown is unavailable here: "
-                            "the `fd` binary is not installed on this host. "
-                            "Volume totals above are unaffected."
-                        )
-                    )
-                elif isinstance(err, TimeoutError):
-                    folder_note = str(
-                        _(
-                            "Per-folder scan timed out; "
-                            "filesystem capacity is shown separately."
-                        )
-                    )
-                else:
-                    folder_note = str(
-                        _("Per-folder scan failed: %(err)s") % {"err": err}
-                    )
+    # Folder traversal belongs to the separately loaded, sandboxed chart.
+    # Rendering this parent must not duplicate its potentially slow scan.
 
     from urllib.parse import urlencode
 
@@ -398,10 +347,6 @@ def usage(request):
         "statuses": statuses,
         "reachable": volumes.REACHABLE,
         "folder_volume": folder_volume,
-        "folder_label": folder_label,
-        "folder_segments": donut_segments(folder_items),
-        "folder_total": sum(v for _label, v in folder_items),
-        "folder_note": folder_note,
         "fleet_available": _fleet_views_available(),
     }
     return render(request, "scitex_storage/organize.html", context)
@@ -502,6 +447,9 @@ def duplicates(request):
     """Read-only duplicate report. No resolve/delete action exists by design."""
     from . import volumes
 
+    group_by = request.GET.get("group_by", "")
+    if group_by not in {"", "parent", "top-level"}:
+        return HttpResponseBadRequest(str(_("Unsupported duplicate grouping.")))
     user_volumes = _user_volumes(request)
     statuses = volumes.measure_all(user_volumes)
     roots = [
@@ -542,75 +490,59 @@ def duplicates(request):
     if not roots:
         unavailable_reason = str(_("No reachable volumes to scan."))
     else:
-        try:
-            from scitex_storage import find_duplicates as _find
-            from scitex_storage._measure._duplicates import (
-                reclaimable_bytes as _reclaimable,
-            )
-        except ImportError:
-            _find = None
-            _reclaimable = None
-        if _find is None:
-            unavailable_reason = str(
-                _("Duplicate detection needs the scitex-storage package.")
-            )
-        else:
-            ok, result = _run_bounded(
-                lambda: _find(
-                    roots, max_depth=DUP_MAX_DEPTH, timeout_s=DUPLICATES_TIMEOUT_S
-                ),
-                DUPLICATES_TIMEOUT_S + 2,
-            )
-            if ok:
-                scanned = True
-                group_total = len(result)
-                truncated = group_total > 50
-                import os
+        from ._duplicate_report import _build_duplicate_report
 
-                for group in result[:50]:
-                    size = 0
-                    for candidate in group:
-                        try:
-                            size = os.lstat(candidate).st_size
-                            break
-                        except OSError:
-                            continue
-                    groups.append(
-                        {
-                            "paths": [visible_path(p) for p in group[:10]],
-                            "extra": max(0, len(group) - 10),
-                            "count": len(group),
-                            "size": size,
-                        }
+        cancelled = threading.Event()
+        ok, result = _run_bounded(
+            lambda: _build_duplicate_report(
+                roots,
+                group_by,
+                visible_path,
+                depth=DUP_MAX_DEPTH,
+                timeout_s=DUPLICATES_TIMEOUT_S,
+                cancelled=cancelled.is_set,
+            ),
+            DUPLICATES_TIMEOUT_S + 2,
+        )
+        if ok:
+            scanned = True
+            groups = result["groups"]
+            group_total = result["group_total"]
+            truncated = result["truncated"]
+            reclaimable = result["reclaimable"]
+        else:
+            cancelled.set()
+            err = result
+            if type(err).__name__ == "MissingSystemDependencyError":
+                unavailable_reason = str(
+                    _(
+                        "Duplicate detection is unavailable here: "
+                        "the `fclones` binary is not installed on this host. "
+                        "Run `scitex-storage find-duplicates <dir>` on a host "
+                        "that has it; this report stays read-only either way."
                     )
-                try:
-                    reclaimable = _reclaimable(result) if _reclaimable else None
-                except OSError:
-                    reclaimable = None
+                )
+            elif isinstance(err, TimeoutError):
+                unavailable_reason = str(
+                    _("Duplicate scan timed out on these volumes.")
+                )
+            elif isinstance(err, ImportError):
+                unavailable_reason = str(
+                    _("Duplicate detection needs the scitex-storage package.")
+                )
             else:
-                err = result
-                if type(err).__name__ == "MissingSystemDependencyError":
-                    unavailable_reason = str(
-                        _(
-                            "Duplicate detection is unavailable here: "
-                            "the `fclones` binary is not installed on this host. "
-                            "Run `scitex-storage find-duplicates <dir>` on a host "
-                            "that has it; this report stays read-only either way."
-                        )
+                unavailable_reason = str(
+                    _(
+                        "Duplicate scan could not be completed. Check that the "
+                        "selected storage is available and try again."
                     )
-                elif isinstance(err, TimeoutError):
-                    unavailable_reason = str(
-                        _("Duplicate scan timed out on these volumes.")
-                    )
-                else:
-                    unavailable_reason = str(
-                        _("Duplicate scan failed: %(err)s") % {"err": err}
-                    )
+                )
 
     context = {
         **_base_context("duplicates"),
         **scope_ctx,
         "groups": groups,
+        "group_by": group_by,
         "group_total": group_total,
         "truncated": truncated,
         "reclaimable": reclaimable,
@@ -625,6 +557,7 @@ def duplicates(request):
 # remain public CLI/Python APIs; the GUI never exposes physical host aliases.
 from .logical_move import move  # noqa: E402
 from .logical_move import move_apply as move_apply  # noqa: E402
+
 
 def _reorganize(request):
     from . import reorganize

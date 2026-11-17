@@ -24,15 +24,18 @@ DESTINATION IS A PARAMETER, and it is the one real decision here:
 * DEFAULT — an adjacent ``.old/<timestamp>/`` beside each source (the
   constitution's "archive superseded files to ``.old/<timestamp>/`` instead
   of deleting"). Same filesystem, so the move is an atomic ``os.rename``:
-  instant regardless of size, and it cannot half-complete. This serves the
+  instant regardless of size; a successful rename publishes the new name
+  atomically. This serves the
   *migration/reorg* use — move the ambiguous mass aside, test the new shape
   on a clean slate — but note it does NOT reduce the source filesystem's
   inode or space usage: the files are still there, just relocated.
 * OVERRIDE (``archive_root``) — any directory, including one on a DIFFERENT
   filesystem with headroom. That IS inode/space relief (the files leave the
   full filesystem), at the cost of atomicity: a cross-filesystem move is a
-  copy-then-delete (``shutil.move``), which can be interrupted, so it is
-  verified before the source is removed.
+  copy-then-delete (``shutil.move``). It is not resumable and performs no
+  independent checksum read-back before removing the copied source. The
+  requested resumable rsync transport remains outstanding; this path must
+  not be described as verified or crash-durable.
 
 So one mechanism serves both jobs; WHERE you point it decides which. The
 verb never guesses the destination — the caller states it, because "free
@@ -43,7 +46,9 @@ NOT in scope here, deliberately: the *classifier* (which paths are
 disposable) is a separate, advisory concern — this module moves exactly the
 paths it is handed, nothing inferred. And DELETE is a separate, later verb
 against things that have already sat archived and unmissed; this module only
-ever moves, never unlinks user data. The archive is the safety buffer
+ever relocates user data, rather than providing archive deletion. A
+cross-filesystem move does unlink successfully copied source entries. The
+archive is the safety buffer
 between "moved aside" and "gone", and collapsing the two would remove the
 only thing that makes a rough decision safe.
 """
@@ -53,9 +58,11 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from ._reclaim_runs import _claim_run, _require_unused_run, _validate_record_location
 from ._sweep import InsufficientSpaceError, check_space, free_bytes
 
 #: Where reclaim manifests live. Resolved per-call (not a module constant) so
@@ -64,6 +71,17 @@ _MANIFEST_SUBDIR = "~/.scitex/scitex-storage/runtime/reclaim-manifests"
 
 #: The adjacent-archive directory name (the constitution's ``.old``).
 _ADJACENT_ARCHIVE_DIRNAME = ".old"
+
+
+def _validate_run_id(run_id: str) -> None:
+    """Keep a caller-supplied run identifier inside its archive/manifest root."""
+    if (
+        not isinstance(run_id, str)
+        or not run_id
+        or run_id in {".", ".."}
+        or any(character in run_id for character in ("/", "\\", "\x00"))
+    ):
+        raise ValueError("run_id must be one non-empty filename component, not . or ..")
 
 
 def _manifest_dir() -> Path:
@@ -114,6 +132,7 @@ class ReclaimManifest:
 
     @classmethod
     def from_dict(cls, data: dict) -> ReclaimManifest:
+        _validate_run_id(data["run_id"])
         entries = [ReclaimEntry(**e) for e in data.get("entries", [])]
         return cls(
             run_id=data["run_id"],
@@ -130,28 +149,28 @@ def _measure(path: Path) -> tuple[int, int]:
     A file counts as itself; a directory is walked (stat-only, symlinks never
     followed — a symlink is one inode, its target is not ours to count). Kept
     local and dependency-free: reclaim must work where ``fd`` is absent, and
-    a reclaim target is being moved, not scanned at scale.
+    a reclaim target is being moved, not scanned at scale. Inspection errors
+    propagate: a missing or inaccessible entry cannot become a partial plan.
     """
-    if path.is_symlink() or path.is_file():
-        try:
-            return path.lstat().st_size, 1
-        except OSError:
-            return 0, 1
+
+    def walk_error(error: OSError) -> None:
+        raise error
+
+    info = path.lstat()
+    if stat.S_ISLNK(info.st_mode) or stat.S_ISREG(info.st_mode):
+        return info.st_size, 1
     total = 0
     count = 0
-    for root, dirs, files in os.walk(path):
+    for root, dirs, files in os.walk(path, onerror=walk_error):
         # Do not descend into symlinked dirs (os.walk already won't unless
         # followlinks=True, which we never pass) and count them as leaves.
         for name in files:
             fp = Path(root) / name
-            try:
-                total += fp.lstat().st_size
-            except OSError:
-                pass
+            total += fp.lstat().st_size
             count += 1
         for name in dirs:
             dp = Path(root) / name
-            if dp.is_symlink():
+            if stat.S_ISLNK(dp.lstat().st_mode):
                 count += 1  # a symlinked dir is one inode, not a descent
     return total, count
 
@@ -164,11 +183,28 @@ def _archive_destination(source: Path, run_id: str, archive_root: str | None) ->
     The ``run_id`` layer groups one invocation's moves and prevents two
     sources with the same basename from colliding across runs.
     """
+    _validate_run_id(run_id)
     if archive_root is None:
         base = source.parent / _ADJACENT_ARCHIVE_DIRNAME / run_id
     else:
         base = Path(archive_root).expanduser() / run_id
     return base / source.name
+
+
+def _validate_destinations(entries: list[ReclaimEntry]) -> None:
+    """Reject ambiguous or occupied archive names before any source moves."""
+    from ._reclaim_paths import _validate_path_boundaries
+
+    seen = set()
+    for entry in entries:
+        destination = Path(entry.archived)
+        identity = destination.resolve()
+        if identity in seen:
+            raise ValueError(f"Reclaim destinations collide: {destination}")
+        seen.add(identity)
+        if destination.exists() or destination.is_symlink():
+            raise FileExistsError(f"Reclaim destination is occupied: {destination}")
+    _validate_path_boundaries(entries)
 
 
 def plan_reclaim(
@@ -183,8 +219,16 @@ def plan_reclaim(
     nothing. Fail-loud on a missing source or a source that is itself the
     archive area — a bad path is never silently skipped. ``run_id`` is
     supplied by the caller (a timestamp, typically) so the value is explicit
-    and testable rather than wall-clock-dependent inside here.
+    and testable rather than wall-clock-dependent inside here. It must be
+    a single non-empty filename component, without path separators.
+    Nested sources/destinations and archives inside selected source trees are
+    refused before moving anything. Parent aliases resolve; final links remain
+    distinct entries. These are preflight checks, not concurrent-path protection.
+    Any source inspection failure aborts planning before a plan is returned;
+    successful plans contain measured values, never unknown-as-zero placeholders.
     """
+    _validate_run_id(run_id)
+    _require_unused_run(_manifest_path(run_id))
     plan = ReclaimPlan(run_id=run_id, archive_root=archive_root)
     for raw in paths:
         source = Path(raw).expanduser()
@@ -205,6 +249,8 @@ def plan_reclaim(
                 file_count=count,
             )
         )
+    _validate_destinations(plan.entries)
+    _validate_record_location(_manifest_path(run_id), plan.entries)
     return plan
 
 
@@ -215,8 +261,8 @@ def _same_filesystem(a: Path, b: Path) -> bool:
     Used only to decide whether a move can be an atomic ``os.rename``; the
     destination usually does not exist yet, so its device is taken from the
     closest ancestor that does. A False result (or an un-stattable path)
-    simply routes through the verified copy path, which is always correct,
-    only slower — so this can be conservative without being wrong.
+    routes through the cross-filesystem copy path; that path does not provide
+    independent checksum verification or resumability.
     """
     try:
         dev_a = os.lstat(a).st_dev
@@ -236,16 +282,19 @@ def _same_filesystem(a: Path, b: Path) -> bool:
 def _move_one(entry: ReclaimEntry) -> None:
     """Move a single source to its archive destination, reversibly.
 
-    Same filesystem -> atomic ``os.rename``. Cross filesystem -> ``shutil.move``
-    (copy then delete), which is not atomic; the copy is left in place if it
-    fails partway (the source is only removed by shutil AFTER a successful
-    copy), so a crash never loses data, at worst duplicates it.
+    Same filesystem -> atomic no-overwrite rename. Cross filesystem uses
+    ``shutil.move`` (copy then delete), without resumability or independent
+    checksum read-back. A copy error can leave partial destination data;
+    interruption of a directory's later removal can leave a partial source.
+    No crash-durability guarantee is established by this implementation.
     """
     src = Path(entry.original)
     dst = Path(entry.archived)
     dst.parent.mkdir(parents=True, exist_ok=True)
     if _same_filesystem(src, dst.parent):
-        os.rename(src, dst)
+        from ._durable import rename_noreplace
+
+        rename_noreplace(src, dst)
         return
 
     # CROSS-FILESYSTEM: this is the branch that actually RELIEVES a full
@@ -253,10 +302,9 @@ def _move_one(entry: ReclaimEntry) -> None:
     # the destination could hold what it was about to copy. `sweep` learned
     # this (card sweep-writes-tar-to-source-filesystem-20260722): a verb
     # that relieves a constrained resource must measure the resource it
-    # depends on. shutil.move copies THEN deletes, so a destination that
-    # fills mid-copy loses nothing -- but it leaves a partial copy on a
-    # filesystem that is now also full, which is a bad place to discover
-    # the problem.
+    # depends on. shutil.move normally removes the source only after its
+    # copy call returns. A full destination can leave a partial copy; this
+    # capacity check is not independent content or crash verification.
     needed = _tree_size(src)
     verdict = check_space(needed, free_bytes(dst.parent))
     if verdict.ok is False:
@@ -265,10 +313,9 @@ def _move_one(entry: ReclaimEntry) -> None:
             f"Source untouched. Point --archive-root at a filesystem with "
             f"room, or free space on this one."
         )
-    # ok is None (destination unstat-able) proceeds: shutil.move is
-    # copy-then-delete, so the failure mode is a partial copy rather than
-    # data loss, and refusing a move because df was unreadable would block
-    # the relief this verb exists to provide.
+    # ok is None (destination unstat-able) preserves the existing attempt
+    # policy. Unknown capacity is not evidence of sufficient space or of a
+    # verified/durable copy.
     shutil.move(str(src), str(dst))
 
 
@@ -276,19 +323,28 @@ def _tree_size(path: Path) -> int | None:
     """Bytes held by ``path``, or None when it cannot be measured.
 
     None rather than 0: zero is a measurement ("nothing to move"), while
-    an unreadable tree is an unanswered question, and check_space must be
-    able to tell them apart.
+    an unreadable or incomplete tree is an unanswered question. Symlinks are
+    measured as links without following their targets. This is an estimate,
+    not a transfer verification or a guarantee against later filesystem changes.
     """
+
+    def walk_error(error: OSError) -> None:
+        raise error
+
     try:
-        if path.is_file():
-            return path.stat().st_size
+        info = path.lstat()
+        if stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+            return info.st_size
+        if not stat.S_ISDIR(info.st_mode):
+            return None
         total = 0
-        for root, _dirs, files in os.walk(path, followlinks=False):
+        for root, dirs, files in os.walk(path, followlinks=False, onerror=walk_error):
             for name in files:
-                try:
-                    total += os.lstat(os.path.join(root, name)).st_size
-                except OSError:
-                    continue
+                total += os.lstat(os.path.join(root, name)).st_size
+            for name in dirs:
+                info = os.lstat(os.path.join(root, name))
+                if stat.S_ISLNK(info.st_mode):
+                    total += info.st_size
         return total
     except OSError:
         return None
@@ -297,22 +353,29 @@ def _tree_size(path: Path) -> int | None:
 def apply_reclaim(plan: ReclaimPlan) -> ReclaimManifest:
     """Execute a reclaim plan: move every entry, then write the manifest.
 
+    All destination names are checked before any move, including old plans.
     The manifest is written LAST, after all moves succeed, and records the
     exact original->archived mapping so :func:`restore_reclaim` is precise.
     A move that raises aborts the run and propagates — entries already moved
     stay in the archive (recoverable), and no manifest is written for a
-    partial run, so a partial run is visible as "files in .old with no
-    manifest" rather than silently half-recorded.
+    partial run. A separate started record retains the plan before any move;
+    completed or started run IDs cannot be reused. This does not resume a run.
     """
-    for entry in plan.entries:
-        _move_one(entry)
-    manifest = ReclaimManifest(
-        run_id=plan.run_id,
-        reclaimed_at=_now(),
-        archive_root=plan.archive_root,
-        entries=list(plan.entries),
-    )
-    _write_manifest(manifest)
+    _validate_run_id(plan.run_id)
+    _require_unused_run(_manifest_path(plan.run_id))
+    _validate_destinations(plan.entries)
+    _validate_record_location(_manifest_path(plan.run_id), plan.entries)
+    with _claim_run(_manifest_path(plan.run_id), plan):
+        _validate_destinations(plan.entries)
+        for entry in plan.entries:
+            _move_one(entry)
+        manifest = ReclaimManifest(
+            run_id=plan.run_id,
+            reclaimed_at=_now(),
+            archive_root=plan.archive_root,
+            entries=list(plan.entries),
+        )
+        _write_manifest(manifest)
     return manifest
 
 
@@ -323,13 +386,15 @@ def _now() -> float:
 
 
 def _manifest_path(run_id: str) -> Path:
+    _validate_run_id(run_id)
     return _manifest_dir() / f"{run_id}.json"
 
 
 def _write_manifest(manifest: ReclaimManifest) -> None:
+    from ._durable import atomic_json
+
     path = _manifest_path(manifest.run_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest.to_dict(), indent=2))
+    atomic_json(path, manifest.to_dict())
 
 
 def load_manifest(run_id: str) -> ReclaimManifest:
@@ -340,7 +405,10 @@ def load_manifest(run_id: str) -> ReclaimManifest:
             f"no reclaim manifest for run {run_id!r} at {path} "
             "-- was anything reclaimed under this run id?"
         )
-    return ReclaimManifest.from_dict(json.loads(path.read_text()))
+    manifest = ReclaimManifest.from_dict(json.loads(path.read_text()))
+    if manifest.run_id != run_id:
+        raise ValueError("reclaim manifest run_id does not match the requested run_id")
+    return manifest
 
 
 def list_manifests() -> list[ReclaimManifest]:
@@ -365,24 +433,37 @@ def restore_reclaim(run_id: str) -> ReclaimManifest:
     is the classifier's error rate, recorded rather than estimated (see
     :func:`restore_rate`). Fail-loud if an original path is now occupied — a
     restore must never overwrite something that took the vacated spot.
+    All recorded destinations and archived entries are preflighted before
+    the first move. Same-filesystem publication also refuses a racing
+    occupant. This is not an atomic transaction across the entire run.
     """
     manifest = load_manifest(run_id)
-    for entry in manifest.entries:
-        src = Path(entry.archived)
-        dst = Path(entry.original)
+    entries = [
+        ReclaimEntry(entry.archived, entry.original, entry.size_bytes, entry.file_count)
+        for entry in manifest.entries
+    ]
+    _validate_destinations(entries)
+    seen_archives = set()
+    for entry in entries:
+        src = Path(entry.original)
         if not src.exists() and not src.is_symlink():
             raise FileNotFoundError(
                 f"archived copy missing, cannot restore: {src} "
                 "(was it deleted or moved out of the archive?)"
             )
-        if dst.exists() or dst.is_symlink():
-            raise FileExistsError(
-                f"refusing to restore over an existing path: {dst} "
-                "(something occupied the original location since reclaim)"
-            )
+        # Preserve distinct final symlinks even when they share a target.
+        identity = src.parent.resolve() / src.name
+        if identity in seen_archives:
+            raise ValueError(f"Archive is referenced more than once: {src}")
+        seen_archives.add(identity)
+    for entry in entries:
+        src = Path(entry.original)
+        dst = Path(entry.archived)
         dst.parent.mkdir(parents=True, exist_ok=True)
         if _same_filesystem(src, dst.parent):
-            os.rename(src, dst)
+            from ._durable import rename_noreplace
+
+            rename_noreplace(src, dst)
         else:
             shutil.move(str(src), str(dst))
     manifest.restored = True

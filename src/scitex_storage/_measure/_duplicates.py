@@ -37,8 +37,9 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ._scan import MissingSystemDependencyError
 from ._duplicate_identity import _file_key, _regular_copies, reclaimable_bytes
+from ._duplicate_protocol import _check_engine_diagnostics, _reported_groups
+from ._scan import MissingSystemDependencyError
 
 if TYPE_CHECKING:
     from ._classify import Signal
@@ -89,8 +90,10 @@ def find_duplicates(
     ``None`` preserves the existing unbounded CLI/library behavior.
 
     Final symlinks and repeated regular-file inodes are excluded from groups.
-    A reported path that can no longer be inspected raises RuntimeError rather
-    than silently turning incomplete identity evidence into a clean scan.
+    Engine warnings/unknown diagnostics or a positive missing-file count raise
+    RuntimeError even when the engine exits zero; only known informational logs
+    are accepted. A reported path that can no longer be inspected raises
+    RuntimeError rather than silently treating incomplete evidence as clean.
 
     Read-only in the sense that nothing is moved, linked, or deleted —
     ``fclones group`` (not ``fclones link``/``remove``/``dedupe``) only
@@ -135,11 +138,12 @@ def find_duplicates(
             f"{stderr or '(no stderr output)'}"
         )
 
+    _check_engine_diagnostics(proc.stderr)
     payload = json.loads(proc.stdout.decode("utf-8"))
     groups: list[list[Path]] = []
-    for group in payload.get("groups", []):
+    for files in _reported_groups(payload):
         try:
-            copies, _ = _regular_copies(group.get("files", []))
+            copies, _ = _regular_copies(files)
         except OSError as exc:
             raise RuntimeError(
                 "A duplicate file changed or could not be inspected; run the scan again"
@@ -198,9 +202,9 @@ def duplicates_signal(groups: list[list[Path]] | None) -> "Signal":
         return Signal(
             "duplicates",
             COULD_NOT_LOOK,
-            f"{len(groups)} duplicate group(s) found but NONE could be "
-            f"sized (every member unreadable) -- the reclaim cannot be "
-            f"quantified, so it must not be reported as a number",
+            f"{len(groups)} duplicate group(s) found but size/identity "
+            f"evidence is unavailable or inconsistent -- the reclaim cannot "
+            f"be quantified, so it must not be reported as a number",
         )
     redundant = sum(len(g) - 1 for g in groups)
     return Signal(
@@ -234,6 +238,43 @@ def _resolve_dir_roots(roots: list[str | Path]) -> list[Path]:
     return resolved
 
 
+def _collect_file_sizes(
+    directory: str,
+    depth: int,
+    max_depth: int | None,
+    by_size: dict[int, list[Path]],
+    seen_files: set,
+) -> None:
+    """Collect stat-only sizes into caller-owned per-scan containers."""
+    try:
+        with os.scandir(directory) as it:
+            entries = list(it)
+    except FileNotFoundError:
+        return
+    for entry in entries:
+        try:
+            if entry.is_symlink():
+                continue
+            if entry.is_dir(follow_symlinks=False):
+                if max_depth is None or depth < max_depth:
+                    _collect_file_sizes(
+                        entry.path, depth + 1, max_depth, by_size, seen_files
+                    )
+            elif entry.is_file(follow_symlinks=False):
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                    size = info.st_size
+                except FileNotFoundError:
+                    continue
+                path = Path(entry.path)
+                key = _file_key(path, info)
+                if key not in seen_files:
+                    seen_files.add(key)
+                    by_size.setdefault(size, []).append(path)
+        except FileNotFoundError:
+            continue
+
+
 def size_groups(
     roots: list[str | Path], max_depth: int | None = None
 ) -> dict[int, list[Path]]:
@@ -249,39 +290,16 @@ def size_groups(
     :func:`scitex_storage.scan` -- no network-mount storms); symlinked
     files are skipped. Only sizes with 2+ files are returned, biggest
     size first. Empty dict means no candidates, not an error.
+
+    Entries that vanish during traversal are skipped. Other filesystem
+    inspection errors propagate as OSError; an incomplete walk is not
+    returned as a successful candidate dictionary.
     """
     by_size: dict[int, list[Path]] = {}
     seen_files = set()
 
-    def walk(directory: str, depth: int) -> None:
-        try:
-            with os.scandir(directory) as it:
-                entries = list(it)
-        except OSError:
-            return
-        for entry in entries:
-            try:
-                if entry.is_symlink():
-                    continue
-                if entry.is_dir(follow_symlinks=False):
-                    if max_depth is None or depth < max_depth:
-                        walk(entry.path, depth + 1)
-                elif entry.is_file(follow_symlinks=False):
-                    try:
-                        info = entry.stat(follow_symlinks=False)
-                        size = info.st_size
-                    except OSError:
-                        continue
-                    path = Path(entry.path)
-                    key = _file_key(path, info)
-                    if key not in seen_files:
-                        seen_files.add(key)
-                        by_size.setdefault(size, []).append(path)
-            except OSError:
-                continue
-
     for root in _resolve_dir_roots(roots):
-        walk(str(root), 0)
+        _collect_file_sizes(str(root), 0, max_depth, by_size, seen_files)
     return {
         size: sorted(paths)
         for size, paths in sorted(by_size.items(), reverse=True)
@@ -311,13 +329,17 @@ def overlap_bytes(
     under root B -- the "how much of dump A is inside dump B" answer for
     same-content-different-layout trees, where a name-based diff reports
     zero overlap. ``matrix[A][A]`` is the redundant bytes strictly inside
-    A. Every pair is present (0 when nothing overlaps); sizes come from
+    A. For nested selected roots, each file belongs to the most specific
+    canonical root, independent of argument order. Matrix rows and columns
+    retain the caller's root order. Every pair is present (0 when nothing
+    overlaps); sizes come from
     ``lstat`` on a readable member, like :func:`reclaimable_bytes`.
     """
     resolved = [Path(r).expanduser().resolve() for r in roots]
+    ownership_roots = sorted(resolved, key=lambda root: len(root.parts), reverse=True)
 
     def owner(path: Path) -> str | None:
-        for root in resolved:
+        for root in ownership_roots:
             if path == root or root in path.parents:
                 return str(root)
         return None

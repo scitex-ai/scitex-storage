@@ -8,6 +8,15 @@ tags: [scitex-storage-gui-shared-elements]
 
 # GUI shared-element rules (scitex-sdk)
 
+- Duplicates uses a native GET selector and SDK form/button classes for flat,
+  immediate-folder and top-level-folder reports. Preserve explicit project
+  scope, logical display paths and the 50-group/10-path display limits. Domain
+  grouping belongs to `group_duplicates`, not a template/host implementation.
+  The report worker bounds grouping and savings cooperatively alongside the
+  existing 60-second hashing deadline; no blocked-syscall preemption or deployed
+  host availability is implied. Tests:
+  `tests/scitex_storage/_django/test__duplicate_report.py` and
+  `tests/integration/scitex_storage/_measure/test_duplicate_report_budget.py`.
 - Templates extend `scitex_sdk/app/app_shell.html` and explicitly link the
   shared styles their content uses. Use the SDK `app_static` helper for asset
   content hashes, as `_app_header.html` does for SDK header CSS and JS. The
