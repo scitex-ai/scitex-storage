@@ -36,6 +36,9 @@ export LC_ALL=C.UTF-8 LANG=C.UTF-8
 TMPDIR="/tmp/build-scitex_storage-${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-0}-$V"
 export TMPDIR
 rm -rf "$TMPDIR"
+# Container /tmp is the host /tmp: remove the scratch on every exit so it never
+# accumulates on the runner host (exit status is unchanged by the trap).
+trap 'rm -rf --one-file-system -- "$TMPDIR"' EXIT
 mkdir -p "$TMPDIR/site" "$TMPDIR/uv-cache"
 
 # The compute-node $HOME is RO inside the container — point every cache the
