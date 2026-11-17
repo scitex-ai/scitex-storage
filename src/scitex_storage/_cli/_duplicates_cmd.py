@@ -68,7 +68,10 @@ def find_duplicates_cmd(
     sizes_only: bool,
 ) -> None:
     if sizes_only:
-        by_size = _size_groups(list(paths), max_depth=max_depth)
+        try:
+            by_size = _size_groups(list(paths), max_depth=max_depth)
+        except OSError as exc:
+            raise click.ClickException(f"Size-only scan failed: {exc}") from exc
         if as_json:
             click.echo(json.dumps({
                 "shared_sizes": len(by_size),
@@ -85,7 +88,9 @@ def find_duplicates_cmd(
         return
     try:
         groups = _find_duplicates(list(paths), max_depth=max_depth)
-    except (MissingSystemDependencyError, RuntimeError, json.JSONDecodeError) as exc:
+    except (
+        MissingSystemDependencyError, RuntimeError, json.JSONDecodeError, OSError
+    ) as exc:
         raise click.ClickException(str(exc)) from exc
     overlap = (
         _overlap_bytes(groups, list(paths)) if len(paths) >= 2 else {}

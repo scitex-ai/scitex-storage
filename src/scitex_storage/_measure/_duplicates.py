@@ -235,6 +235,43 @@ def _resolve_dir_roots(roots: list[str | Path]) -> list[Path]:
     return resolved
 
 
+def _collect_file_sizes(
+    directory: str,
+    depth: int,
+    max_depth: int | None,
+    by_size: dict[int, list[Path]],
+    seen_files: set,
+) -> None:
+    """Collect stat-only sizes into caller-owned per-scan containers."""
+    try:
+        with os.scandir(directory) as it:
+            entries = list(it)
+    except FileNotFoundError:
+        return
+    for entry in entries:
+        try:
+            if entry.is_symlink():
+                continue
+            if entry.is_dir(follow_symlinks=False):
+                if max_depth is None or depth < max_depth:
+                    _collect_file_sizes(
+                        entry.path, depth + 1, max_depth, by_size, seen_files
+                    )
+            elif entry.is_file(follow_symlinks=False):
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                    size = info.st_size
+                except FileNotFoundError:
+                    continue
+                path = Path(entry.path)
+                key = _file_key(path, info)
+                if key not in seen_files:
+                    seen_files.add(key)
+                    by_size.setdefault(size, []).append(path)
+        except FileNotFoundError:
+            continue
+
+
 def size_groups(
     roots: list[str | Path], max_depth: int | None = None
 ) -> dict[int, list[Path]]:
@@ -250,39 +287,16 @@ def size_groups(
     :func:`scitex_storage.scan` -- no network-mount storms); symlinked
     files are skipped. Only sizes with 2+ files are returned, biggest
     size first. Empty dict means no candidates, not an error.
+
+    Entries that vanish during traversal are skipped. Other filesystem
+    inspection errors propagate as OSError; an incomplete walk is not
+    returned as a successful candidate dictionary.
     """
     by_size: dict[int, list[Path]] = {}
     seen_files = set()
 
-    def walk(directory: str, depth: int) -> None:
-        try:
-            with os.scandir(directory) as it:
-                entries = list(it)
-        except OSError:
-            return
-        for entry in entries:
-            try:
-                if entry.is_symlink():
-                    continue
-                if entry.is_dir(follow_symlinks=False):
-                    if max_depth is None or depth < max_depth:
-                        walk(entry.path, depth + 1)
-                elif entry.is_file(follow_symlinks=False):
-                    try:
-                        info = entry.stat(follow_symlinks=False)
-                        size = info.st_size
-                    except OSError:
-                        continue
-                    path = Path(entry.path)
-                    key = _file_key(path, info)
-                    if key not in seen_files:
-                        seen_files.add(key)
-                        by_size.setdefault(size, []).append(path)
-            except OSError:
-                continue
-
     for root in _resolve_dir_roots(roots):
-        walk(str(root), 0)
+        _collect_file_sizes(str(root), 0, max_depth, by_size, seen_files)
     return {
         size: sorted(paths)
         for size, paths in sorted(by_size.items(), reverse=True)

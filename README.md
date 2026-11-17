@@ -441,6 +441,11 @@ root; reversing parent/child arguments does not change the byte attribution.
 Rows and columns retain the requested root order. Owning controls:
 `tests/integration/scitex_storage/_measure/test_overlap_roots.py`.
 
+The `--sizes-only` pre-pass reads metadata only. Entries that vanish during
+traversal are skipped. Other filesystem inspection errors propagate to Python
+callers; the CLI exits nonzero with a diagnostic on stderr. Owning controls:
+`tests/integration/scitex_storage/_measure/test_size_scan_errors.py`.
+
 Library callers can bound the actual hashing process with
 `find_duplicates(roots, timeout_s=60)`. A finite positive deadline kills and
 reaps `fclones` before raising `TimeoutError`; partial output is not treated as
