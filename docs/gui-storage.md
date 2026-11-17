@@ -45,6 +45,14 @@ files are not assumed to occupy space. These are logical file bytes, not a
 measurement of compression, sparse allocation or reflink sharing. The owning
 controls are `tests/scitex_storage/_measure/test__duplicate_identity.py`.
 
+The optional parent/top-level location breakdown currently exists in the public
+Python/CLI interfaces, not this server-rendered tab. Its Python helper accepts
+cooperative `deadline` and `cancelled` controls for a future bounded host adapter;
+that availability does not enable the UI. The GUI's existing 60-second hashing
+deadline, owner/project scope, truncation and flat report remain unchanged.
+Metadata checks cannot interrupt a blocking filesystem call, so these helper
+controls are not proof of a hard request/worker lifetime bound.
+
 ## Logical tiers and estimates
 
 `SCITEX_STORAGE_TIER_BINDINGS` maps a logical hot/warm/cool/cold name to one

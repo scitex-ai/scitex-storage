@@ -12,18 +12,25 @@ def _file_key(path: Path, info: os.stat_result):
     return (info.st_dev, info.st_ino) if info.st_ino else ("path", path.resolve())
 
 
-def _regular_copies(paths, *, ignore_missing=False):
-    """Keep regular-file inodes once; only ignore genuinely vanished paths."""
+def _regular_copies(paths, *, ignore_missing=False, checkpoint=None):
+    """Keep regular-file inodes once; only ignore genuinely vanished paths.
+
+    Optional checkpoint calls may abort before or after metadata reads.
+    """
     seen = set()
     copies = []
     observed = False
     for path in sorted(set(map(Path, paths))):
+        if checkpoint is not None:
+            checkpoint()
         try:
             info = path.lstat()
         except FileNotFoundError:
             if ignore_missing:
                 continue
             raise
+        if checkpoint is not None:
+            checkpoint()
         observed = True
         if not stat.S_ISREG(info.st_mode):
             continue

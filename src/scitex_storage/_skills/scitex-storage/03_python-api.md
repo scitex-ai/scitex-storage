@@ -32,6 +32,15 @@ are excluded. Inspection failures and top-level members outside the roots are
 errors. No content rehash or live GUI/MCP adoption is implied. Owning controls:
 `tests/integration/scitex_storage/_measure/test_duplicate_locations.py`.
 
+For bounded callers, `group_duplicates(..., deadline=..., cancelled=...)` accepts
+an absolute finite `time.monotonic()` timestamp and a callable cancellation
+predicate such as `threading.Event.is_set`. Expiry or cancellation raises
+`TimeoutError` without partial returned rows. Checks surround identity and
+canonical-path metadata operations; a blocking OS/filesystem call itself cannot
+be interrupted. These options do not enable a GUI integration or alter the
+hashing engine's separate subprocess deadline. Controls:
+`tests/integration/scitex_storage/_measure/test_duplicate_grouping_budget.py`.
+
 ## Plan without transferring data
 
 Use an existing source directory and a supported destination alias. Planning

@@ -481,6 +481,13 @@ zero-based `group_index`, a `relationship` (`within-location` or
 Python callers can use `group_duplicates(groups, by="parent")` or
 `group_duplicates(groups, by="top-level", roots=roots)` after `find_duplicates`.
 The grouping helper checks file identity; it does not hash content again.
+Python callers can pass an absolute `time.monotonic()` `deadline` and a
+`cancelled` predicate (for example, `threading.Event.is_set`). Expiry or
+cancellation raises `TimeoutError` instead of returning partial location rows.
+Checks occur around metadata operations and group boundaries; they cannot
+interrupt an individual blocking filesystem call. Omitting these keywords
+preserves the existing grouping behavior. Owning budget controls:
+`tests/integration/scitex_storage/_measure/test_duplicate_grouping_budget.py`.
 
 Top-level ownership uses the most specific canonical selected root, independent
 of argument order. Files directly inside that root use the root itself as their
