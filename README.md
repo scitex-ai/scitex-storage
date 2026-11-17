@@ -160,8 +160,9 @@ A whole restore run is not an atomic transaction or a crash-recovery protocol.
 
 ```bash
 # Apply a YAML move plan to a whole tree (reorganize a folder). The plan is
-# SIMULATED in order, so the dry run is exactly what --yes does, including
-# merges into folders that already exist. Identical files at a destination are
+# SIMULATED in order, including merges into folders that already exist.
+# Execution still depends on filesystem state at apply time.
+# Identical files at a destination are
 # duplicates (source copy archived); different content is a CONFLICT and the
 # whole plan is refused untouched. Junk (~$ locks, :Zone.Identifier, .tmp,
 # .bak), drops and duplicates are archived under <root>/.old/relocate/<run>/,
@@ -179,6 +180,17 @@ scitex-storage relocate plan.yaml --root ~/proj/docs          # dry-run
 scitex-storage relocate plan.yaml --root ~/proj/docs --yes    # apply
 scitex-storage relocate-restore 2026-1116-093000-123456       # undo a run
 ```
+
+Planning conflicts refuse the whole relocation before its first move. Execution
+is not an atomic transaction: if a later operation fails, completed operations
+remain in place without automatic rollback. Normal exception handling writes an
+incomplete manifest of those completed operations. Inspect that manifest and the
+filesystem before using `relocate-restore`, which reverses only recorded
+operations and refuses to overwrite. An interrupted operation may need separate
+recovery; manifest-write failure and process crashes are not covered by this
+guarantee. Real partial-run and recorded-operation recovery controls live in
+`tests/integration/scitex_storage/_transfer/test_relocate_partial_run.py`, alongside
+the planning-conflict controls in `tests/scitex_storage/_transfer/test__relocate.py`.
 
 ## Verified local moves
 

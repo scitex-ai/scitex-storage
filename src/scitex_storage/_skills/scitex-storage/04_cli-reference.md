@@ -41,6 +41,12 @@ count with partial results is not implemented yet. Controls:
 process with owned engine-protocol fixtures; native identity controls are
 in `tests/scitex_storage/_measure/test__duplicate_identity.py`.
 
+The `--sizes-only` walk skips entries that vanish while walking, but propagates
+other inspection failures (for example permission denial). Such a failure exits
+nonzero with a readable stderr diagnostic and no successful or partial JSON
+result. It does not count skipped entries or prove content equality. Controls:
+`tests/integration/scitex_storage/_measure/test_size_scan_errors.py`.
+
 Content versions: `versions --store ROOT inspect VERSION_ID` keeps its JSON
 default; `--human` selects readable metadata (manifest verified, contents not
 verified). `versions --store ROOT create-pointer VERSION_ID NEW_PATH --yes`

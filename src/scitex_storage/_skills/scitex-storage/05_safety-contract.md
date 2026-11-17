@@ -103,13 +103,23 @@ a backup. Its deletion additionally requires `allow_manual_delete=True` or
 Older records without this policy/copy proof remain deferred for explicit
 investigation, even when the manual opt-in is supplied.
 
-9. Relocate (`relocate PLAN.yaml --root DIR`) is all-or-nothing. The plan is
-   simulated in order on a virtual index before any mutation. Any CONFLICT
-   (different content at a destination, or a file where a folder is needed)
-   refuses the whole plan, and nothing changes. Identical-content files dedupe.
+9. Relocate (`relocate PLAN.yaml --root DIR`) simulates the plan in order on a
+   virtual index before any mutation. A planning CONFLICT (different content
+   at a destination, or a file where a folder is needed) refuses the whole plan
+   before its first move. Identical-content files dedupe.
    Junk, drops and duplicates are moved under `<archive-root>/<run-id>/` with
-   their relative paths, never unlinked. Every operation is recorded in order at
-   `~/.scitex/scitex-storage/runtime/relocate-manifests/<run-id>.json`, and the
-   manifest is written even when a run fails partway. `relocate-restore` replays
-   it backwards and refuses to overwrite. Links are relative directory symlinks
-   only; file and absolute links are refused.
+   their relative paths, never unlinked. Completed operations are recorded in order at
+   `~/.scitex/scitex-storage/runtime/relocate-manifests/<run-id>.json`.
+   During normal exception handling, a run that fails partway writes an
+   incomplete manifest of its completed operations; earlier moves remain in
+   place. Execution has no automatic rollback or whole-run atomicity. Inspect
+   the manifest and filesystem before recovery. `relocate-restore` replays the
+   recorded operations backwards and refuses to overwrite; an interrupted
+   operation may need separate recovery. Manifest persistence can itself fail,
+   and process crashes are outside this guarantee. Links are relative
+   directory symlinks only; file and absolute links are refused.
+
+   Evidence: `_transfer/_relocate.py::apply_relocate` and `restore_relocate`;
+   planning-conflict controls in `tests/scitex_storage/_transfer/test__relocate.py`
+   and real partial-run/recorded-operation recovery controls in
+   `tests/integration/scitex_storage/_transfer/test_relocate_partial_run.py`.
