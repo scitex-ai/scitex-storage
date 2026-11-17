@@ -56,6 +56,9 @@ ls -l dist
 TMPDIR="/tmp/publish-scitex_storage-${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-0}-$V"
 export TMPDIR
 rm -rf "$TMPDIR"
+# Container /tmp is the host /tmp: remove the scratch on every exit so it never
+# accumulates on the runner host (exit status is unchanged by the trap).
+trap 'rm -rf --one-file-system -- "$TMPDIR"' EXIT
 mkdir -p "$TMPDIR/site" "$TMPDIR/uv-cache"
 export UV_CACHE_DIR="$TMPDIR/uv-cache"
 export XDG_CACHE_HOME="$TMPDIR"
