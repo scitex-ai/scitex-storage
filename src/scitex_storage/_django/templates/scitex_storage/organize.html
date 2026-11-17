@@ -118,6 +118,20 @@ Reuses the upstream .stx-storage-* classes so the tabs feel like one app.
         {% endif %}
 
     {% elif tab == "duplicates" %}
+        <form method="get" class="stx-form-row" aria-label="{% translate 'Duplicate report options' %}">
+            <input type="hidden" name="tab" value="duplicates">
+            <input type="hidden" name="scope" value="{{ scope }}">
+            {% if storage_view_project %}<input type="hidden" name="project" value="{{ storage_view_project }}">{% endif %}
+            <div class="stx-field">
+                <label for="duplicate-group-by">{% translate "Group paths by" %}</label>
+                <select id="duplicate-group-by" name="group_by">
+                    <option value=""{% if not group_by %} selected{% endif %}>{% translate "Content groups" %}</option>
+                    <option value="parent"{% if group_by == "parent" %} selected{% endif %}>{% translate "Immediate folders" %}</option>
+                    <option value="top-level"{% if group_by == "top-level" %} selected{% endif %}>{% translate "Top-level folders" %}</option>
+                </select>
+            </div>
+            <button type="submit" class="stx-button stx-button--primary">{% translate "Update report" %}</button>
+        </form>
         <div class="stx-storage-ok">
             <strong>{% translate "Read-only report." %}</strong>
             {% translate "Duplicate detection only ever lists groups — it never deletes, moves, or links anything. Resolving a group (keeping one copy, removing the rest) is a deliberate manual step, never automatic." %}
@@ -149,10 +163,26 @@ Reuses the upstream .stx-storage-* classes so the tabs feel like one app.
                     {% for g in groups %}
                     <li class="stx-storage-row" style="display: block">
                         <span><strong>{{ g.count }} × {{ g.size|filesizeformat }}</strong></span>
+                        {% if g.locations %}
+                        <p class="stx-storage-note">
+                            {% if g.relationship == "within-location" %}{% translate "One folder" %}
+                            {% else %}{% blocktranslate with count=g.location_count %}Across {{ count }} folders{% endblocktranslate %}{% endif %}
+                        </p>
+                        {% for location in g.locations %}
+                        <div class="stx-dup-location">
+                            <strong class="stx-storage-note">{{ location.directory }}</strong>
+                            <ul class="stx-dup-paths">
+                                {% for p in location.paths %}<li>{{ p }}</li>{% endfor %}
+                            </ul>
+                        </div>
+                        {% endfor %}
+                        {% if g.extra %}<p class="stx-storage-note">… {% blocktranslate with n=g.extra %}+{{ n }} more{% endblocktranslate %}</p>{% endif %}
+                        {% else %}
                         <ul class="stx-dup-paths">
                             {% for p in g.paths %}<li>{{ p }}</li>{% endfor %}
                             {% if g.extra %}<li>… {% blocktranslate with n=g.extra %}+{{ n }} more{% endblocktranslate %}</li>{% endif %}
                         </ul>
+                        {% endif %}
                     </li>
                     {% endfor %}
                 </ul>

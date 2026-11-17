@@ -41,7 +41,7 @@ def _regular_copies(paths, *, ignore_missing=False, checkpoint=None):
     return copies, observed
 
 
-def reclaimable_bytes(groups: list[list[Path]]) -> int | None:
+def reclaimable_bytes(groups: list[list[Path]], *, checkpoint=None) -> int | None:
     """Conservative logical bytes from independently removable duplicate files.
 
     Symlinks contribute no target bytes, and multiple names for one inode are
@@ -51,13 +51,33 @@ def reclaimable_bytes(groups: list[list[Path]]) -> int | None:
     This does not measure filesystem compression, sparse allocation or reflinks.
     ``None`` means identity/size evidence is unavailable or inconsistent,
     including a non-missing filesystem error. Measured zero stays zero.
+    Optional ``checkpoint`` controls may abort metadata inspection; their
+    exceptions propagate instead of becoming an unknown savings verdict.
     """
+
+    class CheckpointAbort(Exception):
+        pass
+
+    def checked():
+        try:
+            checkpoint()
+        except Exception as exc:
+            raise CheckpointAbort(exc) from exc
+
     total = 0
     measured = False
     seen = set()
     for group in groups:
+        if checkpoint is not None:
+            checkpoint()
         try:
-            copies, observed = _regular_copies(group, ignore_missing=True)
+            copies, observed = _regular_copies(
+                group,
+                ignore_missing=True,
+                checkpoint=checked if checkpoint is not None else None,
+            )
+        except CheckpointAbort as exc:
+            raise exc.args[0]
         except OSError:
             return None  # Permission/I/O/path errors are not vanished files.
         measured = measured or observed
@@ -77,4 +97,6 @@ def reclaimable_bytes(groups: list[list[Path]]) -> int | None:
         retained_hardlink = any(info.st_nlink > 1 for info in fresh)
         removable = single_links if retained_hardlink else single_links - 1
         total += max(0, removable) * size
+    if checkpoint is not None:
+        checkpoint()
     return total if measured else None

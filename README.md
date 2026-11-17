@@ -501,6 +501,16 @@ or authorizing deletion, directory replacement or links. Owning controls:
 `tests/integration/scitex_storage/_measure/test_duplicate_locations.py` and
 `test_duplicate_locations_cli.py` in the same directory.
 
+The server-rendered Duplicates tab exposes the same parent/top-level grouping
+through its **Group paths by** selector. **Content groups** keeps the flat
+default. Updating this GET form preserves project scope and never resolves,
+deletes, moves or links files. The existing 50-group/10-path display limits and
+logical display paths apply to grouped reports. Grouping and savings checks
+cooperate with the scan budget inside the bounded worker; individual blocked
+filesystem calls remain an OS boundary. See `docs/gui-storage.md` for source
+contracts, qualification limits and owning controls. Availability in an
+installed/hosted service requires that service to adopt this source.
+
 The `--sizes-only` pre-pass reads metadata only. Entries that vanish during
 traversal are skipped. Other filesystem inspection errors propagate to Python
 callers; the CLI exits nonzero with a diagnostic on stderr. Owning controls:
