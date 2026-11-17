@@ -465,6 +465,35 @@ root; reversing parent/child arguments does not change the byte attribution.
 Rows and columns retain the requested root order. Owning controls:
 `tests/integration/scitex_storage/_measure/test_overlap_roots.py`.
 
+Use `--group-by parent` to distinguish copies in one immediate parent from
+copies across parents, or `--group-by top-level` to collect nested parents under
+each selected root's first child directory:
+
+```bash
+scitex-storage find-duplicates ~/proj/business --group-by parent --json
+scitex-storage find-duplicates dump-a dump-b --group-by top-level
+```
+
+Grouping retains the original content groups and adds `group_by` and
+`location_groups` to JSON only when requested. Each location group has a
+zero-based `group_index`, a `relationship` (`within-location` or
+`across-locations`), and sorted `locations` containing `directory` and `files`.
+Python callers can use `group_duplicates(groups, by="parent")` or
+`group_duplicates(groups, by="top-level", roots=roots)` after `find_duplicates`.
+The grouping helper checks file identity; it does not hash content again.
+
+Top-level ownership uses the most specific canonical selected root, independent
+of argument order. Files directly inside that root use the root itself as their
+location; deeper files use its first child directory. Directory aliases resolve
+to the same locations. Symlinks and repeated regular-file inodes do not become
+extra copies. Missing/uninspectable members fail rather than produce a partial
+breakdown; top-level members outside every selected root are refused.
+`--sizes-only` cannot be combined with `--group-by`: equal sizes do not establish
+equal content. Locations describe where copies are, without selecting a keeper
+or authorizing deletion, directory replacement or links. Owning controls:
+`tests/integration/scitex_storage/_measure/test_duplicate_locations.py` and
+`test_duplicate_locations_cli.py` in the same directory.
+
 The `--sizes-only` pre-pass reads metadata only. Entries that vanish during
 traversal are skipped. Other filesystem inspection errors propagate to Python
 callers; the CLI exits nonzero with a diagnostic on stderr. Owning controls:

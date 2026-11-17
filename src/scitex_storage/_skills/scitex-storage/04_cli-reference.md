@@ -47,6 +47,20 @@ nonzero with a readable stderr diagnostic and no successful or partial JSON
 result. It does not count skipped entries or prove content equality. Controls:
 `tests/integration/scitex_storage/_measure/test_size_scan_errors.py`.
 
+`find-duplicates --group-by parent|top-level` adds a location breakdown of each
+confirmed content group. Default output is unchanged. JSON adds `group_by` and
+`location_groups`; each item retains its zero-based content `group_index`,
+`relationship` (`within-location` or `across-locations`) and sorted `locations`
+with canonical `directory` and `files`. Parent mode uses the immediate parent.
+Top-level mode uses the most specific selected root's first child directory;
+files directly under that root use the root itself. Root argument order and
+directory aliases do not change ownership. Missing members and files outside
+all top-level roots fail rather than being omitted. `--sizes-only --group-by`
+is refused before hashing. This breakdown makes no keeper/deletion decision.
+Controls: `tests/integration/scitex_storage/_measure/test_duplicate_locations.py`
+and `test_duplicate_locations_cli.py` in the same directory, including native
+fclones CLI checks.
+
 Content versions: `versions --store ROOT inspect VERSION_ID` keeps its JSON
 default; `--human` selects readable metadata (manifest verified, contents not
 verified). `versions --store ROOT create-pointer VERSION_ID NEW_PATH --yes`
