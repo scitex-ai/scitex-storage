@@ -118,7 +118,7 @@ def reclaim_cmd(
     run_id = _run_id(time.time())
     try:
         plan = plan_reclaim(list(paths), run_id=run_id, archive_root=archive_root)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         raise click.ClickException(f"Cannot plan reclaim: {exc}") from exc
     manifest = apply_reclaim(plan) if confirmed else None
 

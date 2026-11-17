@@ -192,6 +192,8 @@ def _archive_destination(source: Path, run_id: str, archive_root: str | None) ->
 
 def _validate_destinations(entries: list[ReclaimEntry]) -> None:
     """Reject ambiguous or occupied archive names before any source moves."""
+    from ._reclaim_paths import _validate_path_boundaries
+
     seen = set()
     for entry in entries:
         destination = Path(entry.archived)
@@ -201,6 +203,7 @@ def _validate_destinations(entries: list[ReclaimEntry]) -> None:
         seen.add(identity)
         if destination.exists() or destination.is_symlink():
             raise FileExistsError(f"Reclaim destination is occupied: {destination}")
+    _validate_path_boundaries(entries)
 
 
 def plan_reclaim(
@@ -217,6 +220,9 @@ def plan_reclaim(
     supplied by the caller (a timestamp, typically) so the value is explicit
     and testable rather than wall-clock-dependent inside here. It must be
     a single non-empty filename component, without path separators.
+    Nested sources/destinations and archives inside selected source trees are
+    refused before moving anything. Parent aliases resolve; final links remain
+    distinct entries. These are preflight checks, not concurrent-path protection.
     Any source inspection failure aborts planning before a plan is returned;
     successful plans contain measured values, never unknown-as-zero placeholders.
     """

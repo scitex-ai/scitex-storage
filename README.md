@@ -162,6 +162,13 @@ an empty or partial plan. The CLI reports a nonzero exit with a readable stderr
 error and no successful JSON output, before applying any moves. A genuinely
 empty readable source remains a valid zero-size plan. Controls:
 `tests/integration/scitex_storage/_transfer/test_reclaim_plan_errors.py`.
+Reclaim preflights source and destination boundaries: selecting a directory
+and its child, placing an archive inside any selected source tree, or nesting
+archive destinations is refused before the first move. Parent-directory aliases
+are resolved, while final symlinks remain separate link entries. The same checks
+apply to caller-created plans and restore manifests. These are preflight checks,
+not a guarantee against concurrent path changes. Controls:
+`tests/scitex_storage/_transfer/test__reclaim_paths.py`.
 Reclaim run IDs must be single non-empty filename components; path separators,
 `.` and `..` are refused before moves or manifest access. A manifest's recorded
 run ID must match the requested run before restoration.

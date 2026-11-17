@@ -71,3 +71,11 @@ default; `--human` selects readable metadata (manifest verified, contents not
 verified). `versions --store ROOT create-pointer VERSION_ID NEW_PATH --yes`
 creates a new pointer without overwrite. Legacy `pointer` forwards the same
 arguments, with a shared deprecation warning when Dev is available.
+
+`reclaim` refuses nested source selections, archives inside selected source trees
+and nested archive destinations before moving anything. Parent aliases are
+resolved; final symlinks are separate entries. Planning refusals exit nonzero
+with a readable error and no successful JSON report. Caller-created plans and
+restore manifests receive the same boundary checks. This is a preflight snapshot,
+not concurrent-path or crash protection. Owning controls:
+`tests/scitex_storage/_transfer/test__reclaim_paths.py`.
