@@ -150,6 +150,13 @@ The requested resumable rsync transport remains outstanding. Completed file and
 directory round trips across two real devices are covered by
 `tests/scitex_storage/_transfer/test__reclaim_cross_filesystem.py`; those tests do
 not establish interruption recovery or crash safety.
+Reclaim's cross-filesystem capacity estimate reports unknown when source
+inspection fails; an unreadable or incomplete tree is not measured zero.
+Symlinks contribute their own metadata size, without following their targets.
+An unknown estimate is not a positive free-space verdict. The current transfer
+policy still attempts the copy when capacity is unknown; this correction does
+not add checksum verification, resumability or a new refusal policy. Controls:
+`tests/integration/scitex_storage/_transfer/test_reclaim_size_errors.py`.
 Reclaim run IDs must be single non-empty filename components; path separators,
 `.` and `..` are refused before moves or manifest access. A manifest's recorded
 run ID must match the requested run before restoration.
