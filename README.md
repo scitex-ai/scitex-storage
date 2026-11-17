@@ -459,6 +459,15 @@ missing names add no space, and filesystem compression/reflinks are not measured
 See `tests/scitex_storage/_measure/test__duplicate_identity.py` for native
 link, inode and savings controls.
 
+A zero engine exit code alone does not establish a complete scan. Non-informational
+engine diagnostics (including unreadable-directory warnings) or a positive
+reported missing-file count raise an error; the CLI exits 1 without a successful
+JSON result, and the GUI shows the report as unavailable. Known timestamped
+`fclones` informational logs are accepted. Unknown diagnostics are conservatively
+refused. Skipped-file counts and explicit partial reports are not implemented.
+Owning protocol and CLI controls:
+`tests/integration/scitex_storage/_measure/test_engine_diagnostics.py`.
+
 With multiple roots, duplicate reports include a cross-root overlap matrix.
 For nested selected roots, each file belongs to the most specific canonical
 root; reversing parent/child arguments does not change the byte attribution.

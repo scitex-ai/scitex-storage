@@ -34,7 +34,11 @@ empty ring. Ring clicks still drill into the loaded child; the center remains
 the one-level parent control.
 Capacity cards are filesystem capacity, not claimed personal usage/quota.
 Duplicates calls the real read-only content matcher, with a depth bound; missing
-fclones is shown as unavailable rather than an empty successful report. The GUI
+fclones is shown as unavailable rather than an empty successful report. Engine
+warnings, unknown diagnostics or a positive reported missing-file count also
+make the report unavailable, even when the engine exits zero. No partial clean
+verdict or skipped-file count is claimed. Protocol controls are in
+`tests/integration/scitex_storage/_measure/test_engine_diagnostics.py`. The GUI
 passes a 60-second deadline to the hashing subprocess itself; expiry kills and
 reaps it instead of leaving it behind after a request timeout. A report with
 more than 50 groups displays its actual total and labels the displayed subset.

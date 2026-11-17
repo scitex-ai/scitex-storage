@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._duplicate_identity import _file_key, _regular_copies, reclaimable_bytes
-from ._duplicate_protocol import _reported_groups
+from ._duplicate_protocol import _check_engine_diagnostics, _reported_groups
 from ._scan import MissingSystemDependencyError
 
 if TYPE_CHECKING:
@@ -90,8 +90,10 @@ def find_duplicates(
     ``None`` preserves the existing unbounded CLI/library behavior.
 
     Final symlinks and repeated regular-file inodes are excluded from groups.
-    A reported path that can no longer be inspected raises RuntimeError rather
-    than silently turning incomplete identity evidence into a clean scan.
+    Engine warnings/unknown diagnostics or a positive missing-file count raise
+    RuntimeError even when the engine exits zero; only known informational logs
+    are accepted. A reported path that can no longer be inspected raises
+    RuntimeError rather than silently treating incomplete evidence as clean.
 
     Read-only in the sense that nothing is moved, linked, or deleted —
     ``fclones group`` (not ``fclones link``/``remove``/``dedupe``) only
@@ -136,6 +138,7 @@ def find_duplicates(
             f"{stderr or '(no stderr output)'}"
         )
 
+    _check_engine_diagnostics(proc.stderr)
     payload = json.loads(proc.stdout.decode("utf-8"))
     groups: list[list[Path]] = []
     for files in _reported_groups(payload):
