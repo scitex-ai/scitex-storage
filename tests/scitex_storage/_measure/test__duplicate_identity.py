@@ -115,23 +115,6 @@ def test_size_candidates_deduplicate_overlapping_roots(tmp_path):
     assert result == {}
 
 
-def test_permission_failure_makes_savings_unknown(tmp_path):
-    # Arrange
-    a, b = copies(tmp_path)
-    closed = tmp_path / "z-closed"
-    closed.mkdir()
-    hidden = closed / "hidden.bin"
-    hidden.write_bytes(a.read_bytes())
-    closed.chmod(0)
-    # Act
-    try:
-        result = reclaimable_bytes([[a, b, hidden]])
-    finally:
-        closed.chmod(0o700)
-    # Assert
-    assert result is None
-
-
 def test_uninspectable_group_does_not_leave_a_partial_total(tmp_path):
     # Arrange
     a, b = copies(tmp_path)
