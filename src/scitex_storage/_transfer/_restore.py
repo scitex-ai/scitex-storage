@@ -30,6 +30,7 @@ from pathlib import Path
 
 from scitex_ssh import SSHResult, exec_remote, sync_dir
 
+from ._audit import logged_transfer, transfer_stage
 from ._archive_transport import (
     _UNSAFE_REMOTE_PATHS,
     _as_dir_contents,
@@ -66,6 +67,7 @@ def plan_restore(source: str | Path) -> RestorePlan:
     return RestorePlan(manifest=manifest, manifest_path=manifest_path)
 
 
+@logged_transfer("restore")
 def apply_restore(
     plan: RestorePlan, *, delete_remote: bool = False, runner=None
 ) -> Path:
@@ -85,6 +87,7 @@ def apply_restore(
         _rsync_binary()
     manifest = plan.manifest
     source = Path(manifest.source)
+    transfer_stage("rsync")
     result: SSHResult = sync_dir(
         manifest.destination,
         str(source),
@@ -93,6 +96,7 @@ def apply_restore(
         runner=runner,
     )
     if not result.success:
+        transfer_stage("rsync", exit_code=result.returncode)
         raise RuntimeError(
             f"restore pull from {manifest.destination}:{manifest.remote_path} "
             f"failed (exit {result.returncode}) -- remote copy untouched.\n"
@@ -100,6 +104,7 @@ def apply_restore(
         )
 
     if delete_remote:
+        transfer_stage("remote_cleanup")
         if manifest.remote_path.strip() in _UNSAFE_REMOTE_PATHS:
             raise ValueError(
                 f"refusing to delete an unsafe remote path: {manifest.remote_path!r}"

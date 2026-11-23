@@ -549,6 +549,11 @@ scitex-storage restore SOURCE [--delete-remote] [--yes|-y] [--dry-run] [--json]
 | `--dry-run` | — | Explicit spelling of the default (no side effects either way) |
 | `--json` | off | Emit machine-readable JSON instead of the text report |
 
+Applied archive, backup, and restore attempts write a private JSON record
+under `~/.scitex/scitex-storage/runtime/transfer-logs/`. A record identifies
+the failed stage and rsync exit code when available. Retries have separate
+records, and dry runs leave this directory untouched.
+
 `archive` is copy-verify-then-remove, never delete-then-copy: a failed sync
 leaves `SOURCE` completely untouched and no manifest is written. The
 manifest (`~/.scitex/scitex-storage/runtime/archive-manifests/`) is what

@@ -113,3 +113,9 @@ investigation, even when the manual opt-in is supplied.
    manifest is written even when a run fails partway. `relocate-restore` replays
    it backwards and refuses to overwrite. Links are relative directory symlinks
    only; file and absolute links are refused.
+
+Applied archive, backup, and restore attempts record a private JSON log in
+`~/.scitex/scitex-storage/runtime/transfer-logs/`. Each retry has its own
+record with time, endpoints, stage, and outcome. Checksummed copy and
+restore evidence still resides in the archive manifest. Dry runs leave
+the log directory untouched.
