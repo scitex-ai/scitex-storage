@@ -90,6 +90,7 @@ from ._archive_transport import (
     write_manifest_sidecar,
 )
 from ._archive_transport import DEFAULT_REMOTE_ROOT as DEFAULT_REMOTE_ROOT
+from ._audit import logged_transfer, transfer_stage
 from ._content_verify import digest_tree, tree_digest, verify_content
 from ._durable import atomic_json
 from ._remote_digest import REMOTE_DIGEST_CMD, parse_remote_manifest
@@ -256,6 +257,7 @@ def iter_manifests() -> list[ArchiveManifest]:
     return found
 
 
+@logged_transfer("archive")
 def apply_archive(
     plan: ArchivePlan,
     *,
@@ -363,6 +365,7 @@ def apply_archive(
     # will still be verified before anything is deleted. It is recorded
     # in the manifest so the gap is visible rather than silent.
 
+    transfer_stage("rsync")
     extra_opts: tuple[str, ...] = ("--checksum",) if checksum else ()
     result: SSHResult = sync_dir(
         plan.destination,
@@ -374,6 +377,7 @@ def apply_archive(
         runner=runner,
     )
     if not result.success:
+        transfer_stage("rsync", exit_code=result.returncode)
         raise RuntimeError(
             f"archive sync to {plan.destination}:{plan.remote_path} failed "
             f"(exit {result.returncode}) -- source left untouched.\n"
@@ -390,6 +394,7 @@ def apply_archive(
     # symlinks-to-directories, while `rsync -a` writes them. Comparing
     # against it would fail a perfectly good archive -- the 2026-07-23
     # to_nas false alarm exactly.
+    transfer_stage("verification")
     expected = local_tally(str(plan.source), exclude=exclude)
     probe = exec_remote(
         plan.destination,
@@ -462,6 +467,7 @@ def apply_archive(
         content_digest=content_digest,
         retained_source=not remove_source,
     )
+    transfer_stage("manifest")
     plan.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_json(plan.manifest_path, manifest.to_dict())
 
@@ -493,6 +499,7 @@ def apply_archive(
         )
 
     if remove_source:
+        transfer_stage("source_retirement")
         current = digest_tree(str(plan.source), exclude=exclude)
         identity = plan.source.stat().st_dev, plan.source.stat().st_ino
         if (

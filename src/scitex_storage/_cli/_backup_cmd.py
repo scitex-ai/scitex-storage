@@ -19,6 +19,7 @@ import json
 
 import click
 
+from .._transfer._audit import refused_transfer
 from .._transfer._archive import apply_archive, plan_archive
 from .._transfer._archive_transport import (
     DESTINATIONS,
@@ -121,6 +122,7 @@ def backup_cmd(
     probe = probe_transport(destination)
     if not probe.may_transport:
         if do_apply:
+            refused_transfer("backup", source, destination, remote_path, probe)
             raise click.ClickException(
                 f"transport to {destination!r} is {probe.verdict}; refusing to "
                 f"sync.\n\n{probe.detail}\n\n"

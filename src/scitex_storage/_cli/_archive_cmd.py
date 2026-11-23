@@ -15,6 +15,7 @@ from .._report import (
     format_restore_report,
     restore_plan_to_json_dict,
 )
+from .._transfer._audit import refused_transfer
 from .._transfer._archive import (
     DESTINATIONS,
     _rsync_binary,
@@ -191,6 +192,7 @@ def archive_cmd(
     probe = probe_transport(destination)
     if not probe.may_transport:
         if do_apply:
+            refused_transfer("archive", source, destination, remote_path, probe)
             raise click.ClickException(
                 f"transport to {destination!r} is {probe.verdict}; refusing to "
                 f"sync + delete.\n\n{probe.detail}\n\n"
