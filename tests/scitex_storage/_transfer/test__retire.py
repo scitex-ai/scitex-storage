@@ -5,6 +5,7 @@ fake-runner seam as the scrub tests, built from the source's own digests so a
 "faithful" remote is byte-for-byte what was archived.
 """
 
+import functools
 import json
 import os
 
@@ -266,6 +267,8 @@ def test_apply_raises_refusal_when_remote_unreachable(tmp_path):
     source = _tree(tmp_path)
     path, _ = _manifest(tmp_path, source)
     plan = plan_retire(path)
-    # Act / Assert
+    # Act
+    attempt = functools.partial(apply_retire, plan, runner=_unreachable)
+    # Assert
     with pytest.raises(RetireRefusedError):
-        apply_retire(plan, runner=_unreachable)
+        attempt()
