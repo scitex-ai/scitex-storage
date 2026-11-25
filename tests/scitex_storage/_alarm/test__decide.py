@@ -18,14 +18,18 @@ because an alarm that fires on every transient unreachable host trains its
 reader to ignore the channel, which is the same defect arriving later.
 """
 
+import pytest
+
 from scitex_storage._alarm import (
     CRITICAL,
     CRITICAL_FREE_BYTES,
+    LARGE_VOLUME_BYTES,
     OK,
     UNKNOWN,
     WARN,
     WARN_FREE_BYTES,
     FleetAlarm,
+    Thresholds,
     evaluate_row,
     evaluate_snapshot,
     format_alarm,
@@ -303,3 +307,133 @@ def test_quiet_message_still_reports_the_unmeasured_count():
     text = format_alarm(evaluate_snapshot(snapshot))
     # Assert
     assert "0 unmeasured" in text
+
+# --------------------------------------------------------------------------
+# Unit tests for configurable floors and the large-volume rule (#181).
+# --------------------------------------------------------------------------
+
+GIB = 1024**3
+TIB = 1024**4
+
+
+def _sized_row(**kw) -> HostStorage:
+    base = dict(
+        host="h",
+        role="tier1",
+        mount="/m",
+        size_bytes=500 * GIB,
+        avail_bytes=400 * GIB,
+        used_pct=20.0,
+        inode_used_pct=1.0,
+    )
+    base.update(kw)
+    return HostStorage(**base)
+
+
+NAS = Thresholds.from_gib(warn_free_gib=100, critical_free_gib=30)
+
+
+def test_custom_warn_floor_fires_where_the_default_would_not():
+    # Arrange
+    row = _sized_row(size_bytes=12 * TIB, avail_bytes=90 * GIB, used_pct=99.0)
+    # Act
+    level = evaluate_row(row, NAS).level
+    # Assert
+    assert level == WARN
+
+
+def test_custom_critical_floor_fires():
+    # Arrange
+    row = _sized_row(size_bytes=12 * TIB, avail_bytes=29 * GIB, used_pct=99.8)
+    # Act
+    level = evaluate_row(row, NAS).level
+    # Assert
+    assert level == CRITICAL
+
+
+def test_large_volume_above_the_floor_is_ok_despite_high_percent():
+    """The /volume1 case: 98% used but 305 GiB free is not an alarm."""
+    # Arrange
+    row = _sized_row(size_bytes=12 * TIB, avail_bytes=305 * GIB, used_pct=98.0)
+    # Act
+    level = evaluate_row(row, NAS).level
+    # Assert
+    assert level == OK
+
+
+def test_small_volume_keeps_the_percent_rule():
+    # Arrange
+    row = _sized_row(size_bytes=200 * GIB, avail_bytes=25 * GIB, used_pct=88.0)
+    # Act
+    level = evaluate_row(row).level
+    # Assert
+    assert level == WARN
+
+
+def test_large_volume_without_free_bytes_still_uses_percent():
+    """A missing number must not turn into silence."""
+    # Arrange
+    row = _sized_row(size_bytes=12 * TIB, avail_bytes=None, used_pct=97.0)
+    # Act
+    level = evaluate_row(row).level
+    # Assert
+    assert level == WARN
+
+
+def test_large_volume_inode_percent_still_warns():
+    """Inodes have no byte floor; the large-volume rule must not hide them."""
+    # Arrange
+    row = _sized_row(size_bytes=12 * TIB, avail_bytes=305 * GIB, inode_used_pct=95.0)
+    # Act
+    level = evaluate_row(row, NAS).level
+    # Assert
+    assert level == WARN
+
+
+def test_cutoff_is_inclusive_at_one_tib():
+    # Arrange
+    row = _sized_row(
+        size_bytes=LARGE_VOLUME_BYTES, avail_bytes=200 * GIB, used_pct=90.0
+    )
+    # Act
+    level = evaluate_row(row).level
+    # Assert
+    assert level == OK
+
+
+def test_inverted_floors_are_refused():
+    """critical > warn would make CRITICAL unreachable -- a gate that cannot fire."""
+    # Arrange
+    kwargs = dict(warn_free_gib=10, critical_free_gib=50)
+
+    # Act
+    def build():
+        return Thresholds.from_gib(**kwargs)
+
+    # Assert
+    with pytest.raises(ValueError):
+        build()
+
+
+def test_from_gib_none_keeps_the_default_floor():
+    # Arrange
+    default = Thresholds()
+    # Act
+    built = Thresholds.from_gib(None, None)
+    # Assert
+    assert built == default
+
+
+def test_snapshot_threshold_reaches_every_row():
+    # Arrange
+    snap = FleetSnapshot(
+        rows=[
+            _sized_row(mount="/a"),
+            _sized_row(mount="/b", size_bytes=12 * TIB, avail_bytes=50 * GIB),
+        ],
+        generated_at="T",
+    )
+    # Act
+    level = evaluate_snapshot(snap, NAS).level
+    # Assert
+    assert level == WARN

@@ -1,0 +1,14 @@
+[Unit]
+Description=Every 10 min: scitex-storage alarm
+
+[Timer]
+# 10 minutes is short against the measured fill rates that motivated the
+# alarm (compute-04: ~24 GB/hour; the floors are sized in hours of runway),
+# and the alarm only PUSHES on a level transition, so a short period does
+# not make it noisy.
+OnBootSec=3min
+OnUnitActiveSec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
