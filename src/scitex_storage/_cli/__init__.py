@@ -96,6 +96,7 @@ _GROUP_KWARGS = spec_group_kwargs(
                     "sweep-status",
                     "archive",
                     "restore",
+                    "retire",
                     "reclaim",
                     "reclaim-restore",
                     "relocate",
