@@ -432,7 +432,7 @@ def test_a_hung_rail_times_out_and_the_next_rail_delivers():
     """A dead DB can hang a connect; the alarm about it must not wait."""
     # Arrange
     email, _ = _true_recorder()
-    rails = [Rail("cards", lambda text: time.sleep(5)), Rail("email", email)]
+    rails = [Rail("cards", lambda text: time.sleep(1)), Rail("email", email)]
     # Act
     result = notify_if_needed(_critical(), rails, previous_level=OK, rail_timeout_s=0.2)
     # Assert
