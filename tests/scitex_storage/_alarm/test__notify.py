@@ -552,3 +552,13 @@ def test_email_command_env_override(email_command_env):
     argv = resolve_email_command()
     # Assert
     assert argv == [expected_head, "--flag"]
+
+
+def test_default_email_command_runs_the_helper_through_bash():
+    """The skill's send.sh is not executable; it must be run via bash."""
+    # Arrange
+    os.environ.pop("SCITEX_STORAGE_ALARM_EMAIL_COMMAND", None)
+    # Act
+    argv = resolve_email_command()
+    # Assert
+    assert argv[0] == "/bin/bash" and not argv[1].startswith("~")

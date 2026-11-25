@@ -258,7 +258,9 @@ def operator_dm_notifier(to: str = "operator") -> Notifier:
 #: skill). It holds no secret itself: it hands off to an administrator-
 #: installed launcher that decrypts only the agent mailbox, so this package
 #: never touches a credential.
-DEFAULT_EMAIL_COMMAND = "~/.claude/skills/ywatanabe-email-notify/scripts/send.sh"
+#: Run through bash, as the skill documents: the helper ships mode 0600/0644,
+#: not executable, and that is deliberate on the hosts that carry it.
+DEFAULT_EMAIL_COMMAND = "/bin/bash ~/.claude/skills/ywatanabe-email-notify/scripts/send.sh"
 
 #: Environment override for the email command, for hosts whose helper lives
 #: elsewhere. Any command honouring the same contract works:
@@ -276,7 +278,7 @@ def resolve_email_command(command: str | None = None) -> list[str]:
     argv = shlex.split(raw)
     if not argv:
         raise ValueError("empty email command")
-    argv[0] = os.path.expanduser(argv[0])
+    argv = [os.path.expanduser(a) if a.startswith("~") else a for a in argv]
     return argv
 
 
@@ -404,7 +406,7 @@ def check_email_rail(command: str | None = None) -> dict:
         dry_run=True,
     )
     result["ok"] = result["rc"] == 0 and result["status"] == "dry_run"
-    result["command"] = argv[0]
+    result["command"] = " ".join(argv)
     return result
 
 
