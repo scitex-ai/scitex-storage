@@ -7,6 +7,27 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- **`alarm` can watch a large mount, and can be delivered when the fleet
+  database is the thing that broke (#181).** On 2026-11-25 scitex-nas-03's
+  `/volume1` filled and stopped the fleet Postgres; `alarm` could not see that
+  mount, its percent rule is permanently WARN on an 11.9 TB volume, and its
+  only rail wrote to that same database.
+  - `--path P` (repeatable), with a separate state file per path set.
+  - `--warn-free-gib` / `--crit-free-gib` (alias `--critical-free-gib`);
+    thresholds now flow into the pure `evaluate_row` / `evaluate_snapshot`
+    as a `Thresholds` value.
+  - Volumes >= 1 TiB (`LARGE_VOLUME_BYTES`) are judged by the absolute
+    floors; the 85%-used rule no longer raises WARN on them by itself.
+  - Fixed: a local gather never recorded `avail_bytes`, so the absolute floors
+    could never fire from `alarm` — they compared against `None`.
+  - `--notify cards,email`: ordered rails with a LOUD fallback (`detail`
+    starts `FALLBACK via email` and names the failed rail; JSON `rail`,
+    `rail_errors`). Each rail is time-bounded so a hung database connect
+    cannot hold the alarm. The email rail runs the scoped operator helper and
+    never handles a credential. `--check-notify` validates rails without
+    sending.
+  - `examples/systemd/` timer units and an env example.
+
 - Clear the previous sunburst tooltip when navigating between hierarchy levels.
 - Capture the verified root after native navigation in browser regression tests,
   retaining the required screenshot and all boundary assertions.
