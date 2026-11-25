@@ -48,6 +48,15 @@ tags: [scitex-storage-safety-contract]
    makes staging eligible, and removal still requires an explicitly applied
    sweep or a separately configured operator job.
 
+   Retire (`retire MANIFEST [--also DIR] --yes`) is the one verb that deletes
+   a retained source without staging, and only for a `backup` manifest that
+   records a content-verified archive with a `content_digest`. Before any
+   unlink it requires, in order: a fresh `scrub --content` of the remote copy
+   (tally AND content verified), the local source re-hashing to the manifest
+   digest, and every `--also` sibling holding only regular files that are
+   hard links to source files. Any other verdict refuses (exit 18). The audit
+   is written to the manifest (`retirement`) and a transfer log before the
+   first unlink (`deleting`) and after (`retired`, with bytes freed).
 
 Retention writes a durable pending intent before the no-overwrite rename;
 process locks serialize registry updates. Sibling markers preserve the archived
