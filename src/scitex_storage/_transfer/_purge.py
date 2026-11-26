@@ -44,7 +44,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from socket import gethostname
 
-from .._measure._open_handles import holders_under, iter_open_paths
+import bisect
+
+from .._measure._open_handles import iter_open_paths
 from .._measure._regenerable import CACHE, REGENERABLE, is_regenerable
 from ._durable import atomic_json
 
@@ -179,12 +181,37 @@ def plan_purge(
     """
     now = time.time() if now is None else now
     observed = _open_paths_with_control() if open_paths is None else open_paths
+    # Sorted once, so each path's holder lookup is a bisect, not a scan of
+    # every open handle on the host (thousands of paths x ~10^5 handles).
+    observed = sorted(set(observed))
     plan = PurgePlan(run_id=run_id, reason=reason, min_age_days=min_age_days)
     for raw in paths:
         plan.entries.append(
             _plan_one(Path(raw).expanduser(), reason, min_age_days, now, observed)
         )
     return plan
+
+
+def _holders_under(tree: str, observed_sorted: list[str]) -> list[str]:
+    """Observed paths equal to ``tree`` or under it (``observed_sorted`` sorted).
+
+    Same semantics as ``_open_handles.holders_under`` (a separator-bounded
+    prefix, so ``/a/foo`` never matches ``/a/foobar``), via two bisects.
+    """
+    root = os.path.realpath(tree).rstrip(os.sep) or os.sep
+    hits = [root] if _contains(observed_sorted, root) else []
+    prefix = root.rstrip(os.sep) + os.sep
+    start = bisect.bisect_left(observed_sorted, prefix)
+    for path in observed_sorted[start:]:
+        if not path.startswith(prefix):
+            break
+        hits.append(path)
+    return hits
+
+
+def _contains(observed_sorted: list[str], item: str) -> bool:
+    i = bisect.bisect_left(observed_sorted, item)
+    return i < len(observed_sorted) and observed_sorted[i] == item
 
 
 def _plan_one(source, reason, min_age_days, now, observed) -> PurgeEntry:
@@ -200,7 +227,7 @@ def _plan_one(source, reason, min_age_days, now, observed) -> PurgeEntry:
     if nested:
         entry.refusal = f"contains another filesystem's mount point: {nested}"
         return entry
-    holders = holders_under(str(resolved), observed)
+    holders = _holders_under(str(resolved), observed)
     if holders:
         more = f" (+{len(holders) - 3} more)" if len(holders) > 3 else ""
         entry.refusal = f"held by a live process: {', '.join(holders[:3])}{more}"

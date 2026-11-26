@@ -218,3 +218,13 @@ def test_hardlinked_inode_is_counted_once(tmp_path, sandbox_home):
     without_link = plan_purge([d], run_id="r1", reason="r", open_paths=[]).entries[0]
     # Assert
     assert single.size_bytes == without_link.size_bytes
+
+
+def test_sibling_with_shared_name_prefix_is_not_a_holder(tmp_path, sandbox_home):
+    # Arrange
+    d = _cache(tmp_path, "foo")
+    sibling = str(tmp_path.resolve() / "foobar" / "x")
+    # Act
+    plan = plan_purge([d], run_id="r1", open_paths=[sibling])
+    # Assert
+    assert plan.entries[0].decision == ELIGIBLE
