@@ -15,7 +15,8 @@ versions follow [Semantic Versioning](https://semver.org/).
   scan); mount points and trees containing one are refused; `--min-age-days`
   refuses trees with a recent entry. Each path gets a JSON audit record under
   `~/.scitex/scitex-storage/runtime/purge-logs/<run>/` written before and after
-  the unlink. Dry-run by default; `purge --status` lists runs.
+  the unlink. Dry-run by default (`--dry-run` also accepted and wins over
+  `--yes`); a hard-linked inode is counted once when sizing.
 - `open_handle_signal` / `iter_open_paths` now also report process working
   directories and roots as holders.
 

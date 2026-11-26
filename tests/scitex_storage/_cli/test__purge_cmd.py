@@ -74,3 +74,12 @@ def test_purge_without_paths_exits_nonzero(sandbox_home):
     result = runner.invoke(main, ["purge"])
     # Assert
     assert result.exit_code != 0
+
+
+def test_dry_run_flag_wins_over_yes(tmp_path, sandbox_home):
+    # Arrange
+    d = _cache(tmp_path)
+    # Act
+    CliRunner().invoke(main, ["purge", str(d), "--yes", "--dry-run"])
+    # Assert
+    assert d.exists()

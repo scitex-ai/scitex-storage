@@ -13,7 +13,7 @@ import json
 
 import click
 
-from .._transfer._purge import ELIGIBLE, apply_purge, list_runs, log_dir, plan_purge
+from .._transfer._purge import ELIGIBLE, apply_purge, log_dir, plan_purge
 from ._compat import spec_command_kwargs
 from ._reclaim_cmd import _run_id
 
@@ -36,7 +36,9 @@ def _gib(n: int) -> str:
             "refused; --min-age-days refuses trees with a recent entry. "
             "Every path gets an audit record written before and after the "
             "delete. Unknown-value data belongs to `reclaim`, `move` or "
-            "`archive`, never here. Defaults to a dry-run."
+            "`archive`, never here. Defaults to a dry-run (--dry-run is accepted "
+            "explicitly too); audit records live under "
+            "~/.scitex/scitex-storage/runtime/purge-logs/."
         ),
         examples=(
             ("{prog} purge ~/.cache/uv", "preview (uv writes CACHEDIR.TAG)"),
@@ -45,11 +47,10 @@ def _gib(n: int) -> str:
                 "--reason 'pytest basetemp' --yes",
                 "delete stale pytest temp, audited",
             ),
-            ("{prog} purge --status", "list recorded purge runs"),
         ),
     ),
 )
-@click.argument("paths", nargs=-1, type=click.Path())
+@click.argument("paths", nargs=-1, required=True, type=click.Path())
 @click.option(
     "--reason",
     default=None,
@@ -62,23 +63,16 @@ def _gib(n: int) -> str:
     default=None,
     help="Refuse a path whose newest entry is younger than this.",
 )
-@click.option("--status", "show_status", is_flag=True, help="List recorded runs.")
+@click.option(
+    "--dry-run",
+    "dry_run",
+    is_flag=True,
+    help="Only report the plan (the default); wins over --yes.",
+)
 @click.option("--yes", "-y", "confirmed", is_flag=True, help="Actually delete.")
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of text.")
-def purge_cmd(paths, reason, min_age_days, show_status, confirmed, as_json):
-    if show_status:
-        runs = list_runs()
-        if as_json:
-            click.echo(json.dumps(runs, indent=2))
-        else:
-            for run in runs:
-                click.echo(
-                    f"{run['run_id']}  {run['counts']}  freed {_gib(run['bytes_freed'])}"
-                )
-        return
-    if not paths:
-        raise click.ClickException("give at least one PATH to purge (or --status).")
-
+def purge_cmd(paths, reason, min_age_days, dry_run, confirmed, as_json):
+    confirmed = confirmed and not dry_run
     import time
 
     plan = plan_purge(
