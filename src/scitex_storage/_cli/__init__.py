@@ -34,80 +34,81 @@ def _print_command_help(cmd, prefix: str, parent_ctx) -> None:
 
 
 _GROUP_KWARGS = spec_group_kwargs(
-        summary="Research-data storage triage (scan + duplicates + versioned-image rotation).",
-        description=(
-            "Storage triage plus verified tiering (local -> NAS over ssh, "
-            "copy -> read-back -> manifest -> delete)."
-            " `scan` is a "
-            "read-only, stat-only directory walk (via `fd`) that reports "
-            "the biggest space and inode (file-count) consumers per "
-            "top-level child of a root -- no file contents are ever read. "
-            "`validate-inodes` is the cheap counterpart: one statvfs per path, no "
-            "walk and no system binaries, reporting how close a filesystem "
-            "is to inode exhaustion (which fails every write while df still "
-            "shows free space). "
-            "`find-duplicates` is a separate, explicitly opt-in verb (via "
-            "`fclones`) that DOES read file contents (to hash them) to "
-            "report exact-duplicate groups. `images prune` rotates a "
-            "directory of versioned files (e.g. dated SIF builds), always "
-            "excluding files any symlink in the directory currently "
-            "references. `sweep` tars an inode-hog directory in place "
-            "(many small files -> one tar, one inode), compute-node-only, "
-            "gated on an explicit per-directory confirm. `archive` moves a "
-            "directory to nas/nas2 over ssh (scitex-ssh's sync_dir), "
-            "verifying before removing the local copy and writing a "
-            "manifest `restore` reads back. `backup` copies the same way "
-            "but retains the source (manifest marked `retained_source`). "
-            "`reclaim` moves a path aside "
-            "into a reversible local archive (default adjacent `.old/`, or "
-            "--archive-root on another filesystem to free inodes) instead of "
-            "deleting it, so a rough cleanup call costs only a "
-            "`reclaim-restore`; the fraction of runs restored is reported as "
-            "the honest accuracy metric. `relocate` applies a YAML move plan "
-            "(simulated in order, merge-safe, conflict-refusing, reversible via "
-            "`relocate-restore`). `fleet-status` renders a "
-            "self-contained HTML dashboard of every host's space% and inode% "
-            "grouped by role/tier, carrying the same three-state verdicts "
-            "(measured / not-applicable / could-not-look) so a filesystem it "
-            "could not read is never shown as a reassuring green 0%. Every "
-            "mutating command defaults to a dry-run. `versions` adds local "
-            "content-addressed snapshots and ordinary Git pointers without "
-            "changing sources; it does not implement Git LFS or garbage collection.",
-        ),
-        config_resolution=(
-            "scitex-storage has no configurable state yet — every command "
-            "takes its options on the command line. Runtime state written: "
-            "archive manifests under "
-            "~/.scitex/scitex-storage/runtime/archive-manifests/, one JSON "
-            "file per archived directory, read back by `restore`. Content "
-            "versions live only under the explicitly supplied `versions --store` root.",
-        ),
-        version_of="scitex-storage",
-        command_categories=(
+    summary="Research-data storage triage (scan + duplicates + versioned-image rotation).",
+    description=(
+        "Storage triage plus verified tiering (local -> NAS over ssh, "
+        "copy -> read-back -> manifest -> delete)."
+        " `scan` is a "
+        "read-only, stat-only directory walk (via `fd`) that reports "
+        "the biggest space and inode (file-count) consumers per "
+        "top-level child of a root -- no file contents are ever read. "
+        "`validate-inodes` is the cheap counterpart: one statvfs per path, no "
+        "walk and no system binaries, reporting how close a filesystem "
+        "is to inode exhaustion (which fails every write while df still "
+        "shows free space). "
+        "`find-duplicates` is a separate, explicitly opt-in verb (via "
+        "`fclones`) that DOES read file contents (to hash them) to "
+        "report exact-duplicate groups. `images prune` rotates a "
+        "directory of versioned files (e.g. dated SIF builds), always "
+        "excluding files any symlink in the directory currently "
+        "references. `sweep` tars an inode-hog directory in place "
+        "(many small files -> one tar, one inode), compute-node-only, "
+        "gated on an explicit per-directory confirm. `archive` moves a "
+        "directory to nas/nas2 over ssh (scitex-ssh's sync_dir), "
+        "verifying before removing the local copy and writing a "
+        "manifest `restore` reads back. `backup` copies the same way "
+        "but retains the source (manifest marked `retained_source`). "
+        "`reclaim` moves a path aside "
+        "into a reversible local archive (default adjacent `.old/`, or "
+        "--archive-root on another filesystem to free inodes) instead of "
+        "deleting it, so a rough cleanup call costs only a "
+        "`reclaim-restore`; the fraction of runs restored is reported as "
+        "the honest accuracy metric. `relocate` applies a YAML move plan "
+        "(simulated in order, merge-safe, conflict-refusing, reversible via "
+        "`relocate-restore`). `fleet-status` renders a "
+        "self-contained HTML dashboard of every host's space% and inode% "
+        "grouped by role/tier, carrying the same three-state verdicts "
+        "(measured / not-applicable / could-not-look) so a filesystem it "
+        "could not read is never shown as a reassuring green 0%. Every "
+        "mutating command defaults to a dry-run. `versions` adds local "
+        "content-addressed snapshots and ordinary Git pointers without "
+        "changing sources; it does not implement Git LFS or garbage collection.",
+    ),
+    config_resolution=(
+        "scitex-storage has no configurable state yet — every command "
+        "takes its options on the command line. Runtime state written: "
+        "archive manifests under "
+        "~/.scitex/scitex-storage/runtime/archive-manifests/, one JSON "
+        "file per archived directory, read back by `restore`. Content "
+        "versions live only under the explicitly supplied `versions --store` root.",
+    ),
+    version_of="scitex-storage",
+    command_categories=(
+        (
+            "Storage",
             (
-                "Storage",
-                (
-                    "scan",
-                    "validate-inodes",
-                    "find-duplicates",
-                    "images",
-                    "versions",
-                    "sweep",
-                    "sweep-status",
-                    "archive",
-                    "restore",
-                    "retire",
-                    "reclaim",
-                    "reclaim-restore",
-                    "relocate",
-                    "relocate-restore",
-                    "fleet-status",
-                ),
+                "scan",
+                "validate-inodes",
+                "find-duplicates",
+                "images",
+                "versions",
+                "sweep",
+                "sweep-status",
+                "archive",
+                "restore",
+                "retire",
+                "reclaim",
+                "reclaim-restore",
+                "relocate",
+                "relocate-restore",
+                "move",
+                "fleet-status",
             ),
-            ("Documents", ("document-sorter",)),
-            ("GUI", ("gui",)),
-            ("Introspection", ("list-python-apis", "mcp")),
         ),
+        ("Documents", ("document-sorter",)),
+        ("GUI", ("gui",)),
+        ("Introspection", ("list-python-apis", "mcp")),
+    ),
 )
 
 # The base group class is not ours to pick: `spec_group_kwargs` supplies

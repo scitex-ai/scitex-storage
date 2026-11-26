@@ -7,6 +7,15 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- **New `move` verb: a verified local move with a 7-day rollback copy.** The
+  verified-move engine (`_transfer._move`: rsync into a private temporary,
+  independent content digests of copy and source, no-replace publish, source
+  staged as restorable) was reachable only from the web host. Moving a
+  database data directory off a session scratch path had no verb and fell back
+  to `cp -a`. `scitex-storage move SRC DST` is dry-run by default; `--yes`
+  applies; `--timeout`, `--max-entries` and `--state-dir` expose the engine's
+  limits; refusals and failed moves exit 19 with the receipt attached.
+
 - **`alarm` can watch a large mount, and can be delivered when the fleet
   database is the thing that broke (#181).** On 2026-11-25 scitex-nas-03's
   `/volume1` filled and stopped the fleet Postgres; `alarm` could not see that
