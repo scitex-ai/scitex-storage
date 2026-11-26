@@ -102,6 +102,7 @@ _GROUP_KWARGS = spec_group_kwargs(
                 "relocate",
                 "relocate-restore",
                 "move",
+                "purge",
                 "fleet-status",
             ),
         ),
