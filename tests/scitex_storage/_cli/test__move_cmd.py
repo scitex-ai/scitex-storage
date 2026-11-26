@@ -54,6 +54,21 @@ def test_move_defaults_to_dry_run(tree, sandbox_home):
     )
 
 
+def test_explicit_dry_run_wins_over_yes(tree, sandbox_home):
+    # Arrange
+    source, destination = tree
+    # Act
+    result = CliRunner().invoke(
+        main, ["move", str(source), str(destination), "--yes", "--dry-run"]
+    )
+    # Assert
+    assert (result.exit_code, source.exists(), destination.exists()) == (
+        0,
+        True,
+        False,
+    )
+
+
 def test_move_yes_publishes_verified_copy_and_stages_original(tree, sandbox_home):
     # Arrange
     source, destination = tree

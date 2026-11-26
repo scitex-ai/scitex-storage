@@ -47,7 +47,8 @@ EXIT_MOVE_FAILED = 19
             "publishes the copy atomically, and stages SOURCE beside itself for "
             "7 days (restorable) instead of deleting it. Writes a JSON receipt. "
             "Stop anything writing SOURCE first: a source that changes fails "
-            "verification and nothing is published. Defaults to a dry-run."
+            "verification and nothing is published. Defaults to a dry-run "
+            "(--dry-run is accepted explicitly too)."
         ),
         examples=(
             ("{prog} move ~/old/pgdata /scratch/me/pg/data", "plan only"),
@@ -60,6 +61,11 @@ EXIT_MOVE_FAILED = 19
 )
 @click.argument("source", type=click.Path())
 @click.argument("destination", type=click.Path())
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Preview only (explicit spelling of the default; wins over --yes).",
+)
 @click.option("--yes", "-y", "confirmed", is_flag=True, help="Actually move.")
 @click.option(
     "--timeout",
@@ -86,6 +92,7 @@ EXIT_MOVE_FAILED = 19
 def move_cmd(
     source: str,
     destination: str,
+    dry_run: bool,
     confirmed: bool,
     timeout_s: float,
     max_entries: int,
@@ -113,7 +120,7 @@ def move_cmd(
         "refused": None,
         "receipt": None,
     }
-    if confirmed:
+    if confirmed and not dry_run:
         try:
             receipt = apply_move(plan, timeout_s=timeout_s)
         except MoveRecoveryRequired as exc:
