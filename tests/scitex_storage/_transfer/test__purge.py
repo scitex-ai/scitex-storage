@@ -228,3 +228,18 @@ def test_sibling_with_shared_name_prefix_is_not_a_holder(tmp_path, sandbox_home)
     plan = plan_purge([d], run_id="r1", open_paths=[sibling])
     # Assert
     assert plan.entries[0].decision == ELIGIBLE
+
+
+def test_apply_refuses_a_path_that_gained_a_holder_after_planning(tmp_path, sandbox_home):
+    # Arrange
+    d = _cache(tmp_path)
+    plan = plan_purge([d], run_id="r1", open_paths=[])
+    previous = os.getcwd()
+    os.chdir(d)
+    # Act
+    try:
+        apply_purge(plan)
+    finally:
+        os.chdir(previous)
+    # Assert
+    assert d.exists()

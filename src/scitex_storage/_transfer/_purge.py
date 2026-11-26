@@ -261,15 +261,40 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def apply_purge(plan: PurgePlan) -> list[dict]:
+#: How stale the /proc snapshot may get before apply re-scans it. A long run
+#: (thousands of paths on a busy disk) can take hours; a holder that appears
+#: after planning must still block the delete.
+RESCAN_SECONDS = 60.0
+
+
+def apply_purge(plan: PurgePlan, *, open_paths: list[str] | None = None) -> list[dict]:
     """Delete every ELIGIBLE entry, writing an audit record around each.
 
-    Refused entries are recorded too, so the log answers "what did this run
-    decline, and why" as well as "what did it delete".
+    Each eligible path is RE-CHECKED immediately before its delete (exists,
+    holders, age, recipe), against a /proc snapshot at most
+    ``RESCAN_SECONDS`` old: the plan may be hours stale by the time a long
+    run reaches it. A path that fails the re-check is recorded as
+    ``refused`` with the new reason. Refused entries are recorded too, so the
+    log answers "what did this run decline, and why" as well as "what did it
+    delete". ``open_paths`` is the test seam, as in :func:`plan_purge`.
     """
     run_dir = log_dir() / plan.run_id
     records = []
+    observed: list[str] = []
+    scanned_at = float("-inf")
     for index, entry in enumerate(plan.entries):
+        if entry.decision == ELIGIBLE:
+            if open_paths is not None:
+                observed = sorted(set(open_paths))
+            elif time.monotonic() - scanned_at > RESCAN_SECONDS:
+                observed = sorted(set(_open_paths_with_control()))
+                scanned_at = time.monotonic()
+            fresh = _plan_one(
+                Path(entry.path), plan.reason, plan.min_age_days, time.time(), observed
+            )
+            if fresh.decision != ELIGIBLE:
+                entry = fresh
+                entry.refusal = f"at apply: {fresh.refusal}"
         record_path = run_dir / f"{index:05d}.json"
         record = {
             "schema": SCHEMA,
