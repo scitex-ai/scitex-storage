@@ -95,7 +95,9 @@ def _measure(path: Path) -> tuple[int, int, float | None, str | None]:
     """(allocated bytes, entries, newest mtime, nested mount or None).
 
     Allocated bytes (``st_blocks``), not apparent size: what a purge frees is
-    blocks. Symlinks are never followed. A subdirectory on another device is
+    blocks. A hard-linked inode counts once; links held OUTSIDE the tree are
+    not visible here, so this is an upper bound on what deletion frees.
+    Symlinks are never followed. A subdirectory on another device is
     returned as the nested mount so the caller can refuse the whole tree.
     """
     st = path.lstat()
@@ -103,6 +105,7 @@ def _measure(path: Path) -> tuple[int, int, float | None, str | None]:
         return st.st_blocks * 512, 1, st.st_mtime, None
     root_dev = st.st_dev
     total, count, newest = st.st_blocks * 512, 1, st.st_mtime
+    seen: set[tuple[int, int]] = set()
     for root, dirs, files in os.walk(path, followlinks=False):
         for name in dirs:
             sub = os.path.join(root, name)
@@ -120,8 +123,15 @@ def _measure(path: Path) -> tuple[int, int, float | None, str | None]:
                 fst = os.lstat(os.path.join(root, name))
             except OSError:
                 continue
-            total += fst.st_blocks * 512
             count += 1
+            if fst.st_nlink > 1:
+                # uv/pip installs hard-link out of their cache: count each
+                # inode once, or a tree reads as several times its real size.
+                key = (fst.st_dev, fst.st_ino)
+                if key in seen:
+                    continue
+                seen.add(key)
+            total += fst.st_blocks * 512
             newest = max(newest, fst.st_mtime)
     return total, count, newest, None
 
@@ -196,7 +206,7 @@ def _plan_one(source, reason, min_age_days, now, observed) -> PurgeEntry:
         entry.refusal = f"held by a live process: {', '.join(holders[:3])}{more}"
         return entry
     if min_age_days is not None and newest is not None:
-        age_days = (now - newest) / 86400
+        age_days = (now - newest) / 86_400
         if age_days < min_age_days:
             entry.refusal = (
                 f"newest entry is {age_days:.1f} days old, younger than "

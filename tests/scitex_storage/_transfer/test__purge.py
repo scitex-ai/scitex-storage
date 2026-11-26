@@ -205,3 +205,16 @@ def test_list_runs_reports_bytes_freed(tmp_path, sandbox_home):
     runs = list_runs()
     # Assert
     assert runs[0]["bytes_freed"] > 0
+
+
+def test_hardlinked_inode_is_counted_once(tmp_path, sandbox_home):
+    # Arrange
+    d = _plain(tmp_path, "site")
+    (d / "big").write_bytes(b"y" * 65_536)
+    os.link(d / "big", d / "big-link")
+    single = plan_purge([d], run_id="r0", reason="r", open_paths=[]).entries[0]
+    (d / "big-link").unlink()
+    # Act
+    without_link = plan_purge([d], run_id="r1", reason="r", open_paths=[]).entries[0]
+    # Assert
+    assert single.size_bytes == without_link.size_bytes
