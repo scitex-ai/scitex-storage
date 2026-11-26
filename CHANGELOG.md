@@ -7,6 +7,18 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- **New `purge` verb: audited deletion of regenerable paths.** For caches and
+  build/test scratch whose recipe is the network or a lockfile (uv/pip caches,
+  CI job temp, stale scratchpads). A path must be `find-recipe` cache/
+  regenerable or carry an operator `--reason`; a path a live process holds
+  open, maps or uses as its cwd/root is refused (positive-controlled `/proc`
+  scan); mount points and trees containing one are refused; `--min-age-days`
+  refuses trees with a recent entry. Each path gets a JSON audit record under
+  `~/.scitex/scitex-storage/runtime/purge-logs/<run>/` written before and after
+  the unlink. Dry-run by default; `purge --status` lists runs.
+- `open_handle_signal` / `iter_open_paths` now also report process working
+  directories and roots as holders.
+
 - **New `move` verb: a verified local move with a 7-day rollback copy.** The
   verified-move engine (`_transfer._move`: rsync into a private temporary,
   independent content digests of copy and source, no-replace publish, source

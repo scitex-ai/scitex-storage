@@ -51,7 +51,8 @@ PROC_ROOT = "/proc"
 def iter_open_paths(proc_root: str = PROC_ROOT) -> Iterator[str]:
     """Yield every filesystem path this process can observe as open.
 
-    Reads ``/proc/<pid>/fd/*`` symlinks and the file-backed entries of
+    Reads ``/proc/<pid>/cwd`` and ``/proc/<pid>/root`` (a working directory
+    is a holder too), ``/proc/<pid>/fd/*`` symlinks and the file-backed entries of
     ``/proc/<pid>/maps`` (so a memory-mapped file -- a running binary, a
     loaded shared library, an mmap'd dataset -- counts as a holder, which
     an fd-only scan would miss entirely).
@@ -67,6 +68,17 @@ def iter_open_paths(proc_root: str = PROC_ROOT) -> Iterator[str]:
         return
 
     for pid in pids:
+        # A process whose working directory (or chroot) is inside a tree is
+        # using it as surely as one holding a file open: deleting it strands
+        # a running shell, test or build. fd-only scans miss that holder.
+        for link in ("cwd", "root"):
+            try:
+                target = os.readlink(os.path.join(proc_root, pid, link))
+            except OSError:
+                continue
+            if target != "/":
+                yield target
+
         fd_dir = os.path.join(proc_root, pid, "fd")
         try:
             for fd in os.listdir(fd_dir):
@@ -155,5 +167,6 @@ def open_handle_signal(
             f"namespace, and remote clients are NOT enumerated."
         ),
     )
+
 
 # EOF

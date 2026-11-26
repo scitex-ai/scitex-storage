@@ -70,6 +70,7 @@ VERB_REGISTRY: dict[str, str] = {
     "relocate": "._relocate_cmd:relocate_cmd",
     "relocate-restore": "._relocate_cmd:relocate_restore_cmd",
     "move": "._move_cmd:move_cmd",
+    "purge": "._purge_cmd:purge_cmd",
     "document-sorter": "._document_sorter_cmd:document_sorter_group",
     "verify-content": "._verify_content_cmd:verify_content_cmd",
     "fleet-status": "._fleet_status_cmd:fleet_status_cmd",
