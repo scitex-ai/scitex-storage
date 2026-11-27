@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.17] - 2026-11-27
+
 - **BREAKING: the `alarm` email rail mails the ops inbox, not the operator.**
   Operator policy (2026-11-27): system alarms go From `no-reply@scitex.ai` To
   `dev@scitex.ai`. The rail used to run the operator's personal notification
