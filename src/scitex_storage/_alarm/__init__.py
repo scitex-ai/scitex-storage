@@ -48,6 +48,13 @@ from ._decide import (  # noqa: F401 -- re-exported public API
     format_blindness,
     should_notify,
 )
+from ._repeat import (  # noqa: F401 -- re-exported public API
+    DEFAULT_REPEAT_AFTER_S,
+    PushDecision,
+    decide_filesystems,
+    filesystem_key,
+    format_changes,
+)
 from ._notify import (  # noqa: F401 -- re-exported public API
     DEFAULT_EMAIL_COMMAND,
     EMAIL_COMMAND_ENV,

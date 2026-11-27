@@ -7,6 +7,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- **`alarm` suppresses repeats per filesystem.** The state file now keeps,
+  per filesystem, the level last mailed and when it was mailed. The same level
+  is mailed at most once per `--repeat-hours` (default 6) for one filesystem,
+  so a volume flapping around a floor no longer mails on every gather.
+  WARN -> CRITICAL is never held back by a recent WARN mail. ok is mailed only
+  as a recovery from an announced WARN/CRITICAL, never ok -> ok or
+  unknown -> ok. A second filesystem going WARN while another stays WARN, and
+  one filesystem recovering while another stays WARN, are now mailed; the
+  fleet-level rule could not see either. A refused push is no longer recorded
+  as told, so the next gather retries it. JSON output gains `changes` and
+  `suppressed`. A state file written by an older version has no per-filesystem
+  memory, so a filesystem that is alarming at upgrade time is announced once.
+
 - **New `move` verb: a verified local move with a 7-day rollback copy.** The
   verified-move engine (`_transfer._move`: rsync into a private temporary,
   independent content digests of copy and source, no-replace publish, source

@@ -53,6 +53,13 @@ the 85% rule, decide. Each distinct ``--path`` set keeps its OWN state file,
 so a ``/volume1`` alarm and a default alarm on one host cannot silence each
 other.
 
+REPEATS ARE PER FILESYSTEM (2026-11-27). The state file also keeps, per
+filesystem, the level last mailed and when (:mod:`.._alarm._repeat`): a
+level is mailed at most once per ``--repeat-hours`` (default 6) for one
+filesystem, escalation is never held back by a lower level's mail, and ok
+is mailed only as a recovery from an announced warn/critical. A refused push
+keeps the old memory, so it is retried on the next gather.
+
 RAILS. ``--notify cards`` (the default, unchanged), ``email``, or
 ``cards,email`` -- an ordered chain where the email rail (the scoped
 operator helper, outside the fleet database) carries the alarm when the
@@ -64,16 +71,19 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from dataclasses import asdict
 from pathlib import Path
 
 import click
 
 from .._alarm import (
+    DEFAULT_REPEAT_AFTER_S,
     UNKNOWN,
     Rail,
     Thresholds,
     check_email_rail,
+    decide_filesystems,
     email_command_notifier,
     evaluate_snapshot,
     format_alarm,
@@ -195,6 +205,21 @@ def read_unknown_streak(path: Path) -> int:
     return streak if isinstance(streak, int) and streak >= 0 else 0
 
 
+def read_memory(path: Path) -> dict:
+    """Per-filesystem memory (``announced`` / ``sent_at``), or ``{}``.
+
+    Empty on every failure mode, and on a state file written before this
+    field existed: an empty memory re-announces whatever is alarming now,
+    once -- the loud direction, as for :func:`read_previous_level`.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    memory = data.get("filesystems") if isinstance(data, dict) else None
+    return memory if isinstance(memory, dict) else {}
+
+
 def next_unknown_streak(previous_streak: int, current_level: str) -> int:
     """Advance the blindness counter. Pure, so the caller can test it.
 
@@ -207,7 +232,11 @@ def next_unknown_streak(previous_streak: int, current_level: str) -> int:
 
 
 def write_level(
-    path: Path, level: str, generated_at: str, unknown_streak: int = 0
+    path: Path,
+    level: str,
+    generated_at: str,
+    unknown_streak: int = 0,
+    memory: dict | None = None,
 ) -> None:
     """Record the level for the next run. Atomic: a reader never sees half.
 
@@ -224,6 +253,7 @@ def write_level(
                 "level": level,
                 "generated_at": generated_at,
                 "unknown_streak": unknown_streak,
+                "filesystems": memory or {},
             },
             indent=2,
         ),
@@ -318,6 +348,14 @@ def write_level(
     "else the ywatanabe-email-notify skill helper).",
 )
 @click.option(
+    "--repeat-hours",
+    type=click.FloatRange(min=0),
+    default=DEFAULT_REPEAT_AFTER_S / 3600,
+    show_default=True,
+    help="Mail the same level for the same filesystem at most once per this "
+    "many hours (escalation and recovery are not held back by another level).",
+)
+@click.option(
     "--check-notify",
     is_flag=True,
     help="Validate the selected rails WITHOUT sending, then exit (30 if a rail fails).",
@@ -331,6 +369,7 @@ def alarm_cmd(
     crit_free_gib: float | None,
     notify_spec: str,
     email_command: str | None,
+    repeat_hours: float,
     check_notify: bool,
 ) -> None:
     rail_names = parse_rails(notify_spec)
@@ -363,6 +402,8 @@ def alarm_cmd(
     state_path = Path(state).expanduser() if state else _default_state_path(paths)
     previous = read_previous_level(state_path)
     streak = next_unknown_streak(read_unknown_streak(state_path), alarm.level)
+    memory = read_memory(state_path)
+    decision = decide_filesystems(alarm, memory, time.time(), repeat_hours * 3600)
     readings = _readings(alarm)
 
     if dry_run:
@@ -370,12 +411,18 @@ def alarm_cmd(
         # real run believe the reader had already been told, which is how a
         # rehearsal silences the performance.
         result = notify_if_needed(
-            alarm, lambda text: None, previous_level=previous, unknown_streak=streak
+            alarm,
+            lambda text: None,
+            previous_level=previous,
+            unknown_streak=streak,
+            decision=decision,
         )
         payload = {
             "dry_run": True,
             "previous_level": previous,
             "unknown_streak": streak,
+            "changes": decision.changes,
+            "suppressed": decision.suppressed,
             "rails": rail_names,
             "state_path": str(state_path),
             **asdict(result),
@@ -390,13 +437,24 @@ def alarm_cmd(
         build_rails(rail_names, email_command),
         previous_level=previous,
         unknown_streak=streak,
+        decision=decision,
     )
-    write_level(state_path, alarm.level, snapshot.generated_at, streak)
+    # A REFUSED push keeps the old memory, so the next gather retries it
+    # rather than remembering an alarm nobody received as "told".
+    write_level(
+        state_path,
+        alarm.level,
+        snapshot.generated_at,
+        streak,
+        memory if result.is_failure else decision.memory,
+    )
 
     payload = {
         "dry_run": False,
         "previous_level": previous,
         "unknown_streak": streak,
+        "changes": decision.changes,
+        "suppressed": decision.suppressed,
         "rails": rail_names,
         "state_path": str(state_path),
         **asdict(result),

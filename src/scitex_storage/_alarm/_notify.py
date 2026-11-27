@@ -66,6 +66,7 @@ from ._decide import (
     format_blindness,
     should_notify,
 )
+from ._repeat import PushDecision, format_changes
 
 #: A transport: takes the rendered alarm text, returns whether it landed.
 #: ``None`` means "completed, but this rail cannot confirm delivery".
@@ -147,6 +148,7 @@ def notify_if_needed(
     previous_level: str | None = None,
     unknown_streak: int = 0,
     rail_timeout_s: float = RAIL_TIMEOUT_S,
+    decision: PushDecision | None = None,
 ) -> PushResult:
     """Push ``alarm`` if the level TRANSITIONED, and report what happened.
 
@@ -169,15 +171,31 @@ def notify_if_needed(
     one does not fail. A rail returning ``None`` (stored, unconfirmed)
     stops the chain -- it did not fail. Each rail is bounded by
     ``rail_timeout_s``.
+
+    ``decision`` (from :func:`._repeat.decide_filesystems`) adds the
+    per-filesystem rule: the alarm is pushed when EITHER the decision says
+    so OR the fleet-level sustained-blindness page is due, and the
+    decision's change lines are appended so the reader sees which
+    filesystem moved. ``previous_level`` is then not consulted for capacity
+    transitions -- the per-filesystem memory is the finer, newer record.
     """
     rails = [Rail("default", notifier)] if callable(notifier) else list(notifier)
 
-    if not should_notify(previous_level, alarm.level, unknown_streak):
+    if decision is None:
+        speak = should_notify(previous_level, alarm.level, unknown_streak)
+        why = f"no transition ({previous_level} -> {alarm.level})"
+    else:
+        blind = alarm.level == UNKNOWN and should_notify(
+            UNKNOWN, UNKNOWN, unknown_streak
+        )
+        speak = decision.send or blind
+        why = decision.reason
+    if not speak:
         return PushResult(
             attempted=False,
             delivered=None,
             level=alarm.level,
-            detail=f"no transition ({previous_level} -> {alarm.level})",
+            detail=why,
         )
 
     # Sustained blindness gets its own wording. Reusing the capacity text
@@ -188,6 +206,8 @@ def notify_if_needed(
         if alarm.level == UNKNOWN
         else format_alarm(alarm)
     )
+    if decision is not None and decision.changes:
+        text = f"{text}\n{format_changes(decision.changes)}"
 
     errors: list[str] = []
     for rail in rails:
