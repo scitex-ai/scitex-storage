@@ -11,7 +11,7 @@
 # pip + uv at /opt/venv-<ver>, exactly like the working pytest-matrix CI.
 #
 # `python -m build` needs the `build` frontend, which is NOT baked in the SIF
-# (only scitex-dev[all,dev] deps are). Mirror run-in-sif.sh: install `build`
+# (only scitex-dev[all,dev] deps are). Install `build`
 # into a writable --target on node-local /tmp and put it on PYTHONPATH. The
 # SIF's /opt/venv-* are root-owned + RO and the compute-node HOME is RO inside
 # the container, so a normal install fails Permission denied — a --target on

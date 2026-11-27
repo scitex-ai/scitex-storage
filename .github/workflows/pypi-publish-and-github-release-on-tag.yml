@@ -86,56 +86,31 @@ jobs:
           NATIVE_AUTHORIZED: ${{ needs.runner-admission.outputs.native_authorized }}
         run: test "$NATIVE_AUTHORIZED" = "true"
 
+  # The release gate runs the SAME suites as ci.yml, on the tagged commit.
+  #
+  # It used to re-run pytest inside the reused ci-cpu.sif. That image does not
+  # carry this package's system dependencies (rsync, fclones), so every test
+  # that drives a real rsync or fclones failed there. v0.6.12, v0.6.13, v0.6.14,
+  # v0.6.17 and v0.6.18 all stopped at this gate while the identical commits
+  # were green in ci.yml, and PyPI stayed at 0.6.11 for five weeks. Calling the
+  # org workflows that ci.yml calls keeps "nothing is published until tests are
+  # green on the tagged commit" and runs them where the system deps exist:
+  # pytest-matrix for the unit suite, the pinned fd-fclones-integration for the
+  # native integration suite. Both check out github.sha, the tagged commit, which
+  # build and publish then re-verify against the defining workflow.
   test:
     needs: [runner-admission, require-release-admission]
     if: ${{ needs.runner-admission.outputs.native_authorized == 'true' }}
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","Linux","X64","scitex-ci"]') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12", "3.13"]
-    steps:
-      - name: Require confirmed admission before native execution
-        env:
-          NATIVE_AUTHORIZED: ${{ needs.runner-admission.outputs.native_authorized }}
-          RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        run: |
-          test "$NATIVE_AUTHORIZED" = "true"
-          test "$RUNNER_ENVIRONMENT" = "self-hosted"
-      - name: Resolve version
-        id: ver
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            v="${GITHUB_REF#refs/tags/}"
-          else
-            v="${{ inputs.version }}"
-          fi
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.ver.outputs.version }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Verify checked-out source matches the defining workflow
-        env:
-          EXPECTED_SOURCE: ${{ github.sha }}
-        run: |
-          actual_source="$(git rev-parse HEAD)"
-          if [ "$actual_source" != "$EXPECTED_SOURCE" ]; then
-            echo "::error::Requested release tag differs from the reviewed defining workflow source"
-            exit 1
-          fi
-      # SIF-based self-hosted test run — mirrors pytest-matrix exactly. No
-      # setup-python (the bare Spartan node has no Python tool cache; that step
-      # failed "version not found for this OS"); no apt fd-install (fd is baked
-      # in the SIF). exec-in-sif.sh apptainer-execs the reused ci-cpu.sif and
-      # run-in-sif.sh layers THIS (tagged) checkout + [all,dev] into a writable
-      # target, then runs pytest. fail-loud on a missing SIF/shim.
-      - name: Run tests in the reused CI SIF (apptainer exec — deps layered, not on the bare runner)
-        run: bash .github/ci/exec-in-sif.sh run-in-sif.sh ${{ matrix.python-version }}
+    uses: scitex-ai/.github/.github/workflows/pytest-matrix.yml@main
+    secrets: inherit
+
+  integration:
+    needs: [runner-admission, require-release-admission]
+    if: ${{ needs.runner-admission.outputs.native_authorized == 'true' }}
+    uses: scitex-ai/.github/.github/workflows/fd-fclones-integration.yml@8e57b1ddc49e22d5f8ad2344aba7764fff70b9fd
 
   build:
-    needs: [runner-admission, require-release-admission, test]
+    needs: [runner-admission, require-release-admission, test, integration]
     if: ${{ needs.runner-admission.outputs.native_authorized == 'true' }}
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","Linux","X64","scitex-ci"]') }}
     outputs:

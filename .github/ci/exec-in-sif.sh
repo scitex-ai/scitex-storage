@@ -36,7 +36,7 @@
 #                         (e.g. ~/.scitex/dev/containers/ci-cpu.sif)
 #
 # Usage:
-#   bash .github/ci/exec-in-sif.sh run-in-sif.sh 3.12
+#   bash .github/ci/exec-in-sif.sh build-in-sif.sh 3.12
 #
 # Fail-loud (operator directive): if NEITHER the shim nor PATH yields an
 # apptainer, or the SIF is missing, that is a HARD error naming what was tried
