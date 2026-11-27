@@ -58,6 +58,8 @@ _GROUP_KWARGS = spec_group_kwargs(
         "verifying before removing the local copy and writing a "
         "manifest `restore` reads back. `backup` copies the same way "
         "but retains the source (manifest marked `retained_source`). "
+        "`purge` deletes a disposable tree with no copy, refusing mounts, "
+        "holders and protected paths and writing an audit record first. "
         "`reclaim` moves a path aside "
         "into a reversible local archive (default adjacent `.old/`, or "
         "--archive-root on another filesystem to free inodes) instead of "
@@ -97,6 +99,7 @@ _GROUP_KWARGS = spec_group_kwargs(
                 "archive",
                 "restore",
                 "retire",
+                "purge",
                 "reclaim",
                 "reclaim-restore",
                 "relocate",

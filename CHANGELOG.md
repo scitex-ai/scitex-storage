@@ -7,6 +7,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- **New `purge` verb: audited deletion of a tree that needs no copy.** Every
+  deleting verb either proves a copy first (`retire`) or stages the original
+  for seven days (`move`, `sweep-restorable`), so a leftover from a finished
+  migration (a superseded containerd root, a stale cache) had no audited way
+  out and fell back to raw `rm -rf`. `scitex-storage purge PATH --confirm PATH
+  --reason TEXT` is dry-run by default. It refuses `/`, top-level paths, mount
+  points, symlinks and the home directory; any mount at or under PATH or bind
+  mount from inside it (all readable mount namespaces); any process holding
+  PATH as cwd, root, exe, open file or mapping; and any process it could not
+  inspect. `--yes` plans again, writes an fsynced audit record to
+  `~/.scitex/scitex-storage/runtime/purge-logs/` before the first unlink, and
+  records free space before and after. Refusals exit 18.
+
 - **New `move` verb: a verified local move with a 7-day rollback copy.** The
   verified-move engine (`_transfer._move`: rsync into a private temporary,
   independent content digests of copy and source, no-replace publish, source

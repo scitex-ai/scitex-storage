@@ -65,6 +65,7 @@ VERB_REGISTRY: dict[str, str] = {
     "backup": "._backup_cmd:backup_cmd",
     "restore": "._archive_cmd:restore_cmd",
     "retire": "._retire_cmd:retire_cmd",
+    "purge": "._purge_cmd:purge_cmd",
     "reclaim": "._reclaim_cmd:reclaim_cmd",
     "reclaim-restore": "._reclaim_cmd:reclaim_restore_cmd",
     "relocate": "._relocate_cmd:relocate_cmd",
