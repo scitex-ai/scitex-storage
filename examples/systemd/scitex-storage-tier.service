@@ -1,0 +1,34 @@
+[Unit]
+Description=scitex-storage tier: move cold units of a hot volume to a colder host
+Documentation=https://github.com/scitex-ai/scitex-storage
+After=network-online.target
+Wants=network-online.target
+
+# Install (user units):
+#   mkdir -p ~/.config/systemd/user ~/.scitex/scitex-storage/logs
+#   cp scitex-storage-tier.{service,timer} ~/.config/systemd/user/
+#   cp tier.env.example ~/.scitex/scitex-storage/tier.env   # edit
+#   scitex-storage tier $ROOT --to $HOST ...                # dry-run first
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now scitex-storage-tier.timer
+
+[Service]
+Type=oneshot
+# Per-host arguments (root, destination, thresholds). Nothing host-specific
+# is baked into this unit.
+EnvironmentFile=%h/.scitex/scitex-storage/tier.env
+# 1. Free the space of EARLIER runs: delete expired restorable staging, but
+#    only where the remote copy re-hashes to the recorded digest right now.
+#    The leading "-" lets step 2 run even if this pass reports an error.
+ExecStart=-%h/.venv-new/bin/scitex-storage sweep-restorable --verify-remote --yes --json $SCITEX_STORAGE_TIER_SWEEP_ARGS
+# 2. Tier the coldest units until the projected usage reaches the target.
+#    $SCITEX_STORAGE_TIER_ARGS is unbraced on purpose: systemd splits it on
+#    whitespace into separate arguments.
+ExecStart=%h/.venv-new/bin/scitex-storage tier $SCITEX_STORAGE_TIER_ARGS --yes --json
+StandardOutput=append:%h/.scitex/scitex-storage/logs/tier.log
+StandardError=append:%h/.scitex/scitex-storage/logs/tier.log
+# Transfers of large units take hours; each unit is verified before its
+# source is staged, so a stop mid-transfer leaves that source intact.
+TimeoutStartSec=20h
+Nice=10
+IOSchedulingClass=idle

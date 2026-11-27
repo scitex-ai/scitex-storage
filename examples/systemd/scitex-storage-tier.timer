@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily: scitex-storage tier
+
+[Timer]
+# Daily, at night, with jitter so several hosts do not hit one cold host at
+# once. Coldness is measured in weeks, so a daily pass is enough.
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=45min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

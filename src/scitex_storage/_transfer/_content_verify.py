@@ -117,6 +117,7 @@ class DigestCancelled(RuntimeError):
 
 from ._verify import is_excluded
 
+
 def digest_file(path: str, *, cancelled=None) -> str:
     """sha256 of a single entry, hex.
 
@@ -144,7 +145,9 @@ def digest_file(path: str, *, cancelled=None) -> str:
     return h.hexdigest()
 
 
-def digest_tree(root: str, *, cancelled=None, exclude: tuple[str, ...] = ()) -> ContentManifest:
+def digest_tree(
+    root: str, *, cancelled=None, exclude: tuple[str, ...] = ()
+) -> ContentManifest:
     """Hash every non-directory entry under ``root``.
 
     The population is deliberately IDENTICAL to
@@ -208,6 +211,30 @@ def digest_tree(root: str, *, cancelled=None, exclude: tuple[str, ...] = ()) -> 
         )
 
     return ContentManifest(digests=digests, unreadable=unreadable)
+
+
+def digest_file_unit(path: str, *, cancelled=None) -> ContentManifest:
+    """Hash ONE regular file as a one-entry manifest keyed by its basename.
+
+    This is the population a single-file transfer writes: the file, alone,
+    inside its destination directory. A path that is not a regular file (a
+    directory, a symlink, a FIFO, nothing at all) is ``root_missing``, never
+    an empty manifest. Opening a FIFO would block, and following a symlink
+    would hash a different object than the one that moves.
+    """
+    import stat as _stat
+
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return ContentManifest(root_missing=True)
+    if not _stat.S_ISREG(info.st_mode):
+        return ContentManifest(root_missing=True)
+    name = os.path.basename(path.rstrip(os.sep))
+    try:
+        return ContentManifest(digests={name: digest_file(path, cancelled=cancelled)})
+    except OSError as exc:
+        return ContentManifest(unreadable={name: f"{type(exc).__name__}: {exc}"})
 
 
 def tree_digest(manifest: ContentManifest) -> str:

@@ -15,7 +15,6 @@ from .._report import (
     format_restore_report,
     restore_plan_to_json_dict,
 )
-from .._transfer._audit import refused_transfer
 from .._transfer._archive import (
     DESTINATIONS,
     _rsync_binary,
@@ -29,6 +28,9 @@ from .._transfer._archive_transport import (
     probe_transport,
     resolve_destination,
 )
+from .._transfer._audit import refused_transfer
+from .._transfer._restore import RestoreNotVerifiedError
+from .._transfer._tier import pointer_path_for, read_pointer, restore_tiered
 from ._compat import spec_command_kwargs
 
 
@@ -285,22 +287,39 @@ def restore_cmd(
     _require_rsync()
     do_apply = confirmed and not dry_run
     plan = plan_restore(source)
-    restored_path = (
-        apply_restore(plan, delete_remote=delete_remote) if do_apply else None
-    )
+    # A path that `tier` moved carries a pointer. Its restore re-hashes the
+    # result against the manifest and only then removes the pointer, and it
+    # refuses to write over anything now occupying the original path.
+    pointer = read_pointer(source)
+    restored_path = None
+    if do_apply and pointer is not None:
+        try:
+            restored_path = restore_tiered(source, delete_remote=delete_remote)
+        except (FileExistsError, ValueError, RestoreNotVerifiedError) as exc:
+            raise click.ClickException(str(exc)) from exc
+    elif do_apply:
+        restored_path = apply_restore(plan, delete_remote=delete_remote)
     if as_json:
-        click.echo(
-            json.dumps(
-                restore_plan_to_json_dict(
-                    plan, applied=do_apply, restored_path=restored_path
-                ),
-                indent=2,
-            )
+        payload = restore_plan_to_json_dict(
+            plan, applied=do_apply, restored_path=restored_path
         )
+        if pointer is not None:
+            payload["tier_pointer"] = str(pointer_path_for(plan.manifest.source))
+            payload["tier_pointer_removed"] = restored_path is not None
+        click.echo(json.dumps(payload, indent=2))
     else:
         click.echo(
             format_restore_report(plan, applied=do_apply, restored_path=restored_path)
         )
+        if pointer is not None:
+            click.echo(
+                f"  tier pointer {pointer_path_for(plan.manifest.source)}: "
+                + (
+                    "content re-verified, pointer removed"
+                    if restored_path is not None
+                    else "removed only after the restored content re-verifies"
+                )
+            )
 
 
 # EOF

@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 from scitex_ssh import exec_remote
 
-from ._archive import ArchiveManifest
+from ._archive import ArchiveManifest, remote_tree_digest
 from ._archive_transport import _quote_remote_path
 from ._content_verify import tree_digest
 from ._remote_digest import REMOTE_DIGEST_CMD, parse_remote_manifest
@@ -81,7 +81,9 @@ def _unusable_reason(remote) -> str:
         return "remote root is missing"
     if remote.unreadable:
         first = next(iter(remote.unreadable))
-        return f"unreadable entries remain ({first} + {len(remote.unreadable) - 1} more)"
+        return (
+            f"unreadable entries remain ({first} + {len(remote.unreadable) - 1} more)"
+        )
     return "no usable digests"
 
 
@@ -140,7 +142,7 @@ def scrub_manifest(
                 "remote content probe did not run to completion; "
                 + _unusable_reason(remote)
             )
-        elif tree_digest(remote) == manifest.content_digest:
+        elif tree_digest(remote) == remote_tree_digest(manifest):
             content_verdict = VERIFIED
             content_evidence = (
                 "remote tree digest reproduces the manifest baseline "

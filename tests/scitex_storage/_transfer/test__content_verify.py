@@ -538,3 +538,41 @@ def test_content_reader_checks_cancellation_between_chunks(tmp_path):
     # Assert
     with raised:
         digest_file(str(path), cancelled=lambda: next(checkpoints))
+
+
+def test_digest_file_unit_keys_the_file_by_its_basename(tmp_path):
+    # Arrange
+    from scitex_storage._transfer._content_verify import digest_file_unit
+
+    path = tmp_path / "db.dump"
+    path.write_bytes(b"payload")
+    # Act
+    manifest = digest_file_unit(str(path))
+    # Assert
+    assert manifest.digests == {"db.dump": digest_file(str(path))}
+
+
+def test_digest_file_unit_treats_a_symlink_as_no_source(tmp_path):
+    # Arrange
+    from scitex_storage._transfer._content_verify import digest_file_unit
+
+    target = tmp_path / "real.bin"
+    target.write_bytes(b"payload")
+    link = tmp_path / "link.bin"
+    link.symlink_to(target)
+    # Act
+    manifest = digest_file_unit(str(link))
+    # Assert
+    assert manifest.root_missing is True
+
+
+def test_digest_file_unit_treats_a_fifo_as_no_source(tmp_path):
+    # Arrange
+    from scitex_storage._transfer._content_verify import digest_file_unit
+
+    fifo = tmp_path / "pipe"
+    os.mkfifo(fifo)
+    # Act
+    manifest = digest_file_unit(str(fifo))
+    # Assert
+    assert manifest.root_missing is True
