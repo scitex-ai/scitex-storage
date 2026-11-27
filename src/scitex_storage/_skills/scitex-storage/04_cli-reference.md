@@ -16,6 +16,7 @@ tags: [scitex-storage-cli-reference]
 | `sweep-restorable [--yes]` | delete expired restorable-staged trees (dry-run lists) |
 | `backup --to DST [--yes]` | copy-verified second copy, source retained |
 | `retire MANIFEST [--also DIR] [--yes]` | delete a backed-up source (and hard-linked siblings) after a fresh remote scrub + local re-hash; no staging |
+| `purge PATH --confirm PATH --reason TEXT [--yes]` | audited deletion of a disposable tree with no copy (migration leftover); refuses mounts, holders, protected paths; audit in `runtime/purge-logs/` |
 | `restore`, `reclaim-restore`, `relocate-restore` | bring data back |
 | `relocate PLAN.yaml --root DIR [--yes]` | apply an ordered move plan: simulated, merge-safe, conflict-refusing, reversible |
 | `verify-content SRC DST` | standalone delete-safety verdict |

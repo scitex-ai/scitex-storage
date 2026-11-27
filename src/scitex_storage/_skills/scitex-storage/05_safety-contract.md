@@ -123,6 +123,19 @@ investigation, even when the manual opt-in is supplied.
    it backwards and refuses to overwrite. Links are relative directory symlinks
    only; file and absolute links are refused.
 
+10. Purge (`purge PATH --confirm PATH --reason TEXT --yes`) deletes a tree that
+    has no copy and needs none. It is the only verb that does, so it carries no
+    content check and instead refuses: `/`, top-level paths, mount points,
+    symlinks, non-canonical paths, the home directory and its ancestors; any
+    mount at or under PATH or bind mount whose source is inside it, in every
+    readable mount namespace; any process holding PATH as cwd, root, exe, open
+    file or mapping; and any process or mount table it could not inspect (run
+    as root to measure "unused"). The walk never crosses filesystems. `--yes`
+    re-plans, writes an fsynced audit to `runtime/purge-logs/` before the first
+    unlink (no audit, no delete), then records `free_bytes_before`/`after` and
+    `bytes_freed`. Prefer `reclaim`, `move` or `backup` + `retire` whenever a
+    copy or a rollback window is worth keeping.
+
 Applied archive, backup, and restore attempts record a private JSON log in
 `~/.scitex/scitex-storage/runtime/transfer-logs/`. Each retry has its own
 record with time, endpoints, stage, and outcome. Checksummed copy and
