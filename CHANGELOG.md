@@ -7,6 +7,25 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- **BREAKING: the `alarm` email rail mails the ops inbox, not the operator.**
+  Operator policy (2026-11-27): system alarms go From `no-reply@scitex.ai` To
+  `dev@scitex.ai`. The rail used to run the operator's personal notification
+  helper (`send.sh`), whose sender `agent@` and recipient `ywatanabe@` are
+  fixed, so every storage alarm landed in a personal inbox. It now sends by
+  direct SMTP as a scitex-notification profile (`--email-profile` /
+  `$SCITEX_STORAGE_ALARM_EMAIL_PROFILE`, default `ops`), configured on the host
+  through `SCITEX_NOTIFICATION_PROFILE_OPS_*`. An unconfigured profile fails the
+  rail by name and never reroutes. `--email-command`,
+  `$SCITEX_STORAGE_ALARM_EMAIL_COMMAND`, `email_command_notifier`,
+  `DEFAULT_EMAIL_COMMAND` and `EMAIL_COMMAND_ENV` are removed; use
+  `email_notifier` / `DEFAULT_EMAIL_PROFILE` / `EMAIL_PROFILE_ENV`. A
+  re-delivery of the same alarm text within 24 h is not mailed twice. The
+  subject names the host. `--check-notify` reports From/To/server and whether a
+  password is present, never the password itself.
+  `examples/systemd/scitex-storage-alarm-with-secret.sh` decrypts the SMTP
+  password from `~/.pw/*.gpg` at start, into the alarm process only. It
+  never writes a plaintext copy.
+
 - **`alarm` suppresses repeats per filesystem.** The state file now keeps,
   per filesystem, the level last mailed and when it was mailed. The same level
   is mailed at most once per `--repeat-hours` (default 6) for one filesystem,

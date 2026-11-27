@@ -15,7 +15,6 @@ exists for.
 """
 
 import json
-import stat
 
 import click
 import pytest
@@ -196,18 +195,11 @@ def runner():
     return CliRunner()
 
 
-def _helper(tmp_path, status: str, rc: int = 0) -> str:
-    script = tmp_path / "send.sh"
-    script.write_text(f'#!/bin/sh\necho \'{{"status": "{status}"}}\'\nexit {rc}\n')
-    script.chmod(script.stat().st_mode | stat.S_IEXEC)
-    return str(script)
-
-
-def _run(runner, tmp_path, *args):
+def _run(runner, tmp_path, *args, env=None):
     return runner.invoke(
         alarm_cmd,
         ["--path", str(tmp_path), "--state", str(tmp_path / "state.json"), *args],
-        env={"HOME": str(tmp_path)},
+        env={"HOME": str(tmp_path), **(env or {})},
     )
 
 
@@ -275,29 +267,38 @@ def test_dry_run_records_no_state(runner, tmp_path):
     assert not (tmp_path / "state.json").exists()
 
 
-def test_email_rail_delivers_a_real_alarm(runner, tmp_path):
+def test_email_rail_delivers_a_real_alarm(runner, tmp_path, smtp_server):
     # Arrange
-    helper = _helper(tmp_path, "smtp_accepted")
-    args = (
-        "--warn-free-gib",
-        HUGE,
-        "--crit-free-gib",
-        "0",
-        "--notify",
-        "email",
-        "--email-command",
-        helper,
-        "--json",
-    )
+    args = ("--warn-free-gib", HUGE, "--crit-free-gib", "0", "--notify", "email")
     # Act
-    payload = json.loads(_run(runner, tmp_path, *args).output)
+    payload = json.loads(
+        _run(runner, tmp_path, *args, "--json", env=smtp_server.env).output
+    )
     # Assert
     assert (payload["rail"], payload["delivered"]) == ("email", True)
 
 
-def test_refused_email_exits_push_refused(runner, tmp_path):
+def test_email_rail_mails_dev_by_default(runner, tmp_path, smtp_server):
     # Arrange
-    helper = _helper(tmp_path, "failed_or_unknown", rc=1)
+    args = ("--warn-free-gib", HUGE, "--crit-free-gib", "0", "--notify", "email")
+    # Act
+    _run(runner, tmp_path, *args, env=smtp_server.env)
+    # Assert
+    assert smtp_server.messages[0]["envelope_to"] == "<dev@scitex.ai>"
+
+
+def test_refused_email_exits_push_refused(runner, tmp_path, refusing_smtp_server):
+    # Arrange
+    args = ("--warn-free-gib", HUGE, "--crit-free-gib", "0", "--notify", "email")
+    # Act
+    result = _run(runner, tmp_path, *args, env=refusing_smtp_server.env)
+    # Assert
+    assert result.exit_code == EXIT_PUSH_REFUSED
+
+
+def test_unconfigured_email_profile_exits_push_refused(runner, tmp_path):
+    """No silent reroute: an unconfigured profile is a refused push."""
+    # Arrange
     args = (
         "--warn-free-gib",
         HUGE,
@@ -305,8 +306,8 @@ def test_refused_email_exits_push_refused(runner, tmp_path):
         "0",
         "--notify",
         "email",
-        "--email-command",
-        helper,
+        "--email-profile",
+        "unconfigured-profile",
     )
     # Act
     result = _run(runner, tmp_path, *args)
@@ -314,55 +315,37 @@ def test_refused_email_exits_push_refused(runner, tmp_path):
     assert result.exit_code == EXIT_PUSH_REFUSED
 
 
-def test_check_notify_passes_with_a_working_helper(runner, tmp_path):
+def test_check_notify_passes_with_a_configured_profile(runner, tmp_path, smtp_server):
     # Arrange
-    helper = _helper(tmp_path, "dry_run")
+    args = ("--notify", "email", "--check-notify")
     # Act
-    result = _run(
-        runner,
-        tmp_path,
-        "--notify",
-        "email",
-        "--email-command",
-        helper,
-        "--check-notify",
-    )
+    result = _run(runner, tmp_path, *args, env=smtp_server.env)
     # Assert
     assert result.exit_code == 0
 
 
-def test_check_notify_fails_with_a_broken_helper(runner, tmp_path):
+def test_check_notify_fails_with_an_unconfigured_profile(runner, tmp_path):
     # Arrange
-    helper = _helper(tmp_path, "", rc=2)
-    # Act
-    result = _run(
-        runner,
-        tmp_path,
+    args = (
         "--notify",
         "email",
-        "--email-command",
-        helper,
+        "--email-profile",
+        "unconfigured-profile",
         "--check-notify",
     )
+    # Act
+    result = _run(runner, tmp_path, *args)
     # Assert
     assert result.exit_code == EXIT_PUSH_REFUSED
 
 
-def test_check_notify_sends_nothing_and_records_no_state(runner, tmp_path):
+def test_check_notify_sends_nothing_and_records_no_state(runner, tmp_path, smtp_server):
     # Arrange
-    helper = _helper(tmp_path, "dry_run")
+    args = ("--notify", "email", "--check-notify")
     # Act
-    _run(
-        runner,
-        tmp_path,
-        "--notify",
-        "email",
-        "--email-command",
-        helper,
-        "--check-notify",
-    )
+    _run(runner, tmp_path, *args, env=smtp_server.env)
     # Assert
-    assert not (tmp_path / "state.json").exists()
+    assert smtp_server.messages == [] and not (tmp_path / "state.json").exists()
 
 
 def test_unknown_rail_is_refused():

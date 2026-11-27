@@ -48,23 +48,24 @@ from ._decide import (  # noqa: F401 -- re-exported public API
     format_blindness,
     should_notify,
 )
+from ._notify import (  # noqa: F401 -- re-exported public API
+    DEFAULT_EMAIL_PROFILE,
+    EMAIL_DEDUPE_WINDOW_S,
+    EMAIL_PROFILE_ENV,
+    Notifier,
+    PushResult,
+    Rail,
+    check_email_rail,
+    email_notifier,
+    notify_if_needed,
+    operator_dm_notifier,
+)
 from ._repeat import (  # noqa: F401 -- re-exported public API
     DEFAULT_REPEAT_AFTER_S,
     PushDecision,
     decide_filesystems,
     filesystem_key,
     format_changes,
-)
-from ._notify import (  # noqa: F401 -- re-exported public API
-    DEFAULT_EMAIL_COMMAND,
-    EMAIL_COMMAND_ENV,
-    Notifier,
-    PushResult,
-    Rail,
-    check_email_rail,
-    email_command_notifier,
-    notify_if_needed,
-    operator_dm_notifier,
 )
 
 # EOF

@@ -61,9 +61,10 @@ is mailed only as a recovery from an announced warn/critical. A refused push
 keeps the old memory, so it is retried on the next gather.
 
 RAILS. ``--notify cards`` (the default, unchanged), ``email``, or
-``cards,email`` -- an ordered chain where the email rail (the scoped
-operator helper, outside the fleet database) carries the alarm when the
-card store is unreachable, and the fallback is named in the output.
+``cards,email`` -- an ordered chain, the fallback named in the output.
+The email rail sends as a scitex-notification profile (``--email-profile``,
+default ``ops`` = From no-reply@ To dev@) by direct SMTP, outside the fleet
+database; an unconfigured profile fails the rail, it never reroutes.
 """
 
 from __future__ import annotations
@@ -84,7 +85,7 @@ from .._alarm import (
     Thresholds,
     check_email_rail,
     decide_filesystems,
-    email_command_notifier,
+    email_notifier,
     evaluate_snapshot,
     format_alarm,
     notify_if_needed,
@@ -138,21 +139,22 @@ def parse_rails(spec: str) -> list[str]:
     return names
 
 
-def build_rails(names: list[str], email_command: str | None = None) -> list[Rail]:
+def build_rails(names: list[str], email_profile: str | None = None) -> list[Rail]:
     """Turn rail names into live :class:`Rail` objects, in order."""
     factories = {
         "cards": lambda: operator_dm_notifier(),
-        "email": lambda: email_command_notifier(email_command),
+        "email": lambda: email_notifier(email_profile),
     }
     return [Rail(n, factories[n]()) for n in names]
 
 
-def check_rails(names: list[str], email_command: str | None = None) -> dict:
+def check_rails(names: list[str], email_profile: str | None = None) -> dict:
     """Validate each selected rail WITHOUT delivering anything.
 
     cards: the client imports (it cannot be probed without writing a DM, so
     this is necessary-not-sufficient, and is labelled as such). email: the
-    helper's own ``--dry-run``, which reaches everything short of SMTP.
+    profile resolves completely (From, To, server, credential present) and
+    the package's dry run accepts the message; SMTP login is not attempted.
     """
     out: dict = {}
     for n in names:
@@ -168,7 +170,7 @@ def check_rails(names: list[str], email_command: str | None = None) -> dict:
                     "probing would send a DM)",
                 }
         elif n == "email":
-            out[n] = check_email_rail(email_command)
+            out[n] = check_email_rail(email_profile)
     return out
 
 
@@ -342,10 +344,10 @@ def write_level(
     help="Rail(s), comma-separated, tried in order: cards, email.",
 )
 @click.option(
-    "--email-command",
+    "--email-profile",
     default=None,
-    help="Email helper command (default: $SCITEX_STORAGE_ALARM_EMAIL_COMMAND, "
-    "else the ywatanabe-email-notify skill helper).",
+    help="scitex-notification profile the email rail sends as (default: "
+    "$SCITEX_STORAGE_ALARM_EMAIL_PROFILE, else 'ops': From no-reply@ To dev@).",
 )
 @click.option(
     "--repeat-hours",
@@ -368,7 +370,7 @@ def alarm_cmd(
     warn_free_gib: float | None,
     crit_free_gib: float | None,
     notify_spec: str,
-    email_command: str | None,
+    email_profile: str | None,
     repeat_hours: float,
     check_notify: bool,
 ) -> None:
@@ -379,7 +381,7 @@ def alarm_cmd(
         raise click.BadParameter(str(exc), param_hint="--crit-free-gib") from exc
 
     if check_notify:
-        checks = check_rails(rail_names, email_command)
+        checks = check_rails(rail_names, email_profile)
         click.echo(
             json.dumps(checks, indent=2)
             if as_json
@@ -434,7 +436,7 @@ def alarm_cmd(
 
     result = notify_if_needed(
         alarm,
-        build_rails(rail_names, email_command),
+        build_rails(rail_names, email_profile),
         previous_level=previous,
         unknown_streak=streak,
         decision=decision,

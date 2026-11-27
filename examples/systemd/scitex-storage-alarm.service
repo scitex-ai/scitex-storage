@@ -7,6 +7,8 @@ Wants=network-online.target
 # Install (user units):
 #   mkdir -p ~/.config/systemd/user ~/.scitex/scitex-storage/logs
 #   cp scitex-storage-alarm.{service,timer} ~/.config/systemd/user/
+#   install -D -m 0755 scitex-storage-alarm-with-secret.sh \
+#       ~/.scitex/scitex-storage/bin/scitex-storage-alarm-with-secret.sh
 #   cp alarm.env.example ~/.scitex/scitex-storage/alarm.env   # edit
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now scitex-storage-alarm.timer
@@ -18,7 +20,9 @@ Type=oneshot
 EnvironmentFile=%h/.scitex/scitex-storage/alarm.env
 # $SCITEX_STORAGE_ALARM_ARGS is unbraced on purpose: systemd splits it on
 # whitespace into separate arguments.
-ExecStart=/usr/bin/timeout 300 %h/.venv-new/bin/scitex-storage alarm $SCITEX_STORAGE_ALARM_ARGS --json
+# The wrapper decrypts the email rail's SMTP password (~/.pw/*.gpg) into this
+# one process's environment; nothing plaintext is stored.
+ExecStart=/usr/bin/timeout 300 %h/.scitex/scitex-storage/bin/scitex-storage-alarm-with-secret.sh %h/.venv-new/bin/scitex-storage alarm $SCITEX_STORAGE_ALARM_ARGS --json
 StandardOutput=append:%h/.scitex/scitex-storage/logs/alarm.log
 StandardError=append:%h/.scitex/scitex-storage/logs/alarm.log
 Nice=10

@@ -17,12 +17,7 @@ pinned hardest, and they are opposites:
   was never told, which is the same defect arriving a week later.
 """
 
-import json
-import os
-import stat
 import time
-
-import pytest
 
 from scitex_storage._alarm import (
     CRITICAL,
@@ -33,13 +28,10 @@ from scitex_storage._alarm import (
     FilesystemAlarm,
     FleetAlarm,
     Rail,
-    check_email_rail,
-    email_command_notifier,
     format_blindness,
     notify_if_needed,
     should_notify,
 )
-from scitex_storage._alarm._notify import email_event_id, resolve_email_command
 
 
 def _recorder():
@@ -334,20 +326,6 @@ def _true_recorder():
     return fn, sent
 
 
-def _helper(tmp_path, status: str, rc: int = 0):
-    """A real executable obeying the helper contract; logs its argv."""
-    log = tmp_path / "argv.log"
-    script = tmp_path / "send.sh"
-    script.write_text(
-        "#!/bin/sh\n"
-        f'printf "%s\\n" "$@" >> "{log}"\n'
-        f"echo '{json.dumps({'status': status})}'\n"
-        f"exit {rc}\n"
-    )
-    script.chmod(script.stat().st_mode | stat.S_IEXEC)
-    return str(script), log
-
-
 # --------------------------------------------------------------------------
 # Chain semantics
 # --------------------------------------------------------------------------
@@ -448,117 +426,4 @@ def test_single_callable_still_works_as_one_rail():
     assert result.rail == "default"
 
 
-# --------------------------------------------------------------------------
-# Email rail through a real helper process
-# --------------------------------------------------------------------------
-
-
-def test_email_rail_reports_delivered_on_smtp_acceptance(tmp_path):
-    # Arrange
-    helper, _log = _helper(tmp_path, "smtp_accepted")
-    # Act
-    delivered = email_command_notifier(helper)(
-        "STORAGE CRITICAL @ T\n  [critical] nas:/volume1"
-    )
-    # Assert
-    assert delivered is True
-
-
-def test_email_rail_passes_the_helper_contract(tmp_path):
-    # Arrange
-    helper, log = _helper(tmp_path, "smtp_accepted")
-    # Act
-    email_command_notifier(helper)("STORAGE CRITICAL @ T")
-    # Assert
-    assert {"--event-id", "--subject", "--body-file"} <= set(
-        log.read_text().splitlines()
-    )
-
-
-def test_email_rail_raises_when_the_helper_refuses(tmp_path):
-    # Arrange
-    helper, _log = _helper(tmp_path, "failed_or_unknown", rc=1)
-    rails = [Rail("email", email_command_notifier(helper))]
-    # Act
-    result = notify_if_needed(_critical(), rails, previous_level=OK)
-    # Assert
-    assert "rc=1 status=failed_or_unknown" in result.detail
-
-
-def test_missing_helper_is_reported_not_crashed(tmp_path):
-    # Arrange
-    rails = [Rail("email", email_command_notifier(str(tmp_path / "absent.sh")))]
-    # Act
-    result = notify_if_needed(_critical(), rails, previous_level=OK)
-    # Assert
-    assert "helper_missing" in result.detail
-
-
-def test_check_email_rail_passes_dry_run_flag(tmp_path):
-    # Arrange
-    helper, log = _helper(tmp_path, "dry_run")
-    # Act
-    check_email_rail(helper)
-    # Assert
-    assert "--dry-run" in log.read_text().splitlines()
-
-
-def test_check_email_rail_ok_on_dry_run_status(tmp_path):
-    # Arrange
-    helper, _log = _helper(tmp_path, "dry_run")
-    # Act
-    result = check_email_rail(helper)
-    # Assert
-    assert result["ok"] is True
-
-
-def test_check_email_rail_fails_when_launcher_is_missing(tmp_path):
-    """The real helper exits 2 with no JSON when its launcher is absent."""
-    # Arrange
-    helper, _log = _helper(tmp_path, "", rc=2)
-    # Act
-    result = check_email_rail(helper)
-    # Assert
-    assert result["ok"] is False
-
-
-def test_event_id_is_stable_for_the_same_alarm_text():
-    # Arrange
-    text = "STORAGE CRITICAL @ 2026-11-25T10:00:00Z"
-    # Act
-    ids = {email_event_id(text, "nas"), email_event_id(text, "nas")}
-    # Assert
-    assert len(ids) == 1
-
-
-@pytest.fixture
-def email_command_env():
-    """Set the real env var for one test and restore it after."""
-    key = "SCITEX_STORAGE_ALARM_EMAIL_COMMAND"
-    saved = os.environ.get(key)
-    os.environ[key] = "/opt/x/send --flag"
-    yield
-    if saved is None:
-        os.environ.pop(key, None)
-    else:
-        os.environ[key] = saved
-
-
-def test_email_command_env_override(email_command_env):
-    """The env var is real configuration and outranks the default."""
-    # Arrange
-    expected_head = "/opt/x/send"
-    # Act
-    argv = resolve_email_command()
-    # Assert
-    assert argv == [expected_head, "--flag"]
-
-
-def test_default_email_command_runs_the_helper_through_bash():
-    """The skill's send.sh is not executable; it must be run via bash."""
-    # Arrange
-    os.environ.pop("SCITEX_STORAGE_ALARM_EMAIL_COMMAND", None)
-    # Act
-    argv = resolve_email_command()
-    # Assert
-    assert argv[0] == "/bin/bash" and not argv[1].startswith("~")
+# EOF

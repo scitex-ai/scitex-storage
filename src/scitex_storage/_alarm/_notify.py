@@ -42,19 +42,24 @@ named with its error in :attr:`PushResult.detail` and listed in
 :attr:`PushResult.rail_errors`, and :attr:`PushResult.rail` says which one
 carried the message. A push that succeeded on the fallback therefore still
 reads as "your primary rail is broken", which is the half the old rule was
-protecting. The email rail (:func:`email_command_notifier`) runs outside
-the monitored database entirely.
+protecting. The email rail (:func:`email_notifier`) runs outside the
+monitored database entirely.
+
+OPS ALARMS GO TO THE OPS INBOX (operator, 2026-11-27). The email rail used
+to run the operator's personal notification helper, whose sender
+(``agent@scitex.ai``) and recipient (``ywatanabe@scitex.ai``) are fixed by
+design, so every storage alarm landed in a personal inbox. The rail now
+sends as a scitex-notification *profile* (default ``ops``: From
+``no-reply@scitex.ai`` To ``dev@scitex.ai``, configured on the alarm host).
+An unconfigured profile FAILS the rail by name; it never reroutes to the
+personal helper.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import os
-import shlex
 import socket
-import subprocess
-import tempfile
 import threading
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence, Union
@@ -274,92 +279,47 @@ def operator_dm_notifier(to: str = "operator") -> Notifier:
     return send
 
 
-#: The fleet's scoped operator-email helper (the ``ywatanabe-email-notify``
-#: skill). It holds no secret itself: it hands off to an administrator-
-#: installed launcher that decrypts only the agent mailbox, so this package
-#: never touches a credential.
-#: Run through bash, as the skill documents: the helper ships mode 0600/0644,
-#: not executable, and that is deliberate on the hosts that carry it.
-DEFAULT_EMAIL_COMMAND = "/bin/bash ~/.claude/skills/ywatanabe-email-notify/scripts/send.sh"
+#: The scitex-notification sender/recipient profile the email rail sends
+#: as. ``ops`` is the operator's 2026-11-27 routing for system alarms:
+#: From ``no-reply@scitex.ai`` To ``dev@scitex.ai``. The addresses are NOT
+#: in this package; the alarm host sets them, with the SMTP server and the
+#: credential, as ``SCITEX_NOTIFICATION_PROFILE_OPS_{FROM,TO,SMTP_HOST,
+#: SMTP_PORT,PASSWORD_FILE}`` (see ``examples/systemd/alarm.env.example``).
+DEFAULT_EMAIL_PROFILE = "ops"
 
-#: Environment override for the email command, for hosts whose helper lives
-#: elsewhere. Any command honouring the same contract works:
-#: ``--event-id ID --subject S --body-file F [--dry-run]``, printing a JSON
-#: line with ``status`` and exiting 0 on SMTP acceptance.
-EMAIL_COMMAND_ENV = "SCITEX_STORAGE_ALARM_EMAIL_COMMAND"
+#: Environment override for the profile name.
+EMAIL_PROFILE_ENV = "SCITEX_STORAGE_ALARM_EMAIL_PROFILE"
 
-#: Helper statuses that mean the SMTP server accepted the message.
-_ACCEPTED = frozenset({"smtp_accepted", "already_accepted"})
+#: A re-delivery of the SAME alarm text inside this window is not mailed
+#: twice. A rail that timed out after the server accepted the message is
+#: retried on the next gather; this keeps that retry from duplicating it.
+#: Distinct alarms never collide: the text carries ``generated_at``.
+EMAIL_DEDUPE_WINDOW_S = 24 * 3600.0
 
-
-def resolve_email_command(command: str | None = None) -> list[str]:
-    """argv for the email helper: explicit > env > default, ``~`` expanded."""
-    raw = command or os.environ.get(EMAIL_COMMAND_ENV) or DEFAULT_EMAIL_COMMAND
-    argv = shlex.split(raw)
-    if not argv:
-        raise ValueError("empty email command")
-    argv = [os.path.expanduser(a) if a.startswith("~") else a for a in argv]
-    return argv
+_NOTIFICATION_HINT = (
+    "the email rail needs scitex-notification with sender profiles "
+    "(get_profile / send_with_profile): pip install -U scitex-notification"
+)
 
 
-def _last_json(stdout: str) -> dict:
-    """The helper prints one JSON object per run; take the last parseable line."""
-    for line in reversed(stdout.strip().splitlines()):
-        try:
-            data = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(data, dict):
-            return data
-    return {}
+def resolve_email_profile(profile: str | None = None) -> str:
+    """Profile name: explicit > ``$SCITEX_STORAGE_ALARM_EMAIL_PROFILE`` > ``ops``."""
+    return profile or os.environ.get(EMAIL_PROFILE_ENV) or DEFAULT_EMAIL_PROFILE
 
 
-def run_email_command(
-    argv: list[str],
-    subject: str,
-    body: str,
-    event_id: str,
-    dry_run: bool = False,
-    timeout_s: float = 90.0,
-) -> dict:
-    """Invoke the helper contract and return ``{"rc", "status", "stderr"}``.
+def _notification_api():
+    """``(get_profile, send_with_profile)``, imported late.
 
-    ``stderr`` is the helper's own diagnostic tail; the helper is written
-    never to print a credential and nothing here adds one. A missing or
-    non-executable helper is REPORTED (rc 127/126), not raised, so a
-    configuration check can describe it.
+    Deferred so ``scitex_storage`` imports on a host without the package;
+    the email rail then RAISES, which the rail chain reports by name. It
+    never falls back to another mail path: a silent reroute is how ops
+    alarms ended up in the operator's personal inbox.
     """
-    subject = " ".join(subject.split())  # the helper refuses multi-line subjects
-    fd, body_path = tempfile.mkstemp(suffix=".txt", prefix="scitex-storage-alarm-")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(body)
-        cmd = [
-            *argv,
-            "--event-id",
-            event_id,
-            "--subject",
-            subject,
-            "--body-file",
-            body_path,
-        ]
-        if dry_run:
-            cmd.append("--dry-run")
-        try:
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout_s, check=False
-            )
-        except FileNotFoundError as exc:
-            return {"rc": 127, "status": "helper_missing", "stderr": str(exc)}
-        except PermissionError as exc:
-            return {"rc": 126, "status": "helper_not_executable", "stderr": str(exc)}
-        return {
-            "rc": proc.returncode,
-            "status": _last_json(proc.stdout).get("status", ""),
-            "stderr": proc.stderr.strip()[-500:],
-        }
-    finally:
-        os.unlink(body_path)
+        from scitex_notification import get_profile, send_with_profile
+    except ImportError as exc:
+        raise ImportError(_NOTIFICATION_HINT) from exc
+    return get_profile, send_with_profile
 
 
 def email_event_id(text: str, host: str | None = None) -> str:
@@ -372,62 +332,83 @@ def email_event_id(text: str, host: str | None = None) -> str:
     return f"scitex-storage-alarm:{host or socket.gethostname()}:{digest}"
 
 
-def email_command_notifier(command: str | None = None) -> Notifier:
-    """A notifier that emails the operator through the scoped helper.
+def email_subject(text: str, host: str | None = None) -> str:
+    """One line naming the host: one inbox receives alarms from many hosts."""
+    first = text.splitlines()[0] if text else "storage alarm"
+    subject = (
+        f"[SciTeX] scitex-storage alarm on {host or socket.gethostname()}: {first}"
+    )
+    return " ".join(subject.split())[:200]
 
-    Independent of the fleet database by construction: SMTP through the
-    helper's own launcher, no card store involved. Returns ``True`` only
-    when the helper reports SMTP acceptance; anything else RAISES with the
-    helper's exit code and status, so the rail chain names it. SMTP
-    acceptance is acceptance by the mail server, not proof of reading --
-    it is the strongest confirmation this transport can give.
+
+def email_notifier(profile: str | None = None) -> Notifier:
+    """A notifier that mails the alarm as a scitex-notification profile.
+
+    Independent of the fleet database by construction: direct SMTP, no card
+    store involved. Returns ``True`` when the SMTP server accepted the
+    message (``status: sent``), or when this exact alarm text was already
+    accepted inside :data:`EMAIL_DEDUPE_WINDOW_S` (``suppressed``). An
+    unusable profile (missing variable, unreadable or group-readable
+    password file) or an SMTP error RAISES, so the rail chain names it.
+    SMTP acceptance is the strongest confirmation this transport can give;
+    it is not proof of reading.
     """
 
     def send(text: str) -> bool | None:
-        argv = resolve_email_command(command)
-        first = text.splitlines()[0] if text else "storage alarm"
-        result = run_email_command(
-            argv,
-            subject=f"[SciTeX] scitex-storage alarm: {first}"[:200],
-            body=text,
-            event_id=email_event_id(text),
+        _get_profile, send_with_profile = _notification_api()
+        result = send_with_profile(
+            resolve_email_profile(profile),
+            email_subject(text),
+            text,
+            dedupe_key=email_event_id(text),
+            dedupe_window_s=EMAIL_DEDUPE_WINDOW_S,
         )
-        if result["rc"] == 0 and result["status"] in _ACCEPTED:
+        status = result.get("status")
+        if status in ("sent", "suppressed"):
             return True
-        raise RuntimeError(
-            f"email helper rc={result['rc']} status={result['status'] or '?'}"
-            + (f" ({result['stderr']})" if result["stderr"] else "")
-        )
+        raise RuntimeError(f"email profile send returned status={status!r}")
 
     return send
 
 
-def check_email_rail(command: str | None = None) -> dict:
-    """Validate the email rail WITHOUT sending, via the helper's ``--dry-run``.
+def check_email_rail(profile: str | None = None) -> dict:
+    """Validate the email rail WITHOUT sending.
 
-    Proves the helper exists, its trusted launcher is installed, and the
-    sender/recipient configuration resolves -- everything short of SMTP.
+    Resolves the profile (every missing or invalid variable is named) and
+    runs the package's ``dry_run``, which checks the message and the dedupe
+    state but opens no connection. It therefore proves configuration, not
+    that the SMTP server accepts the credential. The credential itself is
+    never returned, only ``has_password``.
     """
+    name = resolve_email_profile(profile)
+    base = {"ok": False, "profile": name}
     try:
-        argv = resolve_email_command(command)
-    except ValueError as exc:
+        get_profile, send_with_profile = _notification_api()
+        resolved = get_profile(name)
+        send_with_profile(
+            resolved,
+            "[SciTeX] scitex-storage alarm rail check (dry run)",
+            "Dry-run validation of the scitex-storage alarm email rail.\n",
+            dry_run=True,
+        )
+    except Exception as exc:  # noqa: BLE001 -- a broken rail is a failed check
+        return {**base, "detail": f"{type(exc).__name__}: {exc}"}
+    info = {k: v for k, v in resolved.describe().items() if k != "profile"}
+    if not info.get("has_password"):
         return {
-            "ok": False,
-            "rc": 2,
-            "status": "bad_command",
-            "stderr": str(exc),
-            "command": "",
+            **base,
+            **info,
+            "detail": f"profile {name!r} has no SMTP password; "
+            "the server would refuse an unauthenticated submission",
         }
-    result = run_email_command(
-        argv,
-        subject="[SciTeX] scitex-storage alarm rail check (dry run)",
-        body="Dry-run validation of the scitex-storage alarm email rail.\n",
-        event_id=f"scitex-storage-alarm-check:{socket.gethostname()}",
-        dry_run=True,
-    )
-    result["ok"] = result["rc"] == 0 and result["status"] == "dry_run"
-    result["command"] = " ".join(argv)
-    return result
+    return {
+        **base,
+        **info,
+        "ok": True,
+        "detail": f"profile {name!r}: From {info.get('from')} To {info.get('to')} "
+        f"via {info.get('smtp_host')}:{info.get('smtp_port')} "
+        "(configuration only; SMTP login not attempted)",
+    }
 
 
 # EOF
