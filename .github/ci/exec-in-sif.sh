@@ -81,21 +81,37 @@ fi
 
 # Qualified nonsecret pins are provided by the existing Infra release profile.
 # Check real complete image/runtime entrypoint bytes before executing either.
+#
+# A pin may be a whitespace-separated SET of qualified SHA256 values. The
+# runner pool is several hosts, and their distro apptainer packages are not
+# upgraded in lockstep (measured 2026-11-27: compute-01/02 carry 1.5.5,
+# compute-03 1.5.3). With a single pin, every release failed on whichever
+# runner happened to have the other version. Each value in the set is still an
+# exact byte pin. Nothing is accepted that was not qualified, and a mismatch
+# names the observed digest so qualifying a new runner is a deliberate act.
 verify_release_pin() {
     local release_path="$1" release_expected="$2" release_label="$3"
-    local release_hash_line
-    [[ "$release_expected" =~ ^[0-9a-f]{64}$ ]] || {
-        echo "::error::$release_label requires a qualified lowercase SHA256 pin"
+    local release_hash_line release_actual release_pin
+    for release_pin in $release_expected; do
+        [[ "$release_pin" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "::error::$release_label requires qualified lowercase SHA256 pins"
+            exit 1
+        }
+    done
+    [ -n "${release_expected// /}" ] || {
+        echo "::error::$release_label requires at least one qualified SHA256 pin"
         exit 1
     }
     if ! release_hash_line="$(timeout 120 sha256sum -- "$release_path")"; then
         echo "::error::bounded $release_label byte verification failed"
         exit 1
     fi
-    [ "${release_hash_line%% *}" = "$release_expected" ] || {
-        echo "::error::$release_label bytes differ from the qualified release pin"
-        exit 1
-    }
+    release_actual="${release_hash_line%% *}"
+    for release_pin in $release_expected; do
+        [ "$release_actual" = "$release_pin" ] && return 0
+    done
+    echo "::error::$release_label bytes differ from every qualified release pin (observed sha256 $release_actual at $release_path)"
+    exit 1
 }
 verify_release_pin "$SIF" "${SCITEX_CI_SIF_SHA256:?qualified SIF SHA256 required}" "CI SIF"
 verify_release_pin "$APPTAINER" "${SCITEX_CI_APPTAINER_SHA256:?qualified apptainer SHA256 required}" "Apptainer entrypoint"
