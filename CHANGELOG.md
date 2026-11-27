@@ -7,6 +7,15 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.20] - 2026-11-27
+
+- **Fixed a racy transfer-audit test that stopped the v0.6.19 release.** The
+  two `_transfer/test__audit.py` tests wrote their records to the runner's
+  real `~/.scitex` transfer-logs and each read back every record there. Under
+  xdist, one test's reader unlinked a file that the other had just listed,
+  which raised FileNotFoundError on py3.11. Each test now gets its own HOME, so
+  no state is shared and nothing is written into the real home directory.
+
 ## [0.6.19] - 2026-11-27
 
 - **Release pipeline: the release gate runs the same suites as `ci.yml`.**

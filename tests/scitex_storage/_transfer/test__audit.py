@@ -1,4 +1,5 @@
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -7,7 +8,30 @@ from scitex_storage._transfer import _audit
 
 
 @pytest.fixture
-def read_records(tmp_path):
+def sandboxed_home(tmp_path):
+    """A real, private HOME for the audit log directory.
+
+    The records used to land in the runner's REAL ~/.scitex transfer-logs,
+    shared by every xdist worker. One worker's reader globbed a record that
+    another worker then unlinked, and the read raised FileNotFoundError (the
+    v0.6.19 release gate, py3.11). A per-test HOME removes the shared state
+    instead of tolerating the race, and keeps tests out of the operator's home.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    prev = os.environ.get("HOME")
+    os.environ["HOME"] = str(home)
+    try:
+        yield home
+    finally:
+        if prev is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = prev
+
+
+@pytest.fixture
+def read_records(tmp_path, sandboxed_home):
     def read():
         records = []
         for path in sorted(_audit._record_path().parent.glob("*.json")):
@@ -45,8 +69,13 @@ def test_audit_records_failed_rsync_as_a_separate_retry(read_records, tmp_path):
     # Assert
     assert [
         (
-            payload["operation"], payload["status"], payload["stage"], payload["exit_code"],
-            payload["error_type"], bool(payload["finished_at"]), mode,
+            payload["operation"],
+            payload["status"],
+            payload["stage"],
+            payload["exit_code"],
+            payload["error_type"],
+            bool(payload["finished_at"]),
+            mode,
             "Raw command details" in content,
         )
         for payload, mode, content in read_records()
@@ -55,7 +84,9 @@ def test_audit_records_failed_rsync_as_a_separate_retry(read_records, tmp_path):
 
 def test_audit_records_ssh_refusal_without_remote_output(read_records, tmp_path):
     # Arrange
-    probe = SimpleNamespace(verdict="unreachable", detail="Permission denied (publickey)")
+    probe = SimpleNamespace(
+        verdict="unreachable", detail="Permission denied (publickey)"
+    )
 
     # Act
     _audit.refused_transfer("archive", tmp_path, "scitex-nas-02", None, probe)
