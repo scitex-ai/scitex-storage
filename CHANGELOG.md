@@ -7,6 +7,42 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.17] - 2026-11-27
+
+- **BREAKING: the `alarm` email rail mails the ops inbox, not the operator.**
+  Operator policy (2026-11-27): system alarms go From `no-reply@scitex.ai` To
+  `dev@scitex.ai`. The rail used to run the operator's personal notification
+  helper (`send.sh`), whose sender `agent@` and recipient `ywatanabe@` are
+  fixed, so every storage alarm landed in a personal inbox. It now sends by
+  direct SMTP as a scitex-notification profile (`--email-profile` /
+  `$SCITEX_STORAGE_ALARM_EMAIL_PROFILE`, default `ops`), configured on the host
+  through `SCITEX_NOTIFICATION_PROFILE_OPS_*`. An unconfigured profile fails the
+  rail by name and never reroutes. `--email-command`,
+  `$SCITEX_STORAGE_ALARM_EMAIL_COMMAND`, `email_command_notifier`,
+  `DEFAULT_EMAIL_COMMAND` and `EMAIL_COMMAND_ENV` are removed; use
+  `email_notifier` / `DEFAULT_EMAIL_PROFILE` / `EMAIL_PROFILE_ENV`. A
+  re-delivery of the same alarm text within 24 h is not mailed twice. The
+  subject names the host. `--check-notify` reports From/To/server and whether a
+  password is present, never the password itself.
+  The SMTP password stays encrypted at rest: with
+  `$SCITEX_STORAGE_ALARM_EMAIL_PASSWORD_GPG` (and optionally
+  `$SCITEX_STORAGE_ALARM_EMAIL_GNUPGHOME`) the rail runs `gpg --batch
+  --decrypt` at send time into memory only. A key that is missing or needs a
+  passphrase fails the rail by name. No plaintext copy is ever written.
+
+- **`alarm` suppresses repeats per filesystem.** The state file now keeps,
+  per filesystem, the level last mailed and when it was mailed. The same level
+  is mailed at most once per `--repeat-hours` (default 6) for one filesystem,
+  so a volume flapping around a floor no longer mails on every gather.
+  WARN -> CRITICAL is never held back by a recent WARN mail. ok is mailed only
+  as a recovery from an announced WARN/CRITICAL, never ok -> ok or
+  unknown -> ok. A second filesystem going WARN while another stays WARN, and
+  one filesystem recovering while another stays WARN, are now mailed; the
+  fleet-level rule could not see either. A refused push is no longer recorded
+  as told, so the next gather retries it. JSON output gains `changes` and
+  `suppressed`. A state file written by an older version has no per-filesystem
+  memory, so a filesystem that is alarming at upgrade time is announced once.
+
 - **New `purge` verb: audited deletion of a tree that needs no copy.** Every
   deleting verb either proves a copy first (`retire`) or stages the original
   for seven days (`move`, `sweep-restorable`), so a leftover from a finished

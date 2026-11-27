@@ -49,6 +49,7 @@ CROSS_PACKAGE_IMPORTS = [
     'scitex_dev.system_deps',
     'scitex_io',
     'scitex_logging',
+    'scitex_notification',
     'scitex_sdk.app',
     'scitex_sdk.app.embed',
     'scitex_sdk.app.sdk',

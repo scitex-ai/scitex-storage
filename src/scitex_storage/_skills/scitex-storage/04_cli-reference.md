@@ -42,15 +42,26 @@ refused it (or `--check-notify` found a broken rail).
   decide; the 85%-used rule applies only to smaller volumes. Inodes keep the
   85% rule everywhere.
 - `--notify cards|email|cards,email` picks rails, tried in order. `email`
-  runs the scoped operator helper (`ywatanabe-email-notify`'s `send.sh`, or
-  `--email-command` / `$SCITEX_STORAGE_ALARM_EMAIL_COMMAND`) and does not
-  touch the fleet database. A fallback is LOUD: `detail` starts with
-  `FALLBACK via email` and names the failed rail; JSON carries `rail` and
-  `rail_errors`.
-- `--check-notify` validates rails without sending (email: the helper's
-  `--dry-run`; cards: import only, because probing would send a DM).
+  sends by direct SMTP as a scitex-notification profile (`--email-profile`
+  / `$SCITEX_STORAGE_ALARM_EMAIL_PROFILE`, default `ops`) and does not touch
+  the fleet database. The host configures the profile:
+  `SCITEX_NOTIFICATION_PROFILE_OPS_FROM=no-reply@scitex.ai`, `_TO=dev@scitex.ai`,
+  `_SMTP_HOST`, `_SMTP_PORT`; the password stays gpg-encrypted
+  (`$SCITEX_STORAGE_ALARM_EMAIL_PASSWORD_GPG`, optional
+  `$SCITEX_STORAGE_ALARM_EMAIL_GNUPGHOME`) and is decrypted into memory at
+  send time. An unconfigured profile or an undecryptable ciphertext fails
+  the rail by name; it never reroutes to a personal inbox.
+  A fallback is LOUD: `detail` starts with `FALLBACK via email` and names
+  the failed rail; JSON carries `rail` and `rail_errors`.
+- Repeats: per filesystem, a level is mailed at most once per
+  `--repeat-hours` (default 6); WARN -> CRITICAL is never held back; ok is
+  mailed only as recovery from an announced WARN/CRITICAL. JSON carries
+  `changes` and `suppressed`.
+- `--check-notify` validates rails without sending (email: the profile
+  resolves, the password decrypts, the dry run passes; SMTP login is not
+  attempted; cards: import only, because probing would send a DM).
 - Example (scitex-nas-03): `alarm --path /volume1 --warn-free-gib 100
-  --crit-free-gib 30 --notify cards,email`. Timer units:
+  --crit-free-gib 30 --notify email`. Timer units:
   `examples/systemd/`.
 
 Content versions: `versions --store ROOT inspect VERSION_ID` keeps its JSON
