@@ -233,6 +233,27 @@ def fleet_html_or_placeholder(path: str) -> str:
         return _NO_SNAPSHOT_HTML
 
 
+def fleet_views_available() -> bool:
+    """True when at least one rendered fleet snapshot exists.
+
+    The Usage tab shows its Fleet-visualizations links only then: an empty
+    promo pointing at three empty states is what PR #126 removed, and this
+    keeps it removed until ``fleet-status --gather`` has actually produced
+    something to look at. Reads the default paths (which honour
+    ``SCITEX_DIR``) so tests can sandbox it via the environment.
+    """
+    import os
+
+    return any(
+        os.path.exists(p)
+        for p in (
+            default_snapshot_path(),
+            default_bubbles_path(),
+            default_sunburst_path(),
+        )
+    )
+
+
 def write_fleet_snapshot(
     path: str,
     generated_at: str,
@@ -266,8 +287,8 @@ def write_fleet_snapshot(
         ),
     )
 
-    # Both views are pure renders of the same snapshot; write both so the
-    # table and the bubble page never disagree about what was gathered.
+    # All three views are pure renders of the same snapshot; write all so the
+    # table, bubbles and sunburst never disagree about what was gathered.
     _atomic_write(path, build_dashboard_html(snapshot))
     _atomic_write(default_bubbles_path(), build_bubbles_html(snapshot))
     _atomic_write(default_sunburst_path(), build_sunburst_html(snapshot))

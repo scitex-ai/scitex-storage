@@ -11,7 +11,7 @@
 # pip + uv at /opt/venv-<ver>, exactly like the working pytest-matrix CI.
 #
 # `python -m build` needs the `build` frontend, which is NOT baked in the SIF
-# (only scitex-dev[all,dev] deps are). Mirror run-in-sif.sh: install `build`
+# (only scitex-dev[all,dev] deps are). Install `build`
 # into a writable --target on node-local /tmp and put it on PYTHONPATH. The
 # SIF's /opt/venv-* are root-owned + RO and the compute-node HOME is RO inside
 # the container, so a normal install fails Permission denied — a --target on
@@ -36,6 +36,9 @@ export LC_ALL=C.UTF-8 LANG=C.UTF-8
 TMPDIR="/tmp/build-scitex_storage-${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-0}-$V"
 export TMPDIR
 rm -rf "$TMPDIR"
+# Container /tmp is the host /tmp: remove the scratch on every exit so it never
+# accumulates on the runner host (exit status is unchanged by the trap).
+trap 'rm -rf --one-file-system -- "$TMPDIR"' EXIT
 mkdir -p "$TMPDIR/site" "$TMPDIR/uv-cache"
 
 # The compute-node $HOME is RO inside the container — point every cache the

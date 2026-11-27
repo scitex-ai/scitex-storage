@@ -1,0 +1,1 @@
+"""Storage renderer integration tests."""

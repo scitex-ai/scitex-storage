@@ -353,11 +353,33 @@ def format_archive_report(
         # does NOT say an independent instrument agreed afterwards. Printing
         # only the flag let a tally-only verdict read as content-verified,
         # which is the same word standing for two different guarantees.
+        fate = (
+            f"source staged restorable at {manifest.staged_path}"
+            if manifest.staged_path
+            else "source retained (backup)"
+            if manifest.retained_source
+            else "source removed"
+        )
+        gate = (
+            "copy verified by"
+            if manifest.retained_source and not manifest.staged_path
+            else "delete cleared by"
+        )
         lines.append(
             f"  ARCHIVED (rsync checksum={manifest.checksummed}, "
-            f"delete cleared by: {manifest.verification_method}) -- "
-            f"source removed, manifest written to {plan.manifest_path}"
+            f"{gate}: {manifest.verification_method}) -- "
+            f"{fate}, manifest written to {plan.manifest_path}"
         )
+        # The sidecar is the operator's proof the map survived the machine:
+        # name it on success, and FAIL LOUD (not just in the manifest JSON)
+        # when the replica did not land.
+        if manifest.sidecar_written:
+            lines.append(f"  sidecar: {manifest.sidecar_path}")
+        else:
+            lines.append(
+                "  sidecar: NOT WRITTEN "
+                f"({manifest.sidecar_detail}; local manifest only)"
+            )
     else:
         lines.append("  WOULD ARCHIVE (dry-run — pass --yes/-y to actually sync + remove)")
     return "\n".join(lines)

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # File: src/scitex_storage/_django/settings.py
-"""Minimal standalone Django settings for `scitex-storage start-gui`.
+"""Leaf-owned standalone Django settings for ``scitex-storage gui``.
 
-Used only by the standalone launcher (``_server.py``'s bare-runserver
-fallback); hub deployments ignore this module entirely and mount
+Used by the full App/UI standalone launcher to retain namespaced leaf URLs;
+hub deployments ignore this module entirely and mount
 ``scitex_storage._django.urls`` under their own prefix. Mirrors
 ``scitex_writer._django.settings`` / ``figrecipe._django.settings``.
 """
@@ -23,7 +23,7 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost", "0.0.0.0", "testserver"]
 
 # "hub" | "standalone" — the browser tab alone must distinguish the two
 # (see writer's precedent, scitex-hub PR #357). These settings only boot
-# the STANDALONE server (`scitex-storage start-gui`), so standalone is the
+# the STANDALONE server (`scitex-storage gui`), so standalone is the
 # default here; hub's own settings override this to "hub".
 SCITEX_APP_MODE = os.environ.get("SCITEX_APP_MODE", "standalone")
 
@@ -33,19 +33,19 @@ INSTALLED_APPS = [
     "scitex_storage._django.apps.StorageConfig",
 ]
 
-# Optional: scitex-ui supplies the workspace shell (template + CSS/JS assets)
+# Optional: SDK UI supplies the workspace shell (template + CSS/JS assets)
 try:
-    import scitex_ui  # noqa: F401
+    import scitex_sdk.ui  # noqa: F401
 
-    INSTALLED_APPS.append("scitex_ui")
+    INSTALLED_APPS.append("scitex_sdk.ui")
 except ImportError:
     pass
 
-# scitex_app/app_shell.html, which the index template extends.
+# SDK App supplies scitex_sdk/app/app_shell.html for the leaf templates.
 try:
-    import scitex_app  # noqa: F401
+    import scitex_sdk.app  # noqa: F401
 
-    INSTALLED_APPS.append("scitex_app")
+    INSTALLED_APPS.append("scitex_sdk.app")
 except ImportError:
     pass
 
@@ -69,7 +69,7 @@ TEMPLATES = [
                 # importable against the real scitex-ui 0.6.3 package (installed
                 # in a throwaway venv while building this scaffold — see the PR
                 # description) rather than guessed.
-                "scitex_ui.context_processors.element_inspector",
+                "scitex_sdk.ui.context_processors.element_inspector",
             ],
         },
     },

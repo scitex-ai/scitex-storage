@@ -9,7 +9,14 @@ prefix (see ``urls.py``'s docstring). Mirrors
 ``scitex_writer._django._standalone_urls``.
 """
 
-from django.urls import include, path
+# Django is the OPTIONAL ``gui`` extra (see pyproject.toml). Guarded per
+# PS-233/PS-148.
+try:
+    from django.urls import include, path
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage URLs require Django: pip install scitex-storage[gui]"
+    ) from exc
 
 urlpatterns = [
     path("", include("scitex_storage._django.urls")),

@@ -30,16 +30,23 @@ instructions rather than silently falling back to a slow pure-Python hash.
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ._scan import MissingSystemDependencyError
+from ._duplicate_identity import _file_key, _regular_copies, reclaimable_bytes
+
+if TYPE_CHECKING:
+    from ._classify import Signal
 
 _FCLONES_BINARY_NAME = "fclones"
 
-_FCLONES_INSTALL_HINT = """scitex-storage `find-duplicates` requires the `fclones` binary — a \
+_FCLONES_INSTALL_HINT = """scitex-storage `find-duplicates` requires the \
+`fclones` binary — a \
 hand-rolled Python size+hash pass is too slow at multi-terabyte scale.
 
 `fclones` was not found on PATH. Install it:
@@ -63,7 +70,10 @@ def _fclones_binary() -> str:
 
 
 def find_duplicates(
-    roots: list[str | Path], max_depth: int | None = None
+    roots: list[str | Path],
+    max_depth: int | None = None,
+    *,
+    timeout_s: float | None = None,
 ) -> list[list[Path]]:
     """Find groups of files with byte-identical content under ``roots``.
 
@@ -73,6 +83,15 @@ def find_duplicates(
     requires reading bytes. Use ``max_depth`` to bound the walk on a slow
     network mount or a login node.
 
+    ``timeout_s`` optionally bounds the actual fclones process, in seconds.
+    It must be finite and positive. Expiry kills and reaps the process before
+    raising ``TimeoutError``; partial output is never returned as a result.
+    ``None`` preserves the existing unbounded CLI/library behavior.
+
+    Final symlinks and repeated regular-file inodes are excluded from groups.
+    A reported path that can no longer be inspected raises RuntimeError rather
+    than silently turning incomplete identity evidence into a clean scan.
+
     Read-only in the sense that nothing is moved, linked, or deleted —
     ``fclones group`` (not ``fclones link``/``remove``/``dedupe``) only
     ever reports.
@@ -81,6 +100,15 @@ def find_duplicates(
     (fail-loud, matching :func:`scitex_storage.scan`) and
     :class:`MissingSystemDependencyError` if ``fclones`` is not installed.
     """
+    if timeout_s is not None:
+        if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)):
+            raise ValueError("timeout_s must be a finite positive number of seconds")
+        try:
+            timeout_s = float(timeout_s)
+        except OverflowError as exc:
+            raise ValueError("timeout_s must be finite and positive") from exc
+        if not math.isfinite(timeout_s) or timeout_s <= 0:
+            raise ValueError("timeout_s must be finite and positive")
     if not roots:
         return []
 
@@ -92,51 +120,35 @@ def find_duplicates(
         cmd += ["--depth", str(max_depth)]
     cmd += [str(p) for p in resolved]
 
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        proc = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout_s
+        )
+    except subprocess.TimeoutExpired as exc:
+        # run() kills the child and completes communicate()/wait() before it
+        # raises. Do not leave the hashing process reading after GUI timeout.
+        raise TimeoutError("Duplicate detection exceeded its process deadline") from exc
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", "replace").strip()
         raise RuntimeError(
-            f"`fclones group` exited {proc.returncode}: {stderr or '(no stderr output)'}"
+            f"`fclones group` exited {proc.returncode}: "
+            f"{stderr or '(no stderr output)'}"
         )
 
     payload = json.loads(proc.stdout.decode("utf-8"))
     groups: list[list[Path]] = []
     for group in payload.get("groups", []):
-        paths = sorted(Path(p) for p in group.get("files", []))
+        try:
+            copies, _ = _regular_copies(group.get("files", []))
+        except OSError as exc:
+            raise RuntimeError(
+                "A duplicate file changed or could not be inspected; run the scan again"
+            ) from exc
+        paths = [path for path, _ in copies]
         if len(paths) >= 2:
             groups.append(paths)
     groups.sort(key=lambda g: len(g), reverse=True)
     return groups
-
-
-def reclaimable_bytes(groups: list[list[Path]]) -> int | None:
-    """Bytes recoverable by keeping ONE copy from each duplicate group.
-
-    Sums ``(len(group) - 1) * size`` -- deleting every copy would be data
-    loss, not reclamation, so the first is never counted. Sizes come from
-    ``lstat`` on the first readable member: fclones has already proven the
-    group byte-identical, so any member's size is the group's size.
-
-    Returns ``None`` -- never 0 -- when no group could be measured at all.
-    Zero is a MEASUREMENT ("duplicates exist but recover nothing", which is
-    real for empty files) and must stay distinct from "the question was not
-    answered".
-    """
-    total = 0
-    measured_any = False
-    for group in groups:
-        size = None
-        for member in group:
-            try:
-                size = member.lstat().st_size
-                break
-            except OSError:
-                continue
-        if size is None:
-            continue
-        measured_any = True
-        total += (len(group) - 1) * size
-    return total if measured_any else None
 
 
 def duplicates_signal(groups: list[list[Path]] | None) -> "Signal":
@@ -208,13 +220,17 @@ def _resolve_dir_roots(roots: list[str | Path]) -> list[Path]:
     root is; fail-loud on a bad root in both stages.
     """
     resolved: list[Path] = []
+    seen: set[Path] = set()
     for raw_root in roots:
         p = Path(raw_root).expanduser()
         if not p.exists():
             raise FileNotFoundError(f"path does not exist: {p}")
         if not p.is_dir():
             raise NotADirectoryError(f"not a directory: {p}")
-        resolved.append(p.resolve())
+        canonical = p.resolve()
+        if canonical not in seen:
+            seen.add(canonical)
+            resolved.append(canonical)
     return resolved
 
 
@@ -235,6 +251,7 @@ def size_groups(
     size first. Empty dict means no candidates, not an error.
     """
     by_size: dict[int, list[Path]] = {}
+    seen_files = set()
 
     def walk(directory: str, depth: int) -> None:
         try:
@@ -251,10 +268,15 @@ def size_groups(
                         walk(entry.path, depth + 1)
                 elif entry.is_file(follow_symlinks=False):
                     try:
-                        size = entry.stat(follow_symlinks=False).st_size
+                        info = entry.stat(follow_symlinks=False)
+                        size = info.st_size
                     except OSError:
                         continue
-                    by_size.setdefault(size, []).append(Path(entry.path))
+                    path = Path(entry.path)
+                    key = _file_key(path, info)
+                    if key not in seen_files:
+                        seen_files.add(key)
+                        by_size.setdefault(size, []).append(path)
             except OSError:
                 continue
 

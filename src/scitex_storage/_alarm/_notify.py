@@ -27,17 +27,44 @@ function -- data, not a mock -- and lets a caller in a different
 environment (a cron on a bare host, a container without the card store)
 supply its own rail without this module knowing about it.
 
-ONE RAIL, LOUDLY, RATHER THAN SILENT FALLBACK. There is deliberately no
-"try the DM, then try a card, then try a file" chain. A fallback that
-quietly succeeds on rail three hides that rails one and two are broken,
-and the next incident finds all three rotten. If the configured rail
-fails, that is reported as a failure and the caller decides.
+FALLBACK IS ALLOWED ONLY WHEN IT IS LOUD. This module used to say "one
+rail, no fallback chain", for a sound reason: a fallback that quietly
+succeeds on rail two hides that rail one is broken, and the next incident
+finds every rail rotten. 2026-11-25 showed the cost of the other side of
+that trade. ``/volume1`` on scitex-nas-03 filled and stopped the fleet
+Postgres -- the very database the only rail (``scitex_cards.dm_send``)
+writes to. The alarm for "the disk under the database is full" could only
+be delivered THROUGH that database (#181).
+
+So a caller may now pass an ordered list of :class:`Rail`, and what keeps
+it honest is that a fallback is never silent: every rail that failed is
+named with its error in :attr:`PushResult.detail` and listed in
+:attr:`PushResult.rail_errors`, and :attr:`PushResult.rail` says which one
+carried the message. A push that succeeded on the fallback therefore still
+reads as "your primary rail is broken", which is the half the old rule was
+protecting. The email rail (:func:`email_notifier`) runs outside the
+monitored database entirely.
+
+OPS ALARMS GO TO THE OPS INBOX (operator, 2026-11-27). The email rail used
+to run the operator's personal notification helper, whose sender
+(``agent@scitex.ai``) and recipient (``ywatanabe@scitex.ai``) are fixed by
+design, so every storage alarm landed in a personal inbox. The rail now
+sends as a scitex-notification *profile* (default ``ops``: From
+``no-reply@scitex.ai`` To ``dev@scitex.ai``, configured on the alarm host).
+An unconfigured profile FAILS the rail by name; it never reroutes to the
+personal helper.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Callable, Optional
+import dataclasses
+import hashlib
+import os
+import socket
+import subprocess
+import threading
+from dataclasses import dataclass, field
+from typing import Callable, Optional, Sequence, Union
 
 from ._decide import (
     UNKNOWN,
@@ -46,10 +73,49 @@ from ._decide import (
     format_blindness,
     should_notify,
 )
+from ._repeat import PushDecision, format_changes
 
 #: A transport: takes the rendered alarm text, returns whether it landed.
 #: ``None`` means "completed, but this rail cannot confirm delivery".
 Notifier = Callable[[str], Optional[bool]]
+
+#: How long one rail may take before it counts as failed and the next rail
+#: is tried. A database that is down can hang a connect for minutes; the
+#: alarm about that database must not wait on it.
+RAIL_TIMEOUT_S = 60.0
+
+
+@dataclass(frozen=True)
+class Rail:
+    """A named transport. The name is what a failure report says."""
+
+    name: str
+    notifier: Notifier
+
+
+def _call_bounded(notifier: Notifier, text: str, timeout_s: float) -> Optional[bool]:
+    """Run ``notifier(text)``, raising ``TimeoutError`` past ``timeout_s``.
+
+    A daemon thread rather than an executor: an executor joins its workers
+    at interpreter exit, so a rail hung on a dead database would still hold
+    the process open after we had moved on to the next rail.
+    """
+    box: dict = {}
+
+    def run() -> None:
+        try:
+            box["value"] = notifier(text)
+        except BaseException as exc:  # noqa: BLE001 -- re-raised in the caller
+            box["error"] = exc
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(timeout_s)
+    if worker.is_alive():
+        raise TimeoutError(f"no answer within {timeout_s:.0f}s")
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
 
 
 @dataclass
@@ -68,6 +134,10 @@ class PushResult:
     level: str
     text: str = ""
     detail: str = ""
+    #: Name of the rail that carried the message ("" when none did).
+    rail: str = ""
+    #: ``"<rail>: <what went wrong>"`` for every rail that failed first.
+    rail_errors: list[str] = field(default_factory=list)
 
     @property
     def is_failure(self) -> bool:
@@ -81,9 +151,11 @@ class PushResult:
 
 def notify_if_needed(
     alarm: FleetAlarm,
-    notifier: Notifier,
+    notifier: Union[Notifier, Sequence[Rail]],
     previous_level: str | None = None,
     unknown_streak: int = 0,
+    rail_timeout_s: float = RAIL_TIMEOUT_S,
+    decision: PushDecision | None = None,
 ) -> PushResult:
     """Push ``alarm`` if the level TRANSITIONED, and report what happened.
 
@@ -100,13 +172,37 @@ def notify_if_needed(
     is a failure mode worth spending a try/except on. The exception type
     and message are preserved in ``detail`` so the failure is diagnosable,
     never merely counted.
+
+    ``notifier`` may be one callable (a single rail named ``"default"``) or
+    an ordered sequence of :class:`Rail`. Rails are tried in order until
+    one does not fail. A rail returning ``None`` (stored, unconfirmed)
+    stops the chain -- it did not fail. Each rail is bounded by
+    ``rail_timeout_s``.
+
+    ``decision`` (from :func:`._repeat.decide_filesystems`) adds the
+    per-filesystem rule: the alarm is pushed when EITHER the decision says
+    so OR the fleet-level sustained-blindness page is due, and the
+    decision's change lines are appended so the reader sees which
+    filesystem moved. ``previous_level`` is then not consulted for capacity
+    transitions -- the per-filesystem memory is the finer, newer record.
     """
-    if not should_notify(previous_level, alarm.level, unknown_streak):
+    rails = [Rail("default", notifier)] if callable(notifier) else list(notifier)
+
+    if decision is None:
+        speak = should_notify(previous_level, alarm.level, unknown_streak)
+        why = f"no transition ({previous_level} -> {alarm.level})"
+    else:
+        blind = alarm.level == UNKNOWN and should_notify(
+            UNKNOWN, UNKNOWN, unknown_streak
+        )
+        speak = decision.send or blind
+        why = decision.reason
+    if not speak:
         return PushResult(
             attempted=False,
             delivered=None,
             level=alarm.level,
-            detail=f"no transition ({previous_level} -> {alarm.level})",
+            detail=why,
         )
 
     # Sustained blindness gets its own wording. Reusing the capacity text
@@ -117,29 +213,41 @@ def notify_if_needed(
         if alarm.level == UNKNOWN
         else format_alarm(alarm)
     )
-    try:
-        delivered = notifier(text)
-    except Exception as exc:  # noqa: BLE001 -- see docstring: never crash the gather
+    if decision is not None and decision.changes:
+        text = f"{text}\n{format_changes(decision.changes)}"
+
+    errors: list[str] = []
+    for rail in rails:
+        try:
+            delivered = _call_bounded(rail.notifier, text, rail_timeout_s)
+        except Exception as exc:  # noqa: BLE001 -- see docstring: never crash the gather
+            errors.append(f"{rail.name}: notifier raised {type(exc).__name__}: {exc}")
+            continue
+        if delivered is False:
+            errors.append(f"{rail.name}: transport reported failure")
+            continue
+        outcome = "delivered" if delivered else "transport could not confirm delivery"
+        if errors:
+            # LOUD fallback: the broken primary leads the sentence.
+            outcome = f"FALLBACK via {rail.name} ({outcome}) after " + "; ".join(errors)
         return PushResult(
             attempted=True,
-            delivered=False,
+            delivered=delivered,
             level=alarm.level,
             text=text,
-            detail=f"notifier raised {type(exc).__name__}: {exc}",
+            detail=outcome,
+            rail=rail.name,
+            rail_errors=errors,
         )
 
     return PushResult(
         attempted=True,
-        delivered=delivered,
+        delivered=False,
         level=alarm.level,
         text=text,
-        detail=(
-            "delivered"
-            if delivered
-            else "transport could not confirm delivery"
-            if delivered is None
-            else "transport reported failure"
-        ),
+        detail="; ".join(errors) if errors else "no rail configured",
+        rail="",
+        rail_errors=errors,
     )
 
 
@@ -160,11 +268,211 @@ def operator_dm_notifier(to: str = "operator") -> Notifier:
     """
 
     def send(text: str) -> bool | None:
-        from scitex_cards import dm_send  # deferred: optional dependency
+        try:
+            from scitex_cards import dm_send  # deferred: optional dependency
+        except ImportError as exc:
+            raise ImportError(
+                "operator_dm_notifier requires scitex-cards: pip install scitex-cards"
+            ) from exc
 
         dm_send(to=to, body=text)
         return None  # written to the store; being read is not established
 
     return send
+
+
+#: The scitex-notification sender/recipient profile the email rail sends
+#: as. ``ops`` is the operator's 2026-11-27 routing for system alarms:
+#: From ``no-reply@scitex.ai`` To ``dev@scitex.ai``. The addresses are NOT
+#: in this package; the alarm host sets them, with the SMTP server and the
+#: credential, as ``SCITEX_NOTIFICATION_PROFILE_OPS_{FROM,TO,SMTP_HOST,
+#: SMTP_PORT}`` plus :data:`PASSWORD_GPG_ENV` (see
+#: ``examples/systemd/alarm.env.example``).
+DEFAULT_EMAIL_PROFILE = "ops"
+
+#: Path of a gpg ciphertext holding the profile's SMTP password. The fleet
+#: keeps mailbox passwords encrypted at rest (``~/.pw/<account>.gpg``) and a
+#: systemd timer sources no shell loader, so the rail decrypts it ITSELF,
+#: at send time, into memory only: never a file, never logged, never in a
+#: result. Used only when the profile carries no password of its own.
+PASSWORD_GPG_ENV = "SCITEX_STORAGE_ALARM_EMAIL_PASSWORD_GPG"
+
+#: Optional ``gpg --homedir`` for that ciphertext (a host may keep a
+#: dedicated keyring for it). Default: gpg's own home.
+GNUPGHOME_ENV = "SCITEX_STORAGE_ALARM_EMAIL_GNUPGHOME"
+
+#: Environment override for the profile name.
+EMAIL_PROFILE_ENV = "SCITEX_STORAGE_ALARM_EMAIL_PROFILE"
+
+#: A re-delivery of the SAME alarm text inside this window is not mailed
+#: twice. A rail that timed out after the server accepted the message is
+#: retried on the next gather; this keeps that retry from duplicating it.
+#: Distinct alarms never collide: the text carries ``generated_at``.
+EMAIL_DEDUPE_WINDOW_S = 24 * 3600.0
+
+_NOTIFICATION_HINT = (
+    "the email rail needs scitex-notification with sender profiles "
+    "(get_profile / send_with_profile): pip install -U scitex-notification"
+)
+
+
+def resolve_email_profile(profile: str | None = None) -> str:
+    """Profile name: explicit > ``$SCITEX_STORAGE_ALARM_EMAIL_PROFILE`` > ``ops``."""
+    return profile or os.environ.get(EMAIL_PROFILE_ENV) or DEFAULT_EMAIL_PROFILE
+
+
+def _notification_api():
+    """``(get_profile, send_with_profile)``, imported late.
+
+    Deferred so ``scitex_storage`` imports on a host without the package;
+    the email rail then RAISES, which the rail chain reports by name. It
+    never falls back to another mail path: a silent reroute is how ops
+    alarms ended up in the operator's personal inbox.
+    """
+    try:
+        from scitex_notification import get_profile, send_with_profile
+    except ImportError as exc:
+        raise ImportError(_NOTIFICATION_HINT) from exc
+    return get_profile, send_with_profile
+
+
+def _decrypt_password(path: str, homedir: str | None) -> str:
+    """``gpg --batch --decrypt`` into memory. Never prompts, never writes.
+
+    A key that needs a passphrase, or no key at all, is an ERROR naming the
+    file and gpg's exit code -- not a silent empty password. gpg's stderr
+    tail is kept for diagnosis; it never carries the plaintext.
+    """
+    cmd = ["gpg"]
+    if homedir:
+        cmd += ["--homedir", os.path.expanduser(homedir)]
+    cmd += ["--quiet", "--batch", "--no-tty", "--decrypt", os.path.expanduser(path)]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=30, check=False)
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "gpg is not installed; cannot decrypt the SMTP password"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"gpg timed out decrypting {path} (passphrase prompt?)"
+        ) from exc
+    password = proc.stdout.decode("utf-8", "replace").strip()
+    if proc.returncode != 0 or not password:
+        tail = proc.stderr.decode("utf-8", "replace").strip()[-300:]
+        raise RuntimeError(
+            f"cannot decrypt {path} non-interactively (gpg rc={proc.returncode})"
+            + (f": {tail}" if tail else "")
+        )
+    return password
+
+
+def load_email_profile(profile: str | None = None):
+    """The resolved scitex-notification ``Profile``, password filled in.
+
+    The profile's own ``PASSWORD`` / ``PASSWORD_FILE`` win; otherwise, when
+    :data:`PASSWORD_GPG_ENV` is set, the password is decrypted from that
+    ciphertext into this process's memory.
+    """
+    get_profile, _send = _notification_api()
+    resolved = get_profile(resolve_email_profile(profile))
+    cipher = os.environ.get(PASSWORD_GPG_ENV)
+    if cipher and not resolved.password:
+        password = _decrypt_password(cipher, os.environ.get(GNUPGHOME_ENV))
+        resolved = dataclasses.replace(resolved, password=password)
+    return resolved
+
+
+def email_event_id(text: str, host: str | None = None) -> str:
+    """Stable per message, so a retry of the SAME alarm cannot send twice.
+
+    The alarm text carries ``generated_at``, so two genuine alarms never
+    share an id, while a re-delivery attempt of one alarm does.
+    """
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    return f"scitex-storage-alarm:{host or socket.gethostname()}:{digest}"
+
+
+def email_subject(text: str, host: str | None = None) -> str:
+    """One line naming the host: one inbox receives alarms from many hosts."""
+    first = text.splitlines()[0] if text else "storage alarm"
+    subject = (
+        f"[SciTeX] scitex-storage alarm on {host or socket.gethostname()}: {first}"
+    )
+    return " ".join(subject.split())[:200]
+
+
+def email_notifier(profile: str | None = None) -> Notifier:
+    """A notifier that mails the alarm as a scitex-notification profile.
+
+    Independent of the fleet database by construction: direct SMTP, no card
+    store involved. Returns ``True`` when the SMTP server accepted the
+    message (``status: sent``), or when this exact alarm text was already
+    accepted inside :data:`EMAIL_DEDUPE_WINDOW_S` (``suppressed``). An
+    unusable profile (missing variable, unreadable or group-readable
+    password file, a ciphertext gpg cannot decrypt without a prompt) or an
+    SMTP error RAISES, so the rail chain names it.
+    SMTP acceptance is the strongest confirmation this transport can give;
+    it is not proof of reading.
+    """
+
+    def send(text: str) -> bool | None:
+        _get_profile, send_with_profile = _notification_api()
+        resolved = load_email_profile(profile)
+        result = send_with_profile(
+            resolved,
+            email_subject(text),
+            text,
+            dedupe_key=email_event_id(text),
+            dedupe_window_s=EMAIL_DEDUPE_WINDOW_S,
+        )
+        status = result.get("status")
+        if status in ("sent", "suppressed"):
+            return True
+        raise RuntimeError(f"email profile send returned status={status!r}")
+
+    return send
+
+
+def check_email_rail(profile: str | None = None) -> dict:
+    """Validate the email rail WITHOUT sending.
+
+    Resolves the profile (every missing or invalid variable is named) and
+    runs the package's ``dry_run``, which checks the message and the dedupe
+    state but opens no connection. It therefore proves configuration, not
+    that the SMTP server accepts the credential. The credential itself is
+    never returned, only ``has_password``.
+    """
+    name = resolve_email_profile(profile)
+    base = {"ok": False, "profile": name}
+    try:
+        _get_profile, send_with_profile = _notification_api()
+        resolved = load_email_profile(name)
+        send_with_profile(
+            resolved,
+            "[SciTeX] scitex-storage alarm rail check (dry run)",
+            "Dry-run validation of the scitex-storage alarm email rail.\n",
+            dry_run=True,
+        )
+    except Exception as exc:  # noqa: BLE001 -- a broken rail is a failed check
+        return {**base, "detail": f"{type(exc).__name__}: {exc}"}
+    info = {k: v for k, v in resolved.describe().items() if k != "profile"}
+    if not info.get("has_password"):
+        return {
+            **base,
+            **info,
+            "detail": f"profile {name!r} has no SMTP password (set "
+            f"${PASSWORD_GPG_ENV} or the profile's PASSWORD_FILE); "
+            "the server would refuse an unauthenticated submission",
+        }
+    return {
+        **base,
+        **info,
+        "ok": True,
+        "detail": f"profile {name!r}: From {info.get('from')} To {info.get('to')} "
+        f"via {info.get('smtp_host')}:{info.get('smtp_port')} "
+        "(configuration only; SMTP login not attempted)",
+    }
+
 
 # EOF

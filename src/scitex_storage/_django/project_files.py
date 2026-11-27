@@ -5,42 +5,40 @@
 Download).
 
 The first vertical slice of compass \u00a714 Storage: the storage surface is scoped
-to the requester's ACTIVE PROJECT and built on the ``scitex_app`` SDK file
+to the requester's ACTIVE PROJECT and built on the ``scitex_sdk`` SDK file
 primitives, rather than a second user/project model of its own.
 
 CONTRACT (consumed from the hub, never re-implemented here)
 ----------------------------------------------------------
 scitex-hub owns the project model, the user model, and the authz policy.
 This module takes exactly ONE input from the hub: the Django ``request``.
-From it it resolves the requester's current project via the hub's
-``get_current_project`` and roots every file operation at
-``project.get_local_path()``.
+From it it resolves the requester's current project through the SDK-registered
+host capabilities -- the project provider (``settings.SCITEX_PROJECT_PROVIDER``,
+consumed via ``scitex_sdk.ui.project_scope``) for the authorized project id,
+and the project storage capability (``settings.SCITEX_PROJECT_STORAGE``) for
+the on-disk root and the write permission -- and roots every file operation
+at that root.
 
-Authz is DELEGATED to that one call, not re-implemented. The hub's own
-``resolve_user_working_dir`` documents that ``get_current_project`` "enforces
-``can_view``": it resolves only a project the authenticated user may view
-(owner or collaborator), preferring the header selector over the session. So
-"cross-user denial" is a property of the resolver, not of this module:
+Authz is DELEGATED to those two capabilities, not re-implemented. The provider
+lists only projects the authenticated user may view (owner or collaborator).
+So "cross-user denial" is a property of the resolver, not of this module:
 user B's request resolves to B's project (a different root), and B's API
 simply cannot reach A's files. A leaf app that kept its own Project/User model
 would re-derive the policy and drift from it \u2014 the exact failure compass
-\u00a714 L477 forbids. Hence there is NO ``from apps.infra... import Project``
-here; the hub's object is used duck-typed through the two primitives named
-above (``get_current_project``, ``get_local_path``).
+\u00a714 L477 forbids. Hence there is NO hub-model import here and NO hub-internals
+import string anywhere in this package; the host's objects are reached only
+through the SDK capability seams named above.
 
 HUB vs STANDALONE
 -----------------
-``resolve_project_scope`` locates ``get_current_project`` by a small set of
-candidate import paths (the canonical one is ``apps.infra.project_app.
-services.project_utils``). Inside the hub that resolves. Under the standalone
-launcher (``scitex-storage start-gui``) there is no ``apps.infra`` on the path,
-so it degrades to ``None`` \u2014 the no-silent-fallback rule the existing scan
+Under the standalone launcher (``scitex-storage start-gui``) no host
+provider is registered, so ``resolve_project_scope`` degrades to ``None`` \u2014 the no-silent-fallback rule the existing scan
 views already apply \u2014 and the API answers an explicit ``no_project`` 404
 instead of a bare 500.
 
 FILE PRIMITIVES
 ---------------
-``build_backend(scope)`` returns ``scitex_app.sdk.get_files(scope.project_dir)``
+``build_backend(scope)`` returns ``scitex_sdk.app.sdk.get_files(scope.project_dir)``
 \u2014 the SDK's ``FilesBackend``. With no ``SCITEX_API_TOKEN`` in the
 environment it is the local-disk ``FileSystemBackend`` rooted at the project
 directory; if the hub sets the token it becomes the cloud backend, so these
@@ -58,6 +56,7 @@ contract. Subclasses:
   * ``PermissionDenied``  \u2014 403 ``permission_denied``   (escapes the project root)
   * ``NotAFile``          \u2014 400 ``not_a_file``          (target is a directory)
   * ``DiskFull``          \u2014 507 ``disk_full``           (write space exhausted)
+  * ``QuotaExceeded``     \u2014 507 ``quota_exceeded``      (native quota limit)
   * ``InvalidPath``       \u2014 400 ``invalid_path``        (malformed / non-utf-8)
 
 ``views.py`` maps each ``code`` to its HTTP status via :data:`STATUS_BY_CODE`,
@@ -77,11 +76,26 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import quote
 
-from django.http import HttpResponse
+# Django + scitex-sdk are the OPTIONAL ``gui`` extra (see pyproject.toml).
+# Guarded so a GUI import without the extra names the remedy instead of a
+# bare ModuleNotFoundError (PS-233 guarded-import contract; PS-148).
+try:
+    from django.http import HttpResponse
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage project files require Django: "
+        "pip install scitex-storage[gui]"
+    ) from exc
 
-# The SDK public primitive, not the private backend, so a future scitex-app
+# The SDK public primitive, not the private backend, so SDK updates
 # with a stable file API keeps these views working.
-from scitex_app.sdk import get_files
+try:
+    from scitex_sdk.app.sdk import get_files
+except ImportError as exc:
+    raise ImportError(
+        "scitex-storage project files require scitex-sdk app: "
+        "pip install scitex-storage[gui]"
+    ) from exc
 
 __all__ = [
     "ProjectScope",
@@ -91,6 +105,7 @@ __all__ = [
     "PermissionDenied",
     "NotAFile",
     "DiskFull",
+    "QuotaExceeded",
     "WriteError",
     "FileConflict",
     "InvalidPath",
@@ -113,21 +128,36 @@ STATUS_BY_CODE = {
     "permission_denied": 403,
     "not_a_file": 400,
     "disk_full": 507,
+    "quota_exceeded": 507,
     "invalid_path": 400,
     "write_error": 500,
     "file_conflict": 409,
 }
 
-#: Candidate import locations for the hub's ``get_current_project``. Only the
-#: canonical one needs to exist for the hub to work; the rest are defensive
-#: ordering in case the hub relocates the service without a version bump.
-_GET_CURRENT_PROJECT_CANDIDATES = (
-    "apps.infra.project_app.services.project_utils",
-    "apps.infra.project_app.services",
-)
+#: Settings key naming the host's request-aware project storage capability:
+#: a dotted path to an object with ``project_path(project_id, request)`` and
+#: ``can_write(project_id, request)`` (the ``HubProjectStorage`` contract the
+#: hub registers; scitex-stats ``_projects`` is the reference bar for how a
+#: leaf consumes it).
+STORAGE_SETTING = "SCITEX_PROJECT_STORAGE"
 
-# The seam tests (and a future hub that ships a public project resolver)
-# monkeypatch. Production keeps the default, which does the lazy import.
+
+class _ClosedStorage:
+    """Refuse everything: no host capability, no project root, no writes."""
+
+    @staticmethod
+    def project_path(project_id, request=None):
+        return None
+
+    @staticmethod
+    def can_write(project_id, request=None):
+        return False
+
+
+# Test-only seam: tests inject a fake ``fn(request, user=user)`` returning a
+# duck-typed project (``get_local_path()`` / ``local_path`` / ``can_edit``).
+# Production keeps the default ``None`` and resolves through the SDK-registered
+# host capabilities -- the leaf never imports hub internals directly.
 _GET_CURRENT_PROJECT: Optional[Callable] = None
 
 
@@ -150,32 +180,51 @@ class ProjectScope:
     name: Optional[str] = None
 
 
-def resolve_project_scope(request) -> Optional[ProjectScope]:
+def resolve_project_scope(request, *, require_edit: bool = False) -> Optional[ProjectScope]:
     """Resolve the requester's current project to a :class:`ProjectScope`.
 
-    Returns ``None`` when no project is in scope \u2014 the request has no
-    authenticated user, this runs under the standalone launcher (no hub on the
-    import path), or the hub has no project the user may view. Callers treat
-    ``None`` as :class:`NoProject`. The hub's ``get_current_project`` enforces
-    ``can_view`` internally, so a returned scope is already one the user may
-    see; this function adds no project/user of its own.
+    Returns ``None`` when no project is in scope -- the request has no
+    authenticated user, no host provider is registered (standalone launcher),
+    or the hub lists no project this user may view. Callers treat ``None`` as
+    :class:`NoProject`. The host provider lists only projects the user may see,
+    so a returned scope is already authorized; this function adds no
+    project/user of its own. Mutating callers additionally require a literal
+    ``True`` from the storage capability's ``can_write`` before resolving
+    paths.
     """
     user = getattr(request, "user", None)
     if user is None or not getattr(user, "is_authenticated", False):
         return None
 
-    fn = _current_project_fn()
-    if fn is None:
-        return None
+    if _GET_CURRENT_PROJECT is not None:
+        return _resolve_via_seam(request, user, require_edit=require_edit)
+    return _resolve_via_sdk(request, require_edit=require_edit)
 
+
+def _resolve_via_seam(request, user, *, require_edit: bool = False) -> Optional[ProjectScope]:
+    """The test-only seam: a fake ``fn(request, user=user)`` duck-typed project.
+
+    Production never takes this branch (``_GET_CURRENT_PROJECT`` stays
+    ``None``); it exists so the isolation tests can prove the cross-user
+    contract without a database or the hub repo.
+    """
     try:
-        project = fn(request, user=user)
+        project = _GET_CURRENT_PROJECT(request, user=user)
     except Exception:
-        # A project-resolution failure inside the hub must not become a bare
-        # 500 in a leaf app; report it as "no project in scope".
+        # A project-resolution failure must not become a bare 500 in a leaf
+        # app; report it as "no project in scope".
         return None
     if project is None:
         return None
+
+    if require_edit:
+        try:
+            can_edit = getattr(project, "can_edit", None)
+            editable = callable(can_edit) and can_edit(user) is True
+        except Exception:
+            editable = False
+        if not editable:
+            raise PermissionDenied("Editing this project is not permitted.")
 
     project_dir = _project_dir(project)
     if project_dir is None:
@@ -189,25 +238,107 @@ def resolve_project_scope(request) -> Optional[ProjectScope]:
     )
 
 
-def _current_project_fn() -> Optional[Callable]:
-    """The hub's ``get_current_project``, or ``None`` if it is not importable.
+def _resolve_via_sdk(request, *, require_edit: bool = False) -> Optional[ProjectScope]:
+    """Resolve through the SDK-registered host capabilities (the production path).
 
-    A module-level seam (``_GET_CURRENT_PROJECT``) takes precedence \u2014 that is
-    how tests inject a fake without a database. In production it stays
-    ``None`` and the lazy import below runs; any candidate module that fails to
-    import (standalone launcher) degrades to ``None`` rather than a 500.
+    The project id comes from ``scitex_sdk.ui.project_scope`` (explicit
+    ``?project=`` pick, else the host's last-visited project); the id must be
+    listed for THIS request (authorization); the on-disk root and the write
+    permission come from the ``SCITEX_PROJECT_STORAGE`` capability. Anything
+    missing or failing resolves to ``None`` (fail closed), except a failed
+    write check on a mutating call, which is an explicit 403.
     """
-    if _GET_CURRENT_PROJECT is not None:
-        return _GET_CURRENT_PROJECT
-    for module_path in _GET_CURRENT_PROJECT_CANDIDATES:
+    try:
+        from scitex_sdk.ui.project_scope import (
+            PROJECT_QUERY_PARAM,
+            host_project_provider,
+            resolve_project,
+        )
+    except ImportError:
+        return None
+    try:
+        provider = host_project_provider()
+    except Exception:
+        return None
+    if provider is None:
+        # Standalone launcher: no host provider registered -- fail closed.
+        return None
+    getter = getattr(request, "GET", None)
+    raw = getter.get(PROJECT_QUERY_PARAM) if getter is not None else ""
+    if not raw:
+        raw = getattr(request, "POST", {}).get(PROJECT_QUERY_PARAM, "")
+    explicit = str(raw or "").strip() or None
+    try:
+        project_id = resolve_project(request, provider, explicit=explicit, remember=False)
+    except Exception:
+        return None
+    if not project_id:
+        return None
+    project_id = str(project_id)
+    try:
+        entries = provider.list_projects(request)
+    except Exception:
+        return None
+    entry = next(
+        (e for e in (entries or []) if getattr(e, "id", None) == project_id),
+        None,
+    )
+    if entry is None:
+        # Not listed for this request: this caller may not open it.
+        return None
+
+    store = _storage_capability()
+    if require_edit:
         try:
-            module = __import__(module_path, fromlist=["get_current_project"])
-        except (ImportError, ModuleNotFoundError):
-            continue
-        fn = getattr(module, "get_current_project", None)
-        if callable(fn):
-            return fn
-    return None
+            allowed = store.can_write(project_id, request)
+        except Exception:
+            allowed = False
+        if allowed is not True:
+            raise PermissionDenied("Editing this project is not permitted.")
+    try:
+        root = store.project_path(project_id, request)
+    except Exception:
+        return None
+    if not root:
+        return None
+    try:
+        project_dir = Path(str(root)).resolve()
+    except Exception:
+        return None
+
+    _, _, slug = project_id.strip().strip("/").rpartition("/")
+    return ProjectScope(
+        project_dir=project_dir,
+        project_id=project_id,
+        slug=slug or None,
+        name=getattr(entry, "name", None),
+    )
+
+
+def _storage_capability():
+    """The host's ``SCITEX_PROJECT_STORAGE`` capability, or a closed refusal.
+
+    A dotted path may name a class (instantiated with no arguments, the
+    documented form) or an instance; anything else -- missing setting, broken
+    import, unusable object -- fails closed instead of crashing the request.
+    """
+    try:
+        from django.conf import settings
+        from django.utils.module_loading import import_string
+    except ImportError:
+        return _ClosedStorage()
+    dotted = str(getattr(settings, STORAGE_SETTING, "") or "").strip()
+    if dotted:
+        try:
+            registered = import_string(dotted)
+        except Exception:
+            return _ClosedStorage()
+        candidate = registered() if isinstance(registered, type) else registered
+        if callable(getattr(candidate, "project_path", None)) and callable(
+            getattr(candidate, "can_write", None)
+        ):
+            return candidate
+    return _ClosedStorage()
 
 
 def _project_dir(project) -> Optional[Path]:
@@ -285,6 +416,19 @@ class DiskFull(StorageFileError):
     status = STATUS_BY_CODE["disk_full"]
 
 
+class QuotaExceeded(StorageFileError):
+    """The OS reported a quota limit, without inferring its cap or usage."""
+
+    code = "quota_exceeded"
+    status = STATUS_BY_CODE["quota_exceeded"]
+
+
+def _raise_quota_error(exc: OSError) -> None:
+    if exc.errno == errno.EDQUOT:
+        # Do not expose native absolute filenames or invent a usage estimate.
+        raise QuotaExceeded("Storage quota exceeded for this operation.") from exc
+
+
 class InvalidPath(StorageFileError):
     code = "invalid_path"
     status = STATUS_BY_CODE["invalid_path"]
@@ -321,7 +465,7 @@ class FileConflict(StorageFileError):
 # Backend
 # --------------------------------------------------------------------------- #
 def build_backend(scope: ProjectScope):
-    """The ``scitex_app`` file backend rooted at the scope's project dir.
+    """The ``scitex_sdk`` file backend rooted at the scope's project dir.
 
     Local by default; cloud when ``SCITEX_API_TOKEN`` is set \u2014 the SDK's
     ``get_files`` auto-detection decides, this module stays backend-agnostic.
@@ -332,8 +476,8 @@ def build_backend(scope: ProjectScope):
 # --------------------------------------------------------------------------- #
 # Operations
 # --------------------------------------------------------------------------- #
-def _scope_or_no_project(request) -> ProjectScope:
-    scope = resolve_project_scope(request)
+def _scope_or_no_project(request, *, require_edit: bool = False) -> ProjectScope:
+    scope = resolve_project_scope(request, require_edit=require_edit)
     if scope is None:
         raise NoProject("no project in scope for this request")
     return scope
@@ -437,6 +581,7 @@ def _open(scope: ProjectScope, rel_path: str, *, binary: bool = False):
         # pre-check and the backend disagree; treat as denied, not 500.
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         if exc.errno in (28,):  # ENOSPC
             raise DiskFull(str(exc)) from exc
         raise
@@ -529,15 +674,16 @@ def write_file(request, rel_path: str, content: str) -> dict:
 
     Returns ``{"project", "path", "size"}``.
     """
-    scope = _scope_or_no_project(request)
+    scope = _scope_or_no_project(request, require_edit=True)
     target = _contained_for_write(scope.project_dir, rel_path)
     # The SDK has no atomic-write API; this is the safe wrapper over the same
     # backend. Create the (verified-file-free) missing parents, then write to a
     # temp file in target's dir so os.replace is atomic on the same filesystem.
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=str(target.parent), prefix=".tmp_", suffix=".writing")
-    tmp = Path(tmp_path)
+    tmp = None
     try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=str(target.parent), prefix=".tmp_", suffix=".writing")
+        tmp = Path(tmp_path)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(content)
             fh.flush()
@@ -545,12 +691,15 @@ def write_file(request, rel_path: str, content: str) -> dict:
         os.replace(str(tmp), str(target))
     except OSError as exc:
         # clean up the temp file on any failure, then translate
-        _unlink_quiet(tmp)
+        if tmp is not None:
+            _unlink_quiet(tmp)
+        _raise_quota_error(exc)
         if exc.errno in (28,):  # ENOSPC
             raise DiskFull(f"no space to write {rel_path!r}") from exc
         raise WriteError(f"could not write {rel_path!r}: {exc}") from exc
     except Exception:
-        _unlink_quiet(tmp)
+        if tmp is not None:
+            _unlink_quiet(tmp)
         raise
     return {
         "project": _scope_summary(scope),
@@ -593,7 +742,7 @@ def rename_file(request, old_rel: str, new_rel: str) -> dict:
 
     Returns ``{"project", "from", "to"}``.
     """
-    scope = _scope_or_no_project(request)
+    scope = _scope_or_no_project(request, require_edit=True)
     _resolve_entry(scope, old_rel)  # raises if missing / containment-escape
     # The destination may not exist (that's a rename); check its containment.
     dest = _contained(scope.project_dir, new_rel)
@@ -613,6 +762,11 @@ def rename_file(request, old_rel: str, new_rel: str) -> dict:
         raise PermissionDenied(str(exc)) from exc
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
+    except OSError as exc:
+        _raise_quota_error(exc)
+        if exc.errno == errno.ENOSPC:
+            raise DiskFull("No space available for rename or move.") from exc
+        raise
     return {
         "project": _scope_summary(scope),
         "from": old_rel,
@@ -631,7 +785,7 @@ def delete_file(request, rel_path: str) -> dict:
 
     Returns ``{"project", "path"}``.
     """
-    scope = _scope_or_no_project(request)
+    scope = _scope_or_no_project(request, require_edit=True)
     parts = _delete_parts(rel_path)
     _require_safe_delete_primitives()
     root = scope.project_dir
@@ -651,6 +805,7 @@ def delete_file(request, rel_path: str) -> dict:
                     f"delete path has an unsafe parent component: {rel_path!r}"
                 ) from exc
             except OSError as exc:
+                _raise_quota_error(exc)
                 if exc.errno == errno.ELOOP:
                     raise PermissionDenied(
                         f"delete path has a symlink parent: {rel_path!r}"
@@ -663,6 +818,7 @@ def delete_file(request, rel_path: str) -> dict:
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not access project root: {exc}") from exc
     finally:
         for descriptor in reversed(descriptors):
@@ -730,6 +886,7 @@ def _open_verified_project_root(
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not inspect project root: {exc}") from exc
     if not stat.S_ISDIR(observed.st_mode):
         raise PermissionDenied("project root is not a physical directory")
@@ -741,6 +898,7 @@ def _open_verified_project_root(
     except (NotADirectoryError, PermissionError) as exc:
         raise PermissionDenied("project root changed before deletion") from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         if exc.errno == errno.ELOOP:
             raise PermissionDenied("project root changed to a symlink") from exc
         raise WriteError(f"could not open project root safely: {exc}") from exc
@@ -779,6 +937,7 @@ def _delete_entry_at(parent_fd: int, name: str, display_path: str) -> None:
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not inspect {display_path!r}: {exc}") from exc
 
     if not stat.S_ISDIR(entry_stat.st_mode):
@@ -793,6 +952,7 @@ def _delete_entry_at(parent_fd: int, name: str, display_path: str) -> None:
         except PermissionError as exc:
             raise PermissionDenied(str(exc)) from exc
         except OSError as exc:
+            _raise_quota_error(exc)
             if exc.errno == errno.ENOSPC:
                 raise DiskFull(str(exc)) from exc
             raise WriteError(f"could not delete {display_path!r}: {exc}") from exc
@@ -819,6 +979,7 @@ def _delete_directory_at(
             f"target changed while it was being deleted: {display_path!r}"
         ) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         if exc.errno == errno.ELOOP:
             raise FileConflict(
                 f"target changed while it was being deleted: {display_path!r}"
@@ -850,6 +1011,7 @@ def _delete_directory_at(
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not delete {display_path!r}: {exc}") from exc
     finally:
         os.close(child_fd)
@@ -869,6 +1031,11 @@ def _stage_directory_at(
             break
         except FileExistsError:
             continue
+        except OSError as exc:
+            _raise_quota_error(exc)
+            if exc.errno == errno.ENOSPC:
+                raise DiskFull("No space available for delete staging.") from exc
+            raise
     else:
         raise WriteError("could not allocate a private delete staging directory")
 
@@ -895,6 +1062,7 @@ def _stage_directory_at(
     except PermissionError as exc:
         raise PermissionDenied(str(exc)) from exc
     except OSError as exc:
+        _raise_quota_error(exc)
         raise WriteError(f"could not stage {display_path!r}: {exc}") from exc
     finally:
         if stage_fd is not None and "moved_stat" not in locals():
@@ -933,7 +1101,7 @@ def make_dir(request, rel_path: str) -> dict:
 
     Returns ``{"project", "path"}``.
     """
-    scope = _scope_or_no_project(request)
+    scope = _scope_or_no_project(request, require_edit=True)
     target = _contained_for_write(scope.project_dir, rel_path)
     if target.exists():
         if target.is_dir():
@@ -942,6 +1110,7 @@ def make_dir(request, rel_path: str) -> dict:
     try:
         target.mkdir(parents=True, exist_ok=False)
     except OSError as exc:
+        _raise_quota_error(exc)
         if exc.errno in (28,):  # ENOSPC
             raise DiskFull(f"no space to create directory {rel_path!r}") from exc
         raise WriteError(f"could not create directory {rel_path!r}: {exc}") from exc

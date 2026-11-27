@@ -11,6 +11,8 @@ ROW that says could-not-look, never an absence and never a green zero.
 
 from __future__ import annotations
 
+import pytest
+
 from scitex_storage._fleet_status import COULD_NOT_LOOK, MEASURED, NOT_APPLICABLE
 from scitex_storage._observe import (
     ProbeOutcome,
@@ -499,5 +501,87 @@ def test_a_present_snapshot_is_returned_verbatim(tmp_path):
 
     # Assert
     assert "FLEET-SENTINEL" in html
+
+
+# --- fleet_views_available (Usage promo gate) ------------------------------
+# The Usage tab links the three fleet views only once a snapshot exists;
+# an empty promo pointing at three empty states is what PR #126 removed.
+
+
+def _sandbox(tmp_path):
+    """Point SCITEX_DIR at tmp_path; returns a restore callable.
+
+    A real env-var save/set (not a mock): the code under test still calls
+    the real default_*_path resolvers.
+    """
+    import os
+
+    old = os.environ.get("SCITEX_DIR")
+    os.environ["SCITEX_DIR"] = str(tmp_path)
+
+    def restore():
+        if old is None:
+            os.environ.pop("SCITEX_DIR", None)
+        else:
+            os.environ["SCITEX_DIR"] = old
+
+    return restore
+
+
+def _write_runtime_file(path_str):
+    """Write a minimal snapshot page at the explicit path (no env involved)."""
+    import os as _os
+
+    _os.makedirs(_os.path.dirname(path_str), exist_ok=True)
+    with open(path_str, "w", encoding="utf-8") as fh:
+        fh.write("<!doctype html>")
+
+
+@pytest.fixture
+def scitex_dir(tmp_path):
+    """Sandbox SCITEX_DIR at tmp_path for the test; restores on teardown.
+
+    The sanctioned env-var pattern (real save/set, never a mock): the
+    code under test still calls the real default_*_path resolvers.
+    """
+    restore = _sandbox(tmp_path)
+    try:
+        yield tmp_path
+    finally:
+        restore()
+
+
+def test_no_snapshot_means_no_fleet_views(scitex_dir):
+    # Arrange -- an empty runtime tree: nothing gathered yet.
+    from scitex_storage._observe import fleet_views_available
+
+    # Act
+    available = fleet_views_available()
+    # Assert
+    assert available is False
+
+
+def test_a_table_snapshot_makes_fleet_views_available(scitex_dir):
+    # Arrange
+    from scitex_storage._observe import default_snapshot_path, fleet_views_available
+
+    _write_runtime_file(default_snapshot_path())
+    # Act
+    available = fleet_views_available()
+    # Assert
+    assert available is True
+
+
+def test_a_bubbles_snapshot_alone_makes_fleet_views_available(scitex_dir):
+    # Arrange -- any one of the three is enough; a partial gather still
+    # gives the Usage tab something real to link to.
+    from scitex_storage._observe import default_bubbles_path, fleet_views_available
+
+    _write_runtime_file(default_bubbles_path())
+    # Act
+    available = fleet_views_available()
+    # Assert
+    assert available is True
+
 
 # EOF

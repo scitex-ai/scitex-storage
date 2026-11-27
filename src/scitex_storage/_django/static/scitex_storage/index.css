@@ -6,10 +6,15 @@
   --stx-storage-border: var(--border-muted, rgba(127, 127, 127, 0.3));
   --stx-storage-muted: var(--text-muted, #8b949e);
   box-sizing: border-box;
-  width: 100%;
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 20px 16px calc(var(--site-dock-live-height, 0px) + 32px);
+  /* Full-pane width comes from the shared SDK .stx-layout-fill utility
+     (linked in the templates, scitex-sdk>=0.3.8): no competing width or
+     max-width here per its no-!important contract. Long-form text still
+     caps itself (see .stx-storage-coming p). */
+  margin: 0;
+  /* Operator 2026-10-24: no margins on the largest div — the app content
+     fills the pane edge to edge. The live dock clearance stays (functional,
+     not a margin): without it the dock would cover the last row. */
+  padding: 0 0 var(--site-dock-live-height, 0px);
   color: var(--text-primary, inherit);
   font-size: 15px;
 }
@@ -20,52 +25,27 @@
   box-sizing: border-box;
 }
 
-.stx-storage-head { margin-bottom: 12px; }
+/* Anchor adapter for the shared tabs: the SDK primitive is written for
+   <button> producers; our tabs are server-rendered links, which bring a
+   UA underline that would double up with the selected indicator. */
+.stx-content-tabs__tab[href] { text-decoration: none; }
 
-.stx-storage-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 650;
-}
-
-.stx-storage-title i { color: var(--stx-storage-accent); }
-
-.stx-storage-lede {
-  margin: 4px 0 0;
-  color: var(--stx-storage-muted);
-}
-
-.stx-storage-tabs {
-  display: flex;
-  gap: 4px;
-  margin: 12px 0 16px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--stx-storage-border);
-  scrollbar-width: none;
-}
-
-.stx-storage-tab {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 0 12px;
-  border-bottom: 2px solid transparent;
-  color: var(--stx-storage-muted);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.stx-storage-tab:hover { color: var(--text-primary, inherit); }
-
-.stx-storage-tab.is-active {
+/* Operator verdict 2026-10-20: the shared selected state curls (radius +
+   inset shadow round the 2px indicator). Approved Cards pattern instead:
+   transparent bg, 2px solid accent bottom border, weight 700, NO radius.
+   NOTE: the SDK primitive now carries the straight underline itself (proxy
+   fix 0a45d6e); this rule stays as a floor-guard for older SDK floors, and
+   goes one step further per verdict: the label stays monochrome while the
+   primitive paints it accent. */
+.stx-content-tabs__tab[aria-selected="true"] {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--accent, #1a2a40);
+  border-radius: 0;
+  box-shadow: none;
+  /* Label stays monochrome: only the underline carries accent. */
   color: var(--text-primary, inherit);
-  border-bottom-color: var(--stx-storage-accent);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .stx-storage-soon {
@@ -80,8 +60,23 @@
   margin-bottom: 14px;
   padding: 14px 16px;
   border: 1px solid var(--stx-storage-border);
-  border-radius: 12px;
+  border-radius: 0;
   background: var(--stx-storage-surface);
+  min-width: 0; /* allow grid/flex children to shrink instead of overflowing */
+}
+
+/* Responsive card grid (Usage per-volume cards, Move tier cards): side by
+   side on a wide hub pane, single column on narrow/standalone widths. The
+   auto-fit minmax means no fixed breakpoints to maintain. */
+.stx-storage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.stx-storage-grid > .stx-storage-card {
+  margin-bottom: 0;
 }
 
 .stx-storage-machine {
@@ -239,3 +234,13 @@ a.stx-storage-name i { color: var(--stx-storage-accent); }
 .stx-storage-coming i { font-size: 1.8rem; color: var(--stx-storage-accent); }
 .stx-storage-coming h2 { margin: 10px 0 6px; font-size: 1.15rem; }
 .stx-storage-coming p { margin: 0 auto; max-width: 36rem; color: var(--stx-storage-muted); }
+
+/* Leaf-owned calculator result layout; controls use the shared SDK primitives. */
+.stx-storage-example-estimates {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 4px 12px;
+}
+.stx-storage-example-estimates dt,
+.stx-storage-example-estimates dd { margin: 0; overflow-wrap: anywhere; }
+.stx-storage-example-estimates dd { text-align: right; }

@@ -17,17 +17,21 @@ pinned hardest, and they are opposites:
   was never told, which is the same defect arriving a week later.
 """
 
+import time
+
 from scitex_storage._alarm import (
     CRITICAL,
     OK,
     UNKNOWN,
     UNKNOWN_STREAK_ALERT,
     WARN,
+    FilesystemAlarm,
     FleetAlarm,
+    Rail,
     format_blindness,
+    notify_if_needed,
     should_notify,
 )
-from scitex_storage._alarm import notify_if_needed
 
 
 def _recorder():
@@ -289,5 +293,137 @@ def test_recovery_from_unknown_to_ok_stays_silent():
     result = should_notify(previous, current)
     # Assert
     assert result is False
+
+# EOF
+
+# --------------------------------------------------------------------------
+# Unit tests for the rail chain and the email rail (#181).
+# --------------------------------------------------------------------------
+
+def _critical() -> FleetAlarm:
+    return FleetAlarm(
+        level=CRITICAL,
+        generated_at="2026-11-25T10:00:00Z",
+        filesystems=[
+            FilesystemAlarm(
+                host="nas", mount="/volume1", level=CRITICAL, reasons=["1.0 GiB free"]
+            )
+        ],
+    )
+
+
+def _db_down(text: str):
+    raise ConnectionError("connection to server at 127.0.0.1:55432 refused")
+
+
+def _true_recorder():
+    sent: list[str] = []
+
+    def fn(text: str):
+        sent.append(text)
+        return True
+
+    return fn, sent
+
+
+# --------------------------------------------------------------------------
+# Chain semantics
+# --------------------------------------------------------------------------
+
+
+def test_fallback_delivers_when_the_primary_rail_raises():
+    # Arrange
+    email, _sent = _true_recorder()
+    rails = [Rail("cards", _db_down), Rail("email", email)]
+    # Act
+    result = notify_if_needed(_critical(), rails, previous_level=OK)
+    # Assert
+    assert result.rail == "email"
+
+
+def test_fallback_message_actually_reaches_the_second_rail():
+    # Arrange
+    email, sent = _true_recorder()
+    rails = [Rail("cards", _db_down), Rail("email", email)]
+    # Act
+    notify_if_needed(_critical(), rails, previous_level=OK)
+    # Assert
+    assert "/volume1" in sent[0]
+
+
+def test_fallback_is_loud_about_the_failed_primary():
+    """Silent fallback would hide that the primary rail is broken."""
+    # Arrange
+    email, _sent = _true_recorder()
+    rails = [Rail("cards", _db_down), Rail("email", email)]
+    # Act
+    result = notify_if_needed(_critical(), rails, previous_level=OK)
+    # Assert
+    assert (
+        result.detail.startswith("FALLBACK via email")
+        and "cards: notifier raised ConnectionError" in result.detail
+    )
+
+
+def test_fallback_records_the_primary_error_structurally():
+    # Arrange
+    email, _sent = _true_recorder()
+    rails = [Rail("cards", _db_down), Rail("email", email)]
+    # Act
+    result = notify_if_needed(_critical(), rails, previous_level=OK)
+    # Assert
+    assert len(result.rail_errors) == 1
+
+
+def test_primary_success_does_not_touch_the_fallback():
+    # Arrange
+    cards, _ = _true_recorder()
+    email, sent = _true_recorder()
+    rails = [Rail("cards", cards), Rail("email", email)]
+    # Act
+    notify_if_needed(_critical(), rails, previous_level=OK)
+    # Assert
+    assert sent == []
+
+
+def test_unconfirmed_primary_stops_the_chain():
+    """cards returns None (stored, unread): it did not FAIL, so no email."""
+    # Arrange
+    email, sent = _true_recorder()
+    rails = [Rail("cards", lambda text: None), Rail("email", email)]
+    # Act
+    notify_if_needed(_critical(), rails, previous_level=OK)
+    # Assert
+    assert sent == []
+
+
+def test_every_rail_failing_is_a_failure():
+    # Arrange
+    rails = [Rail("cards", _db_down), Rail("email", lambda text: False)]
+    # Act
+    result = notify_if_needed(_critical(), rails, previous_level=OK)
+    # Assert
+    assert result.is_failure is True
+
+
+def test_a_hung_rail_times_out_and_the_next_rail_delivers():
+    """A dead DB can hang a connect; the alarm about it must not wait."""
+    # Arrange
+    email, _ = _true_recorder()
+    rails = [Rail("cards", lambda text: time.sleep(1)), Rail("email", email)]
+    # Act
+    result = notify_if_needed(_critical(), rails, previous_level=OK, rail_timeout_s=0.2)
+    # Assert
+    assert result.rail == "email"
+
+
+def test_single_callable_still_works_as_one_rail():
+    # Arrange
+    fn, _ = _true_recorder()
+    # Act
+    result = notify_if_needed(_critical(), fn, previous_level=OK)
+    # Assert
+    assert result.rail == "default"
+
 
 # EOF

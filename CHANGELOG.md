@@ -7,6 +7,485 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.21] - 2026-11-27
+
+- **New `tier` verb: keep a hot volume below a fill level.** `scitex-storage
+  tier ROOT --to HOST` selects regular files and whole directory subtrees
+  whose newest atime and mtime are older than `--cold-after-days` and that
+  are at least `--min-size`. Coldest go first, then largest. It stops once
+  `--target-used-percent` is projected and honours `--max-bytes` and
+  `--max-items`. The walk never crosses filesystems or follows symlinks. It
+  skips restorable staging, pointers, `--exclude` matches, hard-linked files
+  and anything held open or mounted on. Dry-run by default. With `--yes` each
+  unit is re-checked and then moved by `apply_archive`, which verifies
+  content and stages the original for 7 days. Only after that does tier
+  write a pointer `<path>.stx-tiered.json` (schema
+  `scitex-storage/tier-pointer/v1`). A run log in `runtime/tier-logs/` is
+  written before the first move and after every unit. Exit 21 means a unit
+  failed; it keeps its source and gets no pointer. Python API:
+  `plan_tier` / `apply_tier` / `restore_tiered` in `_transfer._tier`.
+- **`restore` works on tiered paths.** When a pointer exists, `restore PATH
+  --yes` refuses an occupied path and pulls the data back. It requires the
+  restored content to reproduce the manifest digest (`apply_restore(...,
+  verify_content=True)`, new `RestoreNotVerifiedError`), and only then
+  removes the pointer or, with `--delete-remote`, the remote copy.
+- **Single-file archives.** `plan_archive(..., allow_file=True)` archives one
+  regular file as the only entry of the remote directory `remote_path`. The
+  manifest records `source_kind: file`, and `content_digest` is the file's
+  sha256. Scrub, restore and retention staging understand it. The `archive`
+  CLI stays directory-only.
+- **`sweep-restorable --verify-remote`.** It supplies a bounded remote target
+  verifier. The verifier re-hashes the remote copy over ssh within the
+  remaining `--max-seconds`, and expired originals of verified archive and
+  tier moves are deleted only when the digest still matches. Before this,
+  the CLI had no remote verifier, so those originals were deferred forever
+  and the space was never returned.
+- **Daily timer example.** `examples/systemd/scitex-storage-tier.{service,timer}`
+  and `tier.env.example` first sweep verified expired staging and then tier.
+  They run with `Nice=10` and the idle I/O class, and read their arguments
+  from `~/.scitex/scitex-storage/tier.env`.
+- **README CLI flag reference moved to `docs/cli.md`.** The README keeps a
+  one-line usage per verb and links there.
+
+## [0.6.20] - 2026-11-27
+
+- **Fixed a racy transfer-audit test that stopped the v0.6.19 release.** The
+  two `_transfer/test__audit.py` tests wrote their records to the runner's
+  real `~/.scitex` transfer-logs and each read back every record there. Under
+  xdist, one test's reader unlinked a file that the other had just listed,
+  which raised FileNotFoundError on py3.11. Each test now gets its own HOME, so
+  no state is shared and nothing is written into the real home directory.
+
+## [0.6.19] - 2026-11-27
+
+- **Release pipeline: the release gate runs the same suites as `ci.yml`.**
+  The v0.6.18 tag passed the new apptainer pin set, and then failed in every
+  test leg. The reused `ci-cpu.sif` has no rsync or fclones, so the backup,
+  move, archive-integrity, versions and duplicate-scan tests failed there. The
+  same commit was green in `ci.yml`. The release workflow now calls the org
+  `pytest-matrix` and the pinned `fd-fclones-integration` workflows, which
+  `ci.yml` already uses, on the tagged commit. Build and publish still run in
+  the SIF and still re-verify the tagged source. The SIF-only
+  `.github/ci/run-in-sif.sh` is removed. 0.6.19 ships the 0.6.17 content
+  unchanged otherwise.
+
+## [0.6.18] - 2026-11-27
+
+- **Release pipeline: accept a set of qualified apptainer pins.** The v0.6.17
+  tag never reached PyPI: every test leg failed at "Apptainer entrypoint bytes
+  differ from the qualified release pin". The runner pool's distro apptainer is
+  not upgraded in lockstep (compute-01/02 run 1.5.5, compute-03 runs 1.5.3), so
+  one pin could match only some runners. `SCITEX_CI_APPTAINER_SHA256` may now be
+  a whitespace-separated set of exact SHA256 pins. A mismatch reports the
+  observed digest. 0.6.18 ships the 0.6.17 content unchanged otherwise.
+
+## [0.6.17] - 2026-11-27
+
+- **BREAKING: the `alarm` email rail mails the ops inbox, not the operator.**
+  Operator policy (2026-11-27): system alarms go From `no-reply@scitex.ai` To
+  `dev@scitex.ai`. The rail used to run the operator's personal notification
+  helper (`send.sh`), whose sender `agent@` and recipient `ywatanabe@` are
+  fixed, so every storage alarm landed in a personal inbox. It now sends by
+  direct SMTP as a scitex-notification profile (`--email-profile` /
+  `$SCITEX_STORAGE_ALARM_EMAIL_PROFILE`, default `ops`), configured on the host
+  through `SCITEX_NOTIFICATION_PROFILE_OPS_*`. An unconfigured profile fails the
+  rail by name and never reroutes. `--email-command`,
+  `$SCITEX_STORAGE_ALARM_EMAIL_COMMAND`, `email_command_notifier`,
+  `DEFAULT_EMAIL_COMMAND` and `EMAIL_COMMAND_ENV` are removed; use
+  `email_notifier` / `DEFAULT_EMAIL_PROFILE` / `EMAIL_PROFILE_ENV`. A
+  re-delivery of the same alarm text within 24 h is not mailed twice. The
+  subject names the host. `--check-notify` reports From/To/server and whether a
+  password is present, never the password itself.
+  The SMTP password stays encrypted at rest: with
+  `$SCITEX_STORAGE_ALARM_EMAIL_PASSWORD_GPG` (and optionally
+  `$SCITEX_STORAGE_ALARM_EMAIL_GNUPGHOME`) the rail runs `gpg --batch
+  --decrypt` at send time into memory only. A key that is missing or needs a
+  passphrase fails the rail by name. No plaintext copy is ever written.
+
+- **`alarm` suppresses repeats per filesystem.** The state file now keeps,
+  per filesystem, the level last mailed and when it was mailed. The same level
+  is mailed at most once per `--repeat-hours` (default 6) for one filesystem,
+  so a volume flapping around a floor no longer mails on every gather.
+  WARN -> CRITICAL is never held back by a recent WARN mail. ok is mailed only
+  as a recovery from an announced WARN/CRITICAL, never ok -> ok or
+  unknown -> ok. A second filesystem going WARN while another stays WARN, and
+  one filesystem recovering while another stays WARN, are now mailed; the
+  fleet-level rule could not see either. A refused push is no longer recorded
+  as told, so the next gather retries it. JSON output gains `changes` and
+  `suppressed`. A state file written by an older version has no per-filesystem
+  memory, so a filesystem that is alarming at upgrade time is announced once.
+
+- **New `purge` verb: audited deletion of a tree that needs no copy.** Every
+  deleting verb either proves a copy first (`retire`) or stages the original
+  for seven days (`move`, `sweep-restorable`), so a leftover from a finished
+  migration (a superseded containerd root, a stale cache) had no audited way
+  out and fell back to raw `rm -rf`. `scitex-storage purge PATH --confirm PATH
+  --reason TEXT` is dry-run by default. It refuses `/`, top-level paths, mount
+  points, symlinks and the home directory; any mount at or under PATH or bind
+  mount from inside it (all readable mount namespaces); any process holding
+  PATH as cwd, root, exe, open file or mapping; and any process it could not
+  inspect. `--yes` plans again, writes an fsynced audit record to
+  `~/.scitex/scitex-storage/runtime/purge-logs/` before the first unlink, and
+  records free space before and after. Refusals exit 18.
+
+- **New `move` verb: a verified local move with a 7-day rollback copy.** The
+  verified-move engine (`_transfer._move`: rsync into a private temporary,
+  independent content digests of copy and source, no-replace publish, source
+  staged as restorable) was reachable only from the web host. Moving a
+  database data directory off a session scratch path had no verb and fell back
+  to `cp -a`. `scitex-storage move SRC DST` is dry-run by default; `--yes`
+  applies; `--timeout`, `--max-entries` and `--state-dir` expose the engine's
+  limits; refusals and failed moves exit 19 with the receipt attached.
+
+- **`alarm` can watch a large mount, and can be delivered when the fleet
+  database is the thing that broke (#181).** On 2026-11-25 scitex-nas-03's
+  `/volume1` filled and stopped the fleet Postgres; `alarm` could not see that
+  mount, its percent rule is permanently WARN on an 11.9 TB volume, and its
+  only rail wrote to that same database.
+  - `--path P` (repeatable), with a separate state file per path set.
+  - `--warn-free-gib` / `--crit-free-gib` (alias `--critical-free-gib`);
+    thresholds now flow into the pure `evaluate_row` / `evaluate_snapshot`
+    as a `Thresholds` value.
+  - Volumes >= 1 TiB (`LARGE_VOLUME_BYTES`) are judged by the absolute
+    floors; the 85%-used rule no longer raises WARN on them by itself.
+  - Fixed: a local gather never recorded `avail_bytes`, so the absolute floors
+    could never fire from `alarm` — they compared against `None`.
+  - `--notify cards,email`: ordered rails with a LOUD fallback (`detail`
+    starts `FALLBACK via email` and names the failed rail; JSON `rail`,
+    `rail_errors`). Each rail is time-bounded so a hung database connect
+    cannot hold the alarm. The email rail runs the scoped operator helper and
+    never handles a credential. `--check-notify` validates rails without
+    sending.
+  - `examples/systemd/` timer units and an env example.
+
+- Clear the previous sunburst tooltip when navigating between hierarchy levels.
+- Capture the verified root after native navigation in browser regression tests,
+  retaining the required screenshot and all boundary assertions.
+
+- Key the legacy GUI command's once-per-shell warning to the actual parent
+  process, rather than a stale or caller-supplied `PPID` environment value.
+
+- Render a single-child Usage ring as a complete annulus using two SVG arcs per circle; preserve its empty center, ring bounds, partial sectors and native drill-down.
+
+- Paint the Usage parent disk after colored arcs so near-edge native touch compatibility clicks keep the center target inside sandboxed phone iframes. Radius and ring geometry are unchanged.
+- Give manifest inspection a real JSON/human format choice while preserving JSON
+  by default; human metadata uses scitex-logging and never claims content checks.
+- Name pointer creation `versions create-pointer`, keeping the old spelling as
+  an argument-preserving compatibility alias with unchanged confirmation gates.
+- Declare actual storage actions alarm/backup/scrub through the existing leaf
+  vocabulary SPI, without adding output flags or changing their behavior.
+
+
+- Regress Usage scope boundaries with registered SDK providers: reject encoded/foreign selectors, ignore free-form root overrides, preserve project narrowing, and avoid descent through escaping directory symlinks. No backend authorization policy changes.
+
+- Make the entire Usage sunburst center disk a parent control, with `..`, mouse/touch and Enter/Space support. Disable it at the loaded scoped root and safely refuse malformed hash restoration without ancestor requests.
+- Preserve fresh Move draft edits when calculating examples through native GET
+  form association. Calculate works with incomplete Move fields; explicit Plan
+  retains required fields and is independent of server-side example errors.
+  Apply remains a separate POST form; no controller or persisted state is added.
+
+- Add a separate, editable example cost calculator for logical tiers: explicit
+  illustrative size/rates and Decimal day/week/30-day estimates. Seed fixtures
+  cite the 2026-11-02 landing-page pricing snapshot; Hot remains nonnumeric until
+  entered. Configured rates, availability, scope and storage operations are
+  unchanged; no account or rate persistence is added.
+
+## [0.6.16] - 2026-11-02
+
+### Added
+
+- Verified local file/directory moves through `plan_move` / `apply_move`: rsync
+  writes a private destination, independent SHA256 checks compare source/copy/
+  source, and atomic no-overwrite publication precedes seven-day recoverable
+  source retirement. Durable per-user transaction receipts support idempotent
+  completed replays and explicit recovery for interrupted transactions.
+- Public `restore_staged` with checksum verification and collision refusal;
+  locked, crash-recoverable quarantine registration and bounded explicit cleanup.
+  Expired move originals require a valid completed receipt and a fresh matching
+  destination checksum. Missing, corrupt or unreachable copies retain the
+  original. Remote archive cleanup needs a bounded host verifier; manual
+  quarantine deletion has a separate explicit opt-in. No sweeper is enabled.
+- Logical hot/warm/cool/cold GUI bindings through authorized host volumes,
+  configurable currency/rate estimates for day/week/30-day periods, and clear
+  unavailable states for missing tiers or unconfigured prices.
+- Experimental local `VersionStore` and `versions` CLI: bounded native FastCDC
+  (`fastcdc==1.7.0`) chunks, immutable SHA256 objects, streaming manifests,
+  measured reuse, verified no-overwrite checkout and ordinary Git pointer files.
+  Defaults are 512 KiB minimum, 2 MiB average scale and 8 MiB maximum chunks.
+  Sources stay in place. This release provides no remote object transport,
+  Git LFS service, automatic Git filters, garbage collection or production-scale
+  qualification; cloning a pointer repository does not fetch its payload store.
+
+### Changed
+
+- Storage opens in request-local All Projects without changing the host's saved
+  project. Explicit project selection constrains read views. SDK >=0.3.17 owns
+  the header/picker; displayed logical home paths do not rebind physical roots.
+- Organize tabs are Usage, Move and Duplicates. Remove the obsolete Backup GUI
+  while retaining the independent public backup CLI/Python operation.
+- Archive source retirement requires independent SHA256 even when rsync's
+  checksum flag is disabled; copy-only operation remains available. Moves keep
+  originals recoverable for at least seven days rather than deleting them
+  immediately after copying.
+- Optional keyword-only `find_duplicates(..., timeout_s=...)` bounds the actual
+  hashing subprocess and kills/reaps it on timeout. The GUI passes 60 seconds;
+  existing CLI/library calls remain unbounded unless explicitly configured.
+  Reports state the full group count and label the first-50 display subset.
+
+### Fixed
+
+- Authorize both move endpoints and project writes; refuse registered project
+  root relocation, missing storage capabilities and incomplete root catalogs.
+  View-only projects return 403; malformed tier configuration returns 503.
+- Keep transaction state inside the canonical authenticated user home, reject
+  child-symlink escapes and source/destination overlap with the state directory,
+  and keep planning/dry runs free of filesystem writes.
+- Acknowledge live transfer descendants as well as the group leader before
+  reporting cancellation or cleaning private transfer files. Unverifiable
+  termination retains the existing `cancelling` recovery state within the
+  bounded shutdown budget; recorded phases never imply a worker is live.
+- Use shared versioned SDK header assets without a leaf border override. Keep
+  the sandboxed, text-safe usage chart responsive with a 480px drawing cap.
+
+## [0.6.15] - 2026-11-01
+
+### Security
+
+- Treat filesystem/volume names as text in sunburst tooltips and breadcrumbs;
+  opening the chart directly must not execute HTML from a crafted filename.
+
+### Fixed
+
+- Embed the existing authorized, read-only usage sunburst in the Usage tab;
+  retain the full-page link and sandbox its inline JavaScript.
+- Prevent a multiline project-scope template comment from appearing on screen.
+- Use square storage panels and document the implemented GUI instead of the
+  obsolete first-scaffold description.
+- Describe retention expiry accurately: the browser does not schedule deletion;
+  removal requires an explicitly applied sweeper. Keep notice/form panels square.
+
+## [0.6.14] - 2026-10-25
+
+### Added
+
+- restorable staging is dry-run by default (`sweep_restorable()` removes
+  nothing unless asked), matching the CLI and the safety contract.
+
+### Changed
+
+- Per-folder breakdown section removed from the Usage tab: the sunburst
+  resolves all of it; the volume picker stays as the sunburst-root picker.
+- Apply-form checkboxes use the shared SDK `.stx-checkbox-label` /
+  `.stx-checkbox` primitive (were unstyled natives).
+- Picker include requires a configured provider URL, not just the tag
+  library (the SDK tag fails loud without one).
+
+### Fixed
+
+- Docs drift (quick-start move-vs-backup definition, retire/sweep verbs,
+  Python API retire + sweep entries, GUI engine + shared-element notes).
+
+## [0.6.13] - 2026-10-24
+
+### Added
+
+- Interactive usage sunburst (`usage-sunburst/` route): zoomable,
+  bookmarkable folder breakdown replacing both static doughnuts; project
+  scope shows only the selected project's bytes and hides volume cards.
+- Browser move-apply (`move-apply/`): explicit confirm checkbox, optional
+  content re-hash, project scope enforces edit rights, transport
+  pre-flight, bounded run; result card names the verification.
+- Restorable safe move: `apply_archive(retire_source=True)` stages the
+  verified source aside (atomic same-filesystem rename) instead of
+  deleting; `sweep-restorable` CLI verb deletes expired staging after the
+  7-day retention; manifests record `staged_path`; `--retire-source` flag
+  on `archive`.
+- Duplicates tab as an app: unavailable state shows the would-scan roots
+  and what the report holds instead of only a command.
+
+### Changed
+
+- Zero margins on the largest div: app content fills the pane edge to
+  edge (live dock clearance kept).
+- No-project scope notice names the hub-mounted requirement where no
+  header picker exists.
+- Archive report names staged restorable sources instead of reading as a
+  backup retain or a delete.
+
+### Fixed
+
+- Docs drift (7 fixes, all evidenced by the code): Backup named as the
+  4th real organize tab (template header comment, skills 02/06/07);
+  README module tree matched to the post-#72 `_transfer`/`_measure`
+  layout with the full 20-verb CLI list; package scope docstring names
+  `backup` + `scrub`; install skill names `fclones`; CLI `--help`
+  header states verified tiering as shipped (not planned).
+- Sphinx docs build is zero-warning (was 1 docutils ERROR + 2 warnings);
+  quickstart example verified runnable.
+
+## [0.6.12] - 2026-10-20
+
+### Added
+
+- Backup: copy-verified second copies with the source retained
+  (`apply_archive(remove_source=False)`, `backup` CLI verb, real Backup
+  tab with planner + recorded list).
+- Project scope is header-driven (in-tab toggle removed); Move/Backup
+  planning double-confines the source.
+- Plan-move button adopts the SDK `.stx-button` primitive (theme-paired).
+
+## [0.6.11] - 2026-10-20
+
+### Changed
+
+- Tabs converged on the shared SDK `stx-content-tabs` primitive
+  (scitex-sdk>=0.3.9, underline-only selected); leaf variant deleted.
+
+## [0.6.10] - 2026-10-20
+
+### Fixed
+
+- Usage pane side margins 16px → 8px (CCT4926; top 12px, bottom dock+16px
+  stay). Shipped live via hub collectstatic the same night.
+
+## [0.6.9] - 2026-10-20
+
+### Added
+
+- Project-scoped disk filter on organize tabs: in-tab `?scope=all|project`
+  control (All-projects default); Usage scans the project dir, Duplicates
+  narrows roots, Move planning double-confines the source (PR #148).
+
+### Changed
+
+- SDK floor 0.3.8 → 0.3.9 (underline-only tabs; consumed surface unchanged).
+
+## [0.6.8] - 2026-10-20
+
+### Fixed
+
+- Usage pane fills the pane: top padding 20px → 12px, sides 24px → 16px
+  (bottom stays dock + 16px) (PR #146).
+
+## [0.6.7] - 2026-10-20
+
+### Fixed
+
+- Usage pane bottom reserve tightened (dock + 32px air → + 16px);
+  the 76px dead band is now 60px (PR #144).
+
+## [0.6.6] - 2026-10-20
+
+### Added
+
+- Cold scrub: `scrub_manifest` re-verifies an archived tree against its
+  manifest (tally always, per-file re-hash when a `content_digest`
+  baseline exists; read-only, exit 0/16/17) plus a `scrub` CLI verb.
+  Manifests record `content_digest` when the content gate runs (PR #141).
+
+## [0.6.5] - 2026-10-20
+
+### Added
+
+- Canonical destination-tier facts (`_tiers.py`, one owner for the
+  NAS-unit mapping); manifests record `destination_tier` (PR #139).
+
+## [0.6.4] - 2026-10-20
+
+### Added
+
+- Manifest sidecar replica: `apply_archive` ships the manifest next to
+  the archived tree (`<remote>.scitex-archive-manifest.json`, outside the
+  verified tree) via scp and reads it back byte-for-byte, so the map
+  travels with the data. Replica failure is recorded (`sidecar_*`) and
+  shouted in the CLI report, never blocks a verified delete (PR #137).
+
+## [0.6.3] - 2026-10-20
+
+### Added
+
+- Battery-included skill docs in canonical
+  `src/scitex_storage/_skills/scitex-storage/` (index + numbered leaves),
+  shipped in the wheel; new `skills {list,get,install}` CLI group (PR #135).
+
+### Changed
+
+- GUI Move plan display names the delete gate (count-and-size read-back
+  by default, `--verify-content` for the independent re-hash) (PR #135).
+
+## [0.6.2] - 2026-10-20
+
+### Changed
+
+- Storage GUI adopts the shared SDK `.stx-layout-fill` utility
+  (scitex-sdk>=0.3.8, linked by the leaf itself): organize roots carry the
+  shared class and the leaf `.stx-storage` width rule is dropped (PR #133).
+- SDK floor raised 0.3.1 -> 0.3.8 (dev + gui extras).
+- Battery-included agent skill doc `skills/scitex-storage/SKILL.md`,
+  shipped in the wheel (PR #133).
+
+## [0.6.1] - 2026-10-19
+
+### Fixed
+
+- Storage GUI uses the full hub pane width: dropped the 960px cap on
+  `.stx-storage` (left ~40% of a 1571px pane as dead gutter; siblings
+  Scholar/Writer fill the pane) and laid the per-volume Usage cards out
+  in a responsive auto-fit grid (PR #131).
+- SDK AppHeader primitive mounted plus authed project picker (Writer
+  precedent), replacing the hand-written header (PR #131).
+- Guarded the function-local `django.template` import in
+  `_project_picker_available` (PS-233; one unguarded site poisoned all
+  20 django sites) (PR #131).
+
+## [0.6.0] - 2026-10-18
+
+### Added
+
+- Leaf Django resolves project scope via `scitex_sdk` host capabilities
+  only (SDK capability scope resolution, PR #124).
+- Fleet views: `fleet-status --gather` wired to the three GUI snapshots
+  (PR #127).
+- Shared SSoT header row adopted in Storage templates (PR #128).
+
+### Fixed
+
+- Fleet visualizations promo removed from Usage (operator: unneeded)
+  (PR #126).
+- Release workflow hardening: runs-on fallback, pinned checkout, native
+  SIF execution (PR #123).
+
+## [0.5.5] - 2026-10-08
+
+Vendored shell completion as drop-in module (contract v1, PR #119):
+stdlib+click only, in-process script generation, atomic+idempotent
+drop-in write, never touches rc files.
+
+## [0.5.4] - 2026-10-03
+
+### Fixed
+
+- Preserve staged Python dependencies in real standalone and logging test
+  subprocesses so the SIF release suite can exercise their existing assertions.
+
+## [0.5.3] - 2026-10-03
+
+### Fixed
+
+- Make the installed console commands available to SIF release tests by
+  adding the install target's `bin` directory to `PATH`.
+
+## [0.5.2] - 2026-10-03
+
+### Fixed
+
+- Require the project's edit permission before file uploads, directory creation,
+  deletion and moves. Read and download access retain the existing view policy.
+- Return HTTP 507 with the `quota_exceeded` error code when a native filesystem
+  operation raises `EDQUOT`, while preserving disk-full and other I/O errors.
+- Honor configured logging levels while keeping server diagnostics on stderr
+  and the startup banner on stdout.
+
 ## [0.4.0] - 2026-08-11
 
 Two new capabilities and one correction, all circling the same question: **what

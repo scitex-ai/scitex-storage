@@ -9,6 +9,7 @@ The AppConfig-behaviour tests below them are guarded (`pytest.importorskip`)
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 from pathlib import Path
@@ -46,8 +47,8 @@ def test_manifest_is_valid_json_object():
     assert isinstance(data, dict)
 
 
-def test_manifest_declares_the_required_scitex_app_0_3_0_keys():
-    # Arrange -- scitex_app.appmaker._validate.MANIFEST_REQUIRED_KEYS (0.3.0)
+def test_manifest_declares_the_required_sdk_app_keys():
+    # Arrange -- scitex_sdk.app.appmaker._validate.MANIFEST_REQUIRED_KEYS
     required = {"name", "slug", "label", "pip_package", "icon", "license"}
     # Act
     data = _load_manifest()
@@ -60,7 +61,7 @@ def test_manifest_name_ends_with_app_suffix():
     # (nothing to arrange)
     # Act
     data = _load_manifest()
-    # Assert -- scitex_app's validator requires this naming convention
+    # Assert -- the SDK validator requires this naming convention
     assert data["name"].endswith("_app") or data["name"].endswith("-app")
 
 
@@ -69,11 +70,11 @@ def test_manifest_does_not_declare_a_hand_written_version():
     # (nothing to arrange)
     # Act
     data = _load_manifest()
-    # Assert -- scitex_app 0.3.0's validator REJECTS a hand-written
+    # Assert -- the SDK validator REJECTS a hand-written
     # `version` key (it drifts from the installed package; the real
     # version is derived at runtime via importlib.metadata from
-    # `pip_package`). Verified live against the installed scitex-app
-    # 0.3.0 package's appmaker._validate.validate_manifest().
+    # `pip_package`). Verified live against the installed scitex-sdk
+    # 0.3.2 package's app.validator.validate_manifest (lowercase v).
     assert "version" not in data
 
 
@@ -93,7 +94,7 @@ def test_manifest_is_embedded_package():
     data = _load_manifest()
     # Assert -- _django/ is a private in-package Django app, not a
     # standalone scitex-hub app repo; embedded_package skips the
-    # standalone-only file/template/CSS checks in scitex_app's validator.
+    # standalone-only file/template/CSS checks in the SDK validator.
     assert data["embedded_package"] is True
 
 
@@ -177,7 +178,8 @@ def test_storage_config_class_sets_default_true():
 def test_storage_config_registers_under_its_own_label():
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app._django')
     _boot_django_for_storage_gui()
     from django.apps import apps
 
@@ -191,7 +193,8 @@ def test_storage_config_registers_under_its_own_label():
 def test_storage_config_app_slug_matches_manifest_slug():
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app._django')
     _boot_django_for_storage_gui()
     from django.apps import apps
 
@@ -205,7 +208,8 @@ def test_storage_config_app_slug_matches_manifest_slug():
 def test_storage_config_frontend_type_is_server_rendered():
     # Arrange
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module('scitex_sdk.app._django')
     _boot_django_for_storage_gui()
     from django.apps import apps
 
@@ -216,27 +220,62 @@ def test_storage_config_frontend_type_is_server_rendered():
     assert cfg.frontend_type == "server-rendered"
 
 
-def test_scitex_app_0_3_0_validator_still_wants_a_version_field():
-    # Arrange -- documents a real upstream inconsistency found while
-    # building this scaffold (verified live against the installed
-    # scitex-app 0.3.0, not guessed): `appmaker._validate` FORBIDS a
-    # hand-written `version` key, but the separate, older
-    # `ScitexAppConfig.MANIFEST_REQUIRED` set was never updated to
-    # match -- it still lists `version` as required. Neither Django app
-    # loading nor hub's mount calls `validate_manifest()` automatically,
-    # so this doesn't break anything today.
+def test_sdk_validator_accepts_manifest_without_a_hand_written_version():
+    # Arrange
+    # SDK AppConfig now uses the scaffold validator's one required-key list.
+    # Package metadata owns the version; the manifest must not repeat it.
     pytest.importorskip("django")
-    pytest.importorskip("scitex_app._django")
+    pytest.importorskip("scitex_sdk")
+    importlib.import_module("scitex_sdk.app._django")
     _boot_django_for_storage_gui()
     from django.apps import apps
 
     cfg = apps.get_app_config("scitex_storage_django")
+
     # Act
     errors = cfg.validate_manifest()
-    # Assert -- pins the CURRENT (inconsistent) upstream behavior; if
-    # scitex-app is later fixed to match its own appmaker validator,
-    # this assertion should be simplified to `errors == []`.
-    assert errors == ["Missing required fields: version"]
+
+    # Assert
+    assert errors == []
+
+
+def test_sdk_validator_still_rejects_a_missing_required_slug(tmp_path):
+    # Arrange
+    # Exercise the real AppConfig boundary using an owned synthetic package.
+    # Accepting a versionless manifest must not disable required-key checks.
+    pytest.importorskip("django")
+    pytest.importorskip("scitex_sdk")
+    from types import ModuleType
+
+    from scitex_sdk.app._django import ScitexAppConfig
+
+    app_dir = tmp_path / "manifest_probe"
+    app_dir.mkdir()
+    package = ModuleType("manifest_probe")
+    package.__file__ = str(app_dir / "__init__.py")
+    package.__path__ = [str(app_dir)]
+    manifest = _load_manifest()
+    del manifest["slug"]
+    (app_dir / "manifest.json").write_text(json.dumps(manifest))
+
+    cfg = ScitexAppConfig("manifest_probe", package)
+
+    # Act
+    errors = cfg.validate_manifest()
+
+    # Assert
+    assert errors == ["manifest.json missing required key: 'slug'"]
 
 
 # EOF
+
+
+def test_manifest_declares_internal_visibility():
+    # Arrange
+    # (nothing to arrange)
+    # Act
+    data = _load_manifest()
+    # Assert -- operator policy is internal with no later public approval: the
+    # hub migration defaults a missing visibility to public, so the leaf must
+    # declare internal explicitly rather than letting the hub infer it.
+    assert data["visibility"] == "internal"

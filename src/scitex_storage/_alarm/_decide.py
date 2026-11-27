@@ -66,6 +66,16 @@ WARN_FREE_BYTES = 20 * 1024**3
 #: alarm with one level trains its reader to treat every firing as routine.
 CRITICAL_FREE_BYTES = 5 * 1024**3
 
+#: Total size at/over which a filesystem is judged by its ABSOLUTE floors
+#: only, and the percent-used rule stops raising WARN on its own (#181).
+#: On scitex-nas-03's 11.9 TB ``/volume1`` 85% used still leaves ~1.8 TB:
+#: the percent rule sat permanently in WARN, which trains the reader to
+#: ignore it, while the 20 GiB default floor left minutes of runway. A
+#: floor in GiB is what answers "how long have I got" on a large volume;
+#: the percentage stays authoritative below this size, where it is the
+#: better early signal. Inodes are unaffected: they have no byte floor.
+LARGE_VOLUME_BYTES = 1024**4
+
 #: Alarm levels, ordered by severity. ``UNKNOWN`` deliberately sorts above
 #: ``OK``: not being able to measure a filesystem is more interesting than
 #: a filesystem that is fine, and must never be folded into it.
@@ -75,6 +85,50 @@ WARN = "warn"
 CRITICAL = "critical"
 
 _SEVERITY = {OK: 0, UNKNOWN: 1, WARN: 2, CRITICAL: 3}
+
+
+@dataclass(frozen=True)
+class Thresholds:
+    """The numbers a verdict is measured against. Defaults are the constants.
+
+    A value object passed INTO the pure functions rather than module state a
+    caller mutates, so two alarms with different floors (a CI host's ``/``
+    and a NAS's ``/volume1``) can run in one process without interfering,
+    and every rule stays testable by construction.
+    """
+
+    warn_free_bytes: int = WARN_FREE_BYTES
+    critical_free_bytes: int = CRITICAL_FREE_BYTES
+    flag_percent: float = FLAG_PERCENT
+    large_volume_bytes: int = LARGE_VOLUME_BYTES
+
+    def __post_init__(self) -> None:
+        # An inverted pair would make CRITICAL unreachable (the warn branch is
+        # tested second) -- a gate that cannot fire. Refuse it at the door.
+        if self.critical_free_bytes < 0 or self.warn_free_bytes < 0:
+            raise ValueError("free-space floors must be non-negative")
+        if self.critical_free_bytes > self.warn_free_bytes:
+            raise ValueError(
+                f"critical floor ({_gib(self.critical_free_bytes)}) must not "
+                f"exceed the warn floor ({_gib(self.warn_free_bytes)})"
+            )
+
+    @classmethod
+    def from_gib(
+        cls,
+        warn_free_gib: float | None = None,
+        critical_free_gib: float | None = None,
+    ) -> "Thresholds":
+        """Build from GiB (the CLI's unit); ``None`` keeps the default."""
+        kw = {}
+        if warn_free_gib is not None:
+            kw["warn_free_bytes"] = int(warn_free_gib * 1024**3)
+        if critical_free_gib is not None:
+            kw["critical_free_bytes"] = int(critical_free_gib * 1024**3)
+        return cls(**kw)
+
+
+DEFAULT_THRESHOLDS = Thresholds()
 
 
 @dataclass
@@ -146,7 +200,9 @@ def _free_bytes(row: HostStorage) -> int | None:
     return row.avail_bytes
 
 
-def evaluate_row(row: HostStorage) -> FilesystemAlarm:
+def evaluate_row(
+    row: HostStorage, thresholds: Thresholds = DEFAULT_THRESHOLDS
+) -> FilesystemAlarm:
     """Classify one filesystem. Pure -- no I/O, directly unit-testable.
 
     Order matters: the level is the WORST of the applicable rules, so a
@@ -154,7 +210,14 @@ def evaluate_row(row: HostStorage) -> FilesystemAlarm:
     is unremarkable (a very large volume with a little left), and one over
     the percentage threshold is WARN even when its absolute free space
     still looks generous (a small volume nearly full).
+
+    On a LARGE volume (``size_bytes >= thresholds.large_volume_bytes``)
+    whose free bytes were measured, the percent-used rule does not raise
+    WARN by itself: the absolute floors decide. When free bytes are NOT
+    known the percentage is the only reading and still applies -- dropping
+    it there would turn a missing number into silence.
     """
+    t = thresholds
     reasons: list[str] = []
     level = OK
 
@@ -169,22 +232,27 @@ def evaluate_row(row: HostStorage) -> FilesystemAlarm:
 
     if free is not None:
         measured_anything = True
-        if free <= CRITICAL_FREE_BYTES:
-            escalate(CRITICAL, f"{_gib(free)} free (<= {_gib(CRITICAL_FREE_BYTES)})")
-        elif free <= WARN_FREE_BYTES:
-            escalate(WARN, f"{_gib(free)} free (<= {_gib(WARN_FREE_BYTES)})")
+        if free <= t.critical_free_bytes:
+            escalate(CRITICAL, f"{_gib(free)} free (<= {_gib(t.critical_free_bytes)})")
+        elif free <= t.warn_free_bytes:
+            escalate(WARN, f"{_gib(free)} free (<= {_gib(t.warn_free_bytes)})")
 
+    floors_decide = (
+        free is not None
+        and row.size_bytes is not None
+        and row.size_bytes >= t.large_volume_bytes
+    )
     if row.used_pct is not None:
         measured_anything = True
-        if row.used_pct >= FLAG_PERCENT:
-            escalate(WARN, f"space {row.used_pct:.1f}% used (>= {FLAG_PERCENT:.0f}%)")
+        if row.used_pct >= t.flag_percent and not floors_decide:
+            escalate(WARN, f"space {row.used_pct:.1f}% used (>= {t.flag_percent:.0f}%)")
 
     if row.inode_used_pct is not None:
         measured_anything = True
-        if row.inode_used_pct >= FLAG_PERCENT:
+        if row.inode_used_pct >= t.flag_percent:
             escalate(
                 WARN,
-                f"inodes {row.inode_used_pct:.1f}% used (>= {FLAG_PERCENT:.0f}%) "
+                f"inodes {row.inode_used_pct:.1f}% used (>= {t.flag_percent:.0f}%) "
                 "-- fails writes while df still shows free space",
             )
 
@@ -203,7 +271,9 @@ def evaluate_row(row: HostStorage) -> FilesystemAlarm:
     )
 
 
-def evaluate_snapshot(snapshot: FleetSnapshot) -> FleetAlarm:
+def evaluate_snapshot(
+    snapshot: FleetSnapshot, thresholds: Thresholds = DEFAULT_THRESHOLDS
+) -> FleetAlarm:
     """Classify a whole snapshot. Pure.
 
     An EMPTY snapshot yields ``UNKNOWN``, never ``OK``. "We measured every
@@ -211,7 +281,7 @@ def evaluate_snapshot(snapshot: FleetSnapshot) -> FleetAlarm:
     answers, and only one of them is good news; a gather that silently
     returned no rows must not read as a clean bill of health.
     """
-    filesystems = [evaluate_row(r) for r in snapshot.rows]
+    filesystems = [evaluate_row(r, thresholds) for r in snapshot.rows]
     if not filesystems:
         return FleetAlarm(
             level=UNKNOWN,

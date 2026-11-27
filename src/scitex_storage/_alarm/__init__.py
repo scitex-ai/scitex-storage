@@ -32,6 +32,8 @@ from __future__ import annotations
 from ._decide import (  # noqa: F401 -- re-exported public API
     CRITICAL,
     CRITICAL_FREE_BYTES,
+    DEFAULT_THRESHOLDS,
+    LARGE_VOLUME_BYTES,
     OK,
     UNKNOWN,
     UNKNOWN_STREAK_ALERT,
@@ -39,6 +41,7 @@ from ._decide import (  # noqa: F401 -- re-exported public API
     WARN_FREE_BYTES,
     FilesystemAlarm,
     FleetAlarm,
+    Thresholds,
     evaluate_row,
     evaluate_snapshot,
     format_alarm,
@@ -46,10 +49,23 @@ from ._decide import (  # noqa: F401 -- re-exported public API
     should_notify,
 )
 from ._notify import (  # noqa: F401 -- re-exported public API
+    DEFAULT_EMAIL_PROFILE,
+    EMAIL_DEDUPE_WINDOW_S,
+    EMAIL_PROFILE_ENV,
     Notifier,
     PushResult,
+    Rail,
+    check_email_rail,
+    email_notifier,
     notify_if_needed,
     operator_dm_notifier,
+)
+from ._repeat import (  # noqa: F401 -- re-exported public API
+    DEFAULT_REPEAT_AFTER_S,
+    PushDecision,
+    decide_filesystems,
+    filesystem_key,
+    format_changes,
 )
 
 # EOF

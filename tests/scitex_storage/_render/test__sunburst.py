@@ -1,12 +1,14 @@
 """Unit tests for scitex_storage._render (Codecov-style sunburst).
 
-Pure renderer over dataclasses -- no mocks, no I/O. The hierarchy shape
+Native renderer/tree tests plus an optional real Chromium security regression. The hierarchy shape
 and the two colour metrics (space% and inode%) are the substance, plus
 the self-contained / no-tag-breakout guarantees shared with the bubble
 view.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from scitex_storage._fleet_status import MEASURED, FleetSnapshot, HostStorage
 from scitex_storage._render import build_hierarchy, build_sunburst_html
@@ -19,8 +21,15 @@ def _snap(rows):
 
 
 def _row(host, mount, size_gb, space, inode):
-    return HostStorage(host=host, role="r", mount=mount, verdict=MEASURED,
-                       size_bytes=size_gb * GB, used_pct=space, inode_used_pct=inode)
+    return HostStorage(
+        host=host,
+        role="r",
+        mount=mount,
+        verdict=MEASURED,
+        size_bytes=size_gb * GB,
+        used_pct=space,
+        inode_used_pct=inode,
+    )
 
 
 def test_hierarchy_root_is_the_fleet():
@@ -59,7 +68,9 @@ def test_a_node_carries_both_colour_metrics():
     # The operator wants to switch colour between space and inodes.
     # Arrange
     # Act
-    fs = build_hierarchy(_snap([_row("h", "/", 10, 63.0, 12.0)]))["children"][0]["children"][0]
+    fs = build_hierarchy(_snap([_row("h", "/", 10, 63.0, 12.0)]))["children"][0][
+        "children"
+    ][0]
     # Assert
     assert (fs["usage"], fs["inode"]) == (63.0, 12.0)
 
@@ -105,5 +116,254 @@ def test_a_mount_name_cannot_break_out_of_the_embedded_json_script():
 
     # Assert -- the slash is escaped, proving the guard fired.
     assert "<\\/script>" in page
+
+
+def _dir_tree(tmp_path):
+    """Two folders: big/ holds 100B across two files, small/ holds 10B."""
+    big = tmp_path / "big"
+    (big / "deep").mkdir(parents=True)
+    (big / "deep" / "f.bin").write_bytes(b"x" * 60)
+    (big / "top.bin").write_bytes(b"x" * 40)
+    small = tmp_path / "small"
+    small.mkdir()
+    (small / "s.bin").write_bytes(b"x" * 10)
+    return tmp_path
+
+
+@pytest.mark.requires_fd
+def test_dir_hierarchy_root_names_the_scanned_folder(tmp_path):
+    # Arrange
+    from scitex_storage._render import build_dir_hierarchy
+
+    root = _dir_tree(tmp_path)
+    # Act
+    hierarchy = build_dir_hierarchy("Paper", root)
+    # Assert
+    assert (hierarchy["name"], hierarchy["value"]) == ("Paper", 110)
+
+
+@pytest.mark.requires_fd
+def test_dir_hierarchy_orders_largest_first_and_nests_folders(tmp_path):
+    # Arrange
+    from scitex_storage._render import build_dir_hierarchy
+
+    root = _dir_tree(tmp_path)
+    # Act
+    hierarchy = build_dir_hierarchy("Paper", root)
+    # Assert
+    result = (
+        [c["name"] for c in hierarchy["children"]],
+        hierarchy["children"][0]["children"][0]["name"],
+    )
+    assert result == (["big", "small"], "deep")
+
+
+@pytest.mark.requires_fd
+def test_dir_hierarchy_rolls_up_beyond_top_n(tmp_path):
+    # Arrange
+    from scitex_storage._render import build_dir_hierarchy
+
+    root = _dir_tree(tmp_path)
+    # Act
+    hierarchy = build_dir_hierarchy("Paper", root, top_n=1)
+    # Assert
+    result = (
+        [c["name"] for c in hierarchy["children"]],
+        hierarchy["children"][-1]["value"],
+    )
+    assert result == (["big", "Other"], 10)
+
+
+def test_dir_hierarchy_needs_the_fd_binary(tmp_path):
+    # Arrange -- an empty PATH hides fd and fdfind alike (sanctioned
+    # save/set/restore env pattern: no monkeypatch anywhere in this repo).
+    import os
+
+    from scitex_storage._measure._scan import MissingSystemDependencyError
+    from scitex_storage._render import build_dir_hierarchy
+
+    previous_path = os.environ.get("PATH")
+    (tmp_path / "sub").mkdir()
+    os.environ["PATH"] = str(tmp_path)
+    try:
+        # Act
+        raised = None
+        try:
+            build_dir_hierarchy("Paper", tmp_path)
+        except MissingSystemDependencyError as exc:
+            raised = exc
+    finally:
+        if previous_path is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = previous_path
+    # Assert
+    assert raised is not None
+
+
+@pytest.mark.requires_fd
+def test_dir_page_has_no_colour_mode_buttons(tmp_path):
+    # Arrange -- folders carry no usage metric, so the fleet colour modes
+    # would be dead controls here.
+    from scitex_storage._render import build_dir_hierarchy, build_dir_sunburst_html
+
+    hierarchy = build_dir_hierarchy("Paper", _dir_tree(tmp_path))
+    # Act
+    page = build_dir_sunburst_html("Paper", hierarchy, "gen")
+    # Assert -- the JS guards reference the ids as strings; the dead
+    # controls are the buttons themselves.
+    assert ('<button id="m-usage"' in page, '<button id="m-inode"' in page) == (
+        False,
+        False,
+    )
+
+
+@pytest.mark.requires_fd
+def test_dir_page_title_and_footer_name_folders_not_hosts(tmp_path):
+    # Arrange
+    from scitex_storage._render import build_dir_hierarchy, build_dir_sunburst_html
+
+    hierarchy = build_dir_hierarchy("Paper", _dir_tree(tmp_path))
+    # Act
+    page = build_dir_sunburst_html("Paper", hierarchy, "gen")
+    # Assert
+    assert ("Paper" in page, "click a folder to zoom" in page) == (True, True)
+
+
+@pytest.mark.requires_fd
+def test_a_folder_name_cannot_break_out_of_the_embedded_json_script():
+    # Arrange -- an adversarial folder name containing a closing tag.
+    # A single path component cannot hold "/" (it would nest), so the
+    # hierarchy is built directly: the guard lives in the page builder.
+    import json
+    import re
+
+    from scitex_storage._render import build_dir_sunburst_html
+
+    evil = "x</script><script>alert(1)</script>"
+    hierarchy = {
+        "name": "Paper",
+        "value": 1,
+        "usage": None,
+        "inode": None,
+        "children": [
+            {"name": evil, "value": 1, "usage": None, "inode": None, "children": []}
+        ],
+    }
+    # Act
+    page = build_dir_sunburst_html("Paper", hierarchy, "gen")
+    result = (
+        json.loads(re.search(r"const ROOT = (\{.*?\});", page, re.S).group(1))[
+            "children"
+        ][0]["name"],
+        "<\\/script>" in page,
+    )
+    # Assert -- the name round-trips exactly, and the slash is escaped,
+    # proving the guard fired (the page's own </script> close tag aside).
+    assert result == (evil, True)
+
+
+@pytest.fixture
+def sunburst_browser():
+    """An actual optional Chromium instance, closed even when a check fails."""
+    import os
+    from pathlib import Path
+
+    api = pytest.importorskip("playwright.sync_api")
+    with api.sync_playwright() as runtime:
+        explicit = os.environ.get("SCITEX_STORAGE_TEST_CHROMIUM")
+        executable = Path(explicit or runtime.chromium.executable_path)
+        if not executable.is_file():
+            if explicit:
+                raise RuntimeError("Explicit test Chromium executable is missing")
+            pytest.skip(
+                "Browser regression requires: python -m playwright install chromium"
+            )
+        browser = runtime.chromium.launch(
+            executable_path=str(executable), args=["--no-sandbox"]
+        )
+        try:
+            yield browser
+        finally:
+            browser.close()
+
+
+@pytest.mark.requires_fd
+def test_filesystem_labels_remain_text_in_real_browser(tmp_path, sunburst_browser):
+    # Arrange -- real directories give the dangerous label a visible sector.
+    from scitex_storage._render import build_dir_hierarchy, build_dir_sunburst_html
+
+    label = "<img src=x onerror=window.__storage_xss_test=1>"
+    (tmp_path / label).mkdir()
+    (tmp_path / label / "data.bin").write_bytes(b"x" * 8192)
+    (tmp_path / "safe").mkdir()
+    (tmp_path / "safe" / "data.bin").write_bytes(b"x" * 4096)
+    chart = tmp_path / "chart.html"
+    chart.write_text(
+        build_dir_sunburst_html(
+            "Audit", build_dir_hierarchy("Audit", tmp_path), "audit"
+        )
+    )
+    page = sunburst_browser.new_page()
+    page.goto(chart.as_uri())
+    # Act -- real pointer hover and zoom, not synthetic DOM callbacks.
+    point = page.locator("#sb").evaluate(
+        """el => {
+          const p=new DOMPoint(390,280).matrixTransform(el.getScreenCTM());
+          return {x:p.x,y:p.y};
+        }"""
+    )
+    page.mouse.move(**point)
+    page.wait_for_timeout(100)
+    tooltip_literal = label in page.locator("#tip").inner_text()
+    page.mouse.click(**point)
+    page.wait_for_timeout(100)
+    result = (
+        page.evaluate("window.__storage_xss_test || 0"),
+        page.locator("#tip img,#crumb img").count(),
+        tooltip_literal,
+        label in page.locator("#crumb").inner_text(),
+    )
+    page.screenshot(path=str(tmp_path / "sunburst-labels.png"))
+    # Assert -- literal labels survive while executable markup never appears.
+    assert result == (0, 0, True, True)
+
+
+@pytest.mark.parametrize("width,height", [(1280, 566), (390, 420), (900, 320)])
+def test_sunburst_fits_viewport_and_keeps_zoom(
+    tmp_path, sunburst_browser, width, height
+):
+    # Arrange -- render the real fleet chart at desktop, phone and short iframe sizes.
+    chart = tmp_path / "responsive.html"
+    chart.write_text(
+        build_sunburst_html(
+            _snap(
+                [_row("Host", "/data", 10, 50, 5), _row("Other", "/other", 10, 30, 2)]
+            )
+        )
+    )
+    page = sunburst_browser.new_page(viewport={"width": width, "height": height})
+    page.goto(chart.as_uri())
+    # Act -- native SVG coordinates remain usable after responsive scaling.
+    geometry = page.evaluate("""() => {
+      const root=document.documentElement, svg=document.querySelector('#sb');
+      const matrix=svg.getScreenCTM();
+      const top=new DOMPoint(280,20).matrixTransform(matrix);
+      const bottom=new DOMPoint(280,540).matrixTransform(matrix);
+      return [root.scrollWidth<=innerWidth,root.scrollHeight<=innerHeight,
+              top.y>=0,bottom.y<=innerHeight,bottom.y-top.y<=480];
+    }""")
+    point = page.locator("#sb").evaluate("""el => {
+      const p=new DOMPoint(390,280).matrixTransform(el.getScreenCTM());
+      return {x:p.x,y:p.y};
+    }""")
+    page.mouse.click(**point)
+    zoomed = "Host" in page.locator("#crumb").inner_text()
+    page.locator("#crumb a").first.click()
+    restored = page.locator("#crumb").inner_text() == "Fleet"
+    page.close()
+    # Assert -- the full chart fits without inner scrolling and retains navigation.
+    assert (geometry, zoomed, restored) == ([True] * 5, True, True)
+
 
 # EOF

@@ -111,7 +111,14 @@ class ContentManifest:
         return not self.root_missing
 
 
-def digest_file(path: str) -> str:
+class DigestCancelled(RuntimeError):
+    """The caller cancelled a cooperative content-hash operation."""
+
+
+from ._verify import is_excluded
+
+
+def digest_file(path: str, *, cancelled=None) -> str:
     """sha256 of a single entry, hex.
 
     A symlink digests its target STRING (see :data:`SYMLINK_PREFIX`).
@@ -119,6 +126,8 @@ def digest_file(path: str) -> str:
     that is fatal, because this function has no idea how many other files
     there are and therefore cannot judge severity.
     """
+    if cancelled is not None and cancelled():
+        raise DigestCancelled("Content verification cancelled")
     if os.path.islink(path):
         return hashlib.sha256(
             (SYMLINK_PREFIX + os.readlink(path)).encode("utf-8", "surrogateescape")
@@ -127,6 +136,8 @@ def digest_file(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as fh:
         while True:
+            if cancelled is not None and cancelled():
+                raise DigestCancelled("Content verification cancelled")
             block = fh.read(_CHUNK)
             if not block:
                 break
@@ -134,7 +145,9 @@ def digest_file(path: str) -> str:
     return h.hexdigest()
 
 
-def digest_tree(root: str) -> ContentManifest:
+def digest_tree(
+    root: str, *, cancelled=None, exclude: tuple[str, ...] = ()
+) -> ContentManifest:
     """Hash every non-directory entry under ``root``.
 
     The population is deliberately IDENTICAL to
@@ -154,19 +167,32 @@ def digest_tree(root: str) -> ContentManifest:
     unreadable: dict[str, str] = {}
 
     def record(full: str) -> None:
+        if cancelled is not None and cancelled():
+            raise DigestCancelled("Content verification cancelled")
         rel = os.path.relpath(full, root)
         try:
-            digests[rel] = digest_file(full)
+            digests[rel] = digest_file(full, cancelled=cancelled)
         except OSError as exc:
             unreadable[rel] = f"{type(exc).__name__}: {exc}"
 
+    def walk_failed(exc: OSError) -> None:
+        # os.walk suppresses scandir failures unless its callback raises.
+        raise exc
+
     try:
-        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for dirpath, dirnames, filenames in os.walk(
+            root, followlinks=False, onerror=walk_failed
+        ):
             for name in filenames:
-                record(os.path.join(dirpath, name))
+                full = os.path.join(dirpath, name)
+                if exclude and is_excluded(os.path.relpath(full, root), exclude):
+                    continue
+                record(full)
             keep: list[str] = []
             for name in dirnames:
                 full = os.path.join(dirpath, name)
+                if exclude and is_excluded(os.path.relpath(full, root), exclude):
+                    continue  # same population as local_tally and the transport
                 if os.path.islink(full):
                     record(full)
                 else:
@@ -187,7 +213,60 @@ def digest_tree(root: str) -> ContentManifest:
     return ContentManifest(digests=digests, unreadable=unreadable)
 
 
-def verify_content(source: ContentManifest, destination: ContentManifest) -> TransferVerdict:
+def digest_file_unit(path: str, *, cancelled=None) -> ContentManifest:
+    """Hash ONE regular file as a one-entry manifest keyed by its basename.
+
+    This is the population a single-file transfer writes: the file, alone,
+    inside its destination directory. A path that is not a regular file (a
+    directory, a symlink, a FIFO, nothing at all) is ``root_missing``, never
+    an empty manifest. Opening a FIFO would block, and following a symlink
+    would hash a different object than the one that moves.
+    """
+    import stat as _stat
+
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return ContentManifest(root_missing=True)
+    if not _stat.S_ISREG(info.st_mode):
+        return ContentManifest(root_missing=True)
+    name = os.path.basename(path.rstrip(os.sep))
+    try:
+        return ContentManifest(digests={name: digest_file(path, cancelled=cancelled)})
+    except OSError as exc:
+        return ContentManifest(unreadable={name: f"{type(exc).__name__}: {exc}"})
+
+
+def tree_digest(manifest: ContentManifest) -> str:
+    """One sha256 over a whole hashed tree: sorted ``rel`` + hash lines.
+
+    The O(1)-storage baseline for cold scrub: instead of keeping every
+    per-file digest in the manifest, the archive records this single value
+    and a later re-hash of the destination must reproduce it EXACTLY. Any
+    added, removed or altered entry moves it; key order never does (sorted
+    before hashing). Unreadable entries are part of the hashed population
+    as their reason strings -- a tree that could not be fully read has a
+    different identity than the same tree fully read, and conflating them
+    would let a partial re-hash pass against a complete baseline.
+    """
+    h = hashlib.sha256()
+    for rel in sorted(manifest.digests):
+        h.update(rel.encode("utf-8", "surrogateescape"))
+        h.update(b"\x00")
+        h.update(manifest.digests[rel].encode("ascii"))
+        h.update(b"\x00")
+    for rel in sorted(manifest.unreadable):
+        h.update(b"unreadable:")
+        h.update(rel.encode("utf-8", "surrogateescape"))
+        h.update(b"\x00")
+        h.update(manifest.unreadable[rel].encode("utf-8", "surrogateescape"))
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
+def verify_content(
+    source: ContentManifest, destination: ContentManifest
+) -> TransferVerdict:
     """Compare two manifests and answer whether the SOURCE may be removed.
 
     Returns the same :class:`._verify.TransferVerdict` as the tally check, so
@@ -236,7 +315,10 @@ def verify_content(source: ContentManifest, destination: ContentManifest) -> Tra
 
     if source.unreadable or destination.unreadable:
         n_src, n_dst = len(source.unreadable), len(destination.unreadable)
-        sample = list(source.unreadable.items())[:3] + list(destination.unreadable.items())[:3]
+        sample = (
+            list(source.unreadable.items())[:3]
+            + list(destination.unreadable.items())[:3]
+        )
         shown = "; ".join(f"{p} ({why})" for p, why in sample)
         return TransferVerdict(
             verdict=COULD_NOT_LOOK,
@@ -282,7 +364,9 @@ def verify_content(source: ContentManifest, destination: ContentManifest) -> Tra
     if missing or surplus or differing:
         parts = []
         if missing:
-            parts.append(f"{len(missing)} MISSING at the destination (e.g. {missing[:3]})")
+            parts.append(
+                f"{len(missing)} MISSING at the destination (e.g. {missing[:3]})"
+            )
         if differing:
             parts.append(
                 f"{len(differing)} present with DIFFERENT CONTENT "
@@ -322,5 +406,6 @@ def verify_content(source: ContentManifest, destination: ContentManifest) -> Tra
             f"and hashed on both sides; nothing was skipped or estimated"
         ),
     )
+
 
 # EOF

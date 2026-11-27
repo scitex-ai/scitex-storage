@@ -8,6 +8,13 @@ import json
 
 import click
 
+from .._measure._scan import MissingSystemDependencyError
+from .._report import (
+    archive_plan_to_json_dict,
+    format_archive_report,
+    format_restore_report,
+    restore_plan_to_json_dict,
+)
 from .._transfer._archive import (
     DESTINATIONS,
     _rsync_binary,
@@ -21,13 +28,9 @@ from .._transfer._archive_transport import (
     probe_transport,
     resolve_destination,
 )
-from .._measure._scan import MissingSystemDependencyError
-from .._report import (
-    archive_plan_to_json_dict,
-    format_archive_report,
-    format_restore_report,
-    restore_plan_to_json_dict,
-)
+from .._transfer._audit import refused_transfer
+from .._transfer._restore import RestoreNotVerifiedError
+from .._transfer._tier import pointer_path_for, read_pointer, restore_tiered
 from ._compat import spec_command_kwargs
 
 
@@ -43,6 +46,7 @@ def _require_rsync() -> None:
     except MissingSystemDependencyError as exc:
         raise click.ClickException(str(exc)) from exc
 
+
 # "archive"/"restore" are ecosystem-canonical mutating verbs (scitex-dev
 # audit-cli §2 / the universal-flags convention doc), which requires a
 # literal --dry-run + --yes/-y pair rather than this repo's --apply idiom
@@ -57,13 +61,13 @@ def _require_rsync() -> None:
 @click.command(
     "archive",
     **spec_command_kwargs(
-        summary="Move a directory to nas/nas2 over ssh, verify, then remove locally.",
+        summary="Verify content independently and stage the original restorable.",
         description=(
             "Pushes SOURCE to --to (nas or nas2) via scitex-ssh's sync_dir "
             "(rsync-over-ssh), verifies the sync succeeded (checksummed by "
             "default -- reads every byte on both sides), writes a manifest "
             "under ~/.scitex/scitex-storage/runtime/archive-manifests/, and "
-            "ONLY THEN removes the local SOURCE. A failed sync leaves "
+            "ONLY THEN stages SOURCE restorable for seven days. A failed sync leaves "
             "SOURCE completely untouched and no manifest is written. "
             "Defaults to a dry-run (--dry-run is accepted explicitly too).",
         ),
@@ -71,7 +75,7 @@ def _require_rsync() -> None:
             ("{prog} archive ~/proj/old-experiment --to nas2", "dry-run"),
             (
                 "{prog} archive ~/proj/old-experiment --to nas2 --yes",
-                "sync, verify, remove local copy",
+                "sync, independently verify, stage original for seven days",
             ),
         ),
     ),
@@ -112,22 +116,29 @@ def _require_rsync() -> None:
     "verify_content_too",
     default=False,
     show_default=True,
-    help="Re-hash both trees INDEPENDENTLY of rsync after the sync, and "
-    "refuse the delete on any mismatch. Opt-in: rsync --checksum already "
-    "reads every byte, so this is a second opinion from a different "
-    "instrument, not a first one. Costs a full re-read of both sides.",
+    help="Independently hash both trees. Required for every move regardless "
+    "of this legacy flag; cannot disable the move integrity gate.",
 )
 @click.option(
     "--dry-run",
     is_flag=True,
-    help="Preview only (explicit spelling of the default -- no side effects either way).",
+    help="Preview only; no transfer or source changes.",
+)
+@click.option(
+    "--retire-source",
+    "retire_source",
+    is_flag=True,
+    default=True,
+    show_default=True,
+    help="Keep the original in seven-day restorable staging (the default). "
+    "Expired staging requires an explicitly applied sweep-restorable.",
 )
 @click.option(
     "--yes",
     "-y",
     "confirmed",
     is_flag=True,
-    help="Actually sync + remove. Without this flag, archive only reports the plan.",
+    help="Sync, independently verify, and stage. Without this flag, preview only.",
 )
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of text.")
 def archive_cmd(
@@ -138,6 +149,7 @@ def archive_cmd(
     checksum: bool,
     verify_content_too: bool,
     dry_run: bool,
+    retire_source: bool,
     confirmed: bool,
     as_json: bool,
 ) -> None:
@@ -182,6 +194,7 @@ def archive_cmd(
     probe = probe_transport(destination)
     if not probe.may_transport:
         if do_apply:
+            refused_transfer("archive", source, destination, remote_path, probe)
             raise click.ClickException(
                 f"transport to {destination!r} is {probe.verdict}; refusing to "
                 f"sync + delete.\n\n{probe.detail}\n\n"
@@ -202,6 +215,7 @@ def archive_cmd(
             checksum=checksum,
             exclude=exclude_patterns,
             verify_content_too=verify_content_too,
+            retire_source=retire_source,
         )
         if do_apply
         else None
@@ -251,7 +265,7 @@ def archive_cmd(
 @click.option(
     "--dry-run",
     is_flag=True,
-    help="Preview only (explicit spelling of the default -- no side effects either way).",
+    help="Preview only; no transfer or source changes.",
 )
 @click.option(
     "--yes",
@@ -273,22 +287,39 @@ def restore_cmd(
     _require_rsync()
     do_apply = confirmed and not dry_run
     plan = plan_restore(source)
-    restored_path = (
-        apply_restore(plan, delete_remote=delete_remote) if do_apply else None
-    )
+    # A path that `tier` moved carries a pointer. Its restore re-hashes the
+    # result against the manifest and only then removes the pointer, and it
+    # refuses to write over anything now occupying the original path.
+    pointer = read_pointer(source)
+    restored_path = None
+    if do_apply and pointer is not None:
+        try:
+            restored_path = restore_tiered(source, delete_remote=delete_remote)
+        except (FileExistsError, ValueError, RestoreNotVerifiedError) as exc:
+            raise click.ClickException(str(exc)) from exc
+    elif do_apply:
+        restored_path = apply_restore(plan, delete_remote=delete_remote)
     if as_json:
-        click.echo(
-            json.dumps(
-                restore_plan_to_json_dict(
-                    plan, applied=do_apply, restored_path=restored_path
-                ),
-                indent=2,
-            )
+        payload = restore_plan_to_json_dict(
+            plan, applied=do_apply, restored_path=restored_path
         )
+        if pointer is not None:
+            payload["tier_pointer"] = str(pointer_path_for(plan.manifest.source))
+            payload["tier_pointer_removed"] = restored_path is not None
+        click.echo(json.dumps(payload, indent=2))
     else:
         click.echo(
             format_restore_report(plan, applied=do_apply, restored_path=restored_path)
         )
+        if pointer is not None:
+            click.echo(
+                f"  tier pointer {pointer_path_for(plan.manifest.source)}: "
+                + (
+                    "content re-verified, pointer removed"
+                    if restored_path is not None
+                    else "removed only after the restored content re-verifies"
+                )
+            )
 
 
 # EOF

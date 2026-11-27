@@ -16,13 +16,22 @@ exists for.
 
 import json
 
+import click
+import pytest
+from click.testing import CliRunner
+
 from scitex_storage._alarm import CRITICAL, OK, UNKNOWN, should_notify
 from scitex_storage._cli._alarm_cmd import (
+    EXIT_PUSH_REFUSED,
+    _default_state_path,
+    alarm_cmd,
     next_unknown_streak,
+    parse_rails,
     read_previous_level,
     read_unknown_streak,
     write_level,
 )
+from scitex_storage._fleet_status import gather_fleet_snapshot
 
 
 def test_written_level_is_read_back_unchanged(tmp_path):
@@ -173,3 +182,208 @@ def test_no_temp_file_is_left_behind(tmp_path):
     assert list(tmp_path.glob("*.tmp")) == []
 
 # EOF
+
+# --------------------------------------------------------------------------
+# CLI tests for ``alarm --path / --warn-free-gib / --crit-free-gib / --notify`` (#181).
+# --------------------------------------------------------------------------
+
+HUGE = "1000000000"  # GiB; any real filesystem is under this floor
+
+
+@pytest.fixture
+def runner():
+    return CliRunner()
+
+
+def _run(runner, tmp_path, *args, env=None):
+    return runner.invoke(
+        alarm_cmd,
+        ["--path", str(tmp_path), "--state", str(tmp_path / "state.json"), *args],
+        env={"HOME": str(tmp_path), **(env or {})},
+    )
+
+
+def test_local_gather_now_measures_free_bytes(tmp_path):
+    """Before #181 avail_bytes stayed None, so the floors never fired."""
+    # Arrange
+    paths = [str(tmp_path)]
+    # Act
+    row = gather_fleet_snapshot(paths).rows[0]
+    # Assert
+    assert row.avail_bytes is not None and row.avail_bytes >= 0
+
+
+def test_path_option_scopes_the_gather(runner, tmp_path):
+    # Arrange
+    args = ("--dry-run", "--json")
+    # Act
+    payload = json.loads(_run(runner, tmp_path, *args).output)
+    # Assert
+    assert [f["mount"] for f in payload["filesystems"]] == [str(tmp_path)]
+
+
+def test_warn_floor_option_raises_warn(runner, tmp_path):
+    # Arrange
+    args = ("--warn-free-gib", HUGE, "--crit-free-gib", "0", "--dry-run", "--json")
+    # Act
+    payload = json.loads(_run(runner, tmp_path, *args).output)
+    # Assert
+    assert payload["level"] == "warn"
+
+
+def test_critical_floor_option_raises_critical(runner, tmp_path):
+    # Arrange
+    args = ("--warn-free-gib", HUGE, "--crit-free-gib", HUGE, "--dry-run", "--json")
+    # Act
+    payload = json.loads(_run(runner, tmp_path, *args).output)
+    # Assert
+    assert payload["level"] == "critical"
+
+
+def test_issue_spelling_critical_free_gib_is_accepted(runner, tmp_path):
+    # Arrange
+    args = ("--warn-free-gib", HUGE, "--critical-free-gib", HUGE, "--dry-run", "--json")
+    # Act
+    payload = json.loads(_run(runner, tmp_path, *args).output)
+    # Assert
+    assert payload["level"] == "critical"
+
+
+def test_inverted_floors_are_a_usage_error(runner, tmp_path):
+    # Arrange
+    args = ("--warn-free-gib", "10", "--crit-free-gib", "50", "--dry-run")
+    # Act
+    result = _run(runner, tmp_path, *args)
+    # Assert
+    assert result.exit_code == 2
+
+
+def test_dry_run_records_no_state(runner, tmp_path):
+    # Arrange
+    args = ("--warn-free-gib", HUGE, "--crit-free-gib", "0", "--dry-run")
+    # Act
+    _run(runner, tmp_path, *args)
+    # Assert
+    assert not (tmp_path / "state.json").exists()
+
+
+def test_email_rail_delivers_a_real_alarm(runner, tmp_path, smtp_server):
+    # Arrange
+    args = ("--warn-free-gib", HUGE, "--crit-free-gib", "0", "--notify", "email")
+    # Act
+    payload = json.loads(
+        _run(runner, tmp_path, *args, "--json", env=smtp_server.env).output
+    )
+    # Assert
+    assert (payload["rail"], payload["delivered"]) == ("email", True)
+
+
+def test_email_rail_mails_dev_by_default(runner, tmp_path, smtp_server):
+    # Arrange
+    args = ("--warn-free-gib", HUGE, "--crit-free-gib", "0", "--notify", "email")
+    # Act
+    _run(runner, tmp_path, *args, env=smtp_server.env)
+    # Assert
+    assert smtp_server.messages[0]["envelope_to"] == "<dev@scitex.ai>"
+
+
+def test_refused_email_exits_push_refused(runner, tmp_path, refusing_smtp_server):
+    # Arrange
+    args = ("--warn-free-gib", HUGE, "--crit-free-gib", "0", "--notify", "email")
+    # Act
+    result = _run(runner, tmp_path, *args, env=refusing_smtp_server.env)
+    # Assert
+    assert result.exit_code == EXIT_PUSH_REFUSED
+
+
+def test_unconfigured_email_profile_exits_push_refused(runner, tmp_path):
+    """No silent reroute: an unconfigured profile is a refused push."""
+    # Arrange
+    args = (
+        "--warn-free-gib",
+        HUGE,
+        "--crit-free-gib",
+        "0",
+        "--notify",
+        "email",
+        "--email-profile",
+        "unconfigured-profile",
+    )
+    # Act
+    result = _run(runner, tmp_path, *args)
+    # Assert
+    assert result.exit_code == EXIT_PUSH_REFUSED
+
+
+def test_check_notify_passes_with_a_configured_profile(runner, tmp_path, smtp_server):
+    # Arrange
+    args = ("--notify", "email", "--check-notify")
+    # Act
+    result = _run(runner, tmp_path, *args, env=smtp_server.env)
+    # Assert
+    assert result.exit_code == 0
+
+
+def test_check_notify_fails_with_an_unconfigured_profile(runner, tmp_path):
+    # Arrange
+    args = (
+        "--notify",
+        "email",
+        "--email-profile",
+        "unconfigured-profile",
+        "--check-notify",
+    )
+    # Act
+    result = _run(runner, tmp_path, *args)
+    # Assert
+    assert result.exit_code == EXIT_PUSH_REFUSED
+
+
+def test_check_notify_sends_nothing_and_records_no_state(runner, tmp_path, smtp_server):
+    # Arrange
+    args = ("--notify", "email", "--check-notify")
+    # Act
+    _run(runner, tmp_path, *args, env=smtp_server.env)
+    # Assert
+    assert smtp_server.messages == [] and not (tmp_path / "state.json").exists()
+
+
+def test_unknown_rail_is_refused():
+    # Arrange
+    spec = "cards,pager"
+
+    # Act
+    def parse():
+        return parse_rails(spec)
+
+    # Assert
+    with pytest.raises(click.BadParameter):
+        parse()
+
+
+def test_rail_order_is_preserved():
+    # Arrange
+    spec = "email, cards"
+    # Act
+    names = parse_rails(spec)
+    # Assert
+    assert names == ["email", "cards"]
+
+
+def test_each_path_set_gets_its_own_state_file():
+    """A /volume1 alarm and the default alarm must not overwrite each other."""
+    # Arrange
+    scoped = ("/volume1",)
+    # Act
+    pair = (_default_state_path(scoped), _default_state_path(None))
+    # Assert
+    assert pair[0] != pair[1]
+
+
+def test_state_file_is_independent_of_path_order():
+    # Arrange
+    a, b = ("/x", "/y"), ("/y", "/x")
+    # Act
+    pair = (_default_state_path(a), _default_state_path(b))
+    # Assert
+    assert pair[0] == pair[1]

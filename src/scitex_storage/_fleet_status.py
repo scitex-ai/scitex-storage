@@ -244,6 +244,7 @@ def _probe_local_path(path: str, host: str, role: str) -> HostStorage:
     """
     inode = probe(path)  # three-state verdict, never raises for bad paths
     size_bytes: int | None = None
+    avail_bytes: int | None = None
     used_pct: float | None = None
     verdict = inode.verdict
     note = inode.detail or ""
@@ -256,6 +257,11 @@ def _probe_local_path(path: str, host: str, role: str) -> HostStorage:
         note = f"{exc.__class__.__name__}: {exc.strerror or exc}"
     else:
         size_bytes = st.f_blocks * st.f_frsize
+        # Bytes an unprivileged writer can still use (f_bavail, not f_bfree:
+        # the root reserve is not runway for the services that fill a disk).
+        # Without this the alarm's absolute floors never saw a local row --
+        # they compared against None and silently never fired (#181).
+        avail_bytes = st.f_bavail * st.f_frsize
         used_pct = space_used_pct_from_counts(st.f_blocks, st.f_bfree, st.f_bavail)
 
     return HostStorage(
@@ -264,6 +270,7 @@ def _probe_local_path(path: str, host: str, role: str) -> HostStorage:
         mount=path,
         verdict=verdict,
         size_bytes=size_bytes,
+        avail_bytes=avail_bytes,
         used_pct=_round_or_none(used_pct),
         inode_used_pct=_round_or_none(inode.percent_used),
         note=note,

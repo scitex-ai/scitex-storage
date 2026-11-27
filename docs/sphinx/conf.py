@@ -80,7 +80,9 @@ html_theme_options = {
     "prev_next_buttons_location": "bottom",
 }
 
-html_static_path = ["_static"]
+# No custom static assets: the theme default is enough. (An uncommented
+# ``html_static_path = ["_static"]`` without the directory warns on every
+# build, and a warning that fires always is a warning nobody reads.)
 html_title = f"{project} v{release}"
 html_short_title = project
 

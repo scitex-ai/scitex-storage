@@ -9,9 +9,11 @@ no network or real SSH config is needed to exercise these code paths.
 
 import json
 import os
+import stat
 from dataclasses import dataclass
 
 import pytest
+from scitex_io import load
 
 import shutil
 
@@ -119,8 +121,14 @@ class _FakeRunner:
 
     def __call__(self, cmd, **kwargs):
         self.calls.append(cmd)
+        if self.returncode == 0 and _looks_like_digest(cmd):
+            return _FakeCompletedProcess(
+                0, _simulated_destination_digest(self.calls), ""
+            )
         if self.returncode == 0 and _looks_like_tally(cmd):
-            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
+            return _FakeCompletedProcess(
+                0, _simulated_destination_tally(self.calls), ""
+            )
         return _FakeCompletedProcess(self.returncode, self.stdout, self.stderr)
 
 
@@ -161,9 +169,13 @@ class _FaithfulDigestRunner(_FakeRunner):
     def __call__(self, cmd, **kwargs):
         self.calls.append(cmd)
         if _looks_like_digest(cmd):
-            return _FakeCompletedProcess(0, _simulated_destination_digest(self.calls), "")
+            return _FakeCompletedProcess(
+                0, _simulated_destination_digest(self.calls), ""
+            )
         if _looks_like_tally(cmd):
-            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
+            return _FakeCompletedProcess(
+                0, _simulated_destination_tally(self.calls), ""
+            )
         return _FakeCompletedProcess(0, "", "")
 
 
@@ -177,7 +189,9 @@ class _CorruptDigestRunner(_FakeRunner):
                 0, _simulated_destination_digest(self.calls, corrupt=True), ""
             )
         if _looks_like_tally(cmd):
-            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
+            return _FakeCompletedProcess(
+                0, _simulated_destination_tally(self.calls), ""
+            )
         return _FakeCompletedProcess(0, "", "")
 
 
@@ -219,8 +233,14 @@ class _FullDestinationRunner:
                 f"/dev/sda1 1000000 999999 {self.avail_kb} 100% /share\n",
                 "",
             )
+        if _looks_like_digest(cmd):
+            return _FakeCompletedProcess(
+                0, _simulated_destination_digest(self.calls), ""
+            )
         if _looks_like_tally(cmd):
-            return _FakeCompletedProcess(0, _simulated_destination_tally(self.calls), "")
+            return _FakeCompletedProcess(
+                0, _simulated_destination_tally(self.calls), ""
+            )
         return _FakeCompletedProcess(0, "", "")
 
 
@@ -259,6 +279,38 @@ def sandbox_home(tmp_path):
             os.environ.pop("HOME", None)
         else:
             os.environ["HOME"] = prev
+
+
+@pytest.fixture
+def unreadable_archive_plan(tmp_path, sandbox_home):
+    """Real denied source walk with mode restoration, no NAS transport."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "visible.bin").write_bytes(b"visible")
+    blocked = source / "blocked"
+    blocked.mkdir()
+    (blocked / "hidden.bin").write_bytes(b"hidden")
+    original_mode = stat.S_IMODE(blocked.stat().st_mode)
+    plan = ArchivePlan(
+        source=source,
+        destination="nas2",
+        remote_path="~/scitex-storage-archive/unreadable",
+        size_bytes=13,
+        file_count=2,
+        manifest_path=sandbox_home / "manifest.json",
+    )
+    blocked.chmod(0)
+    try:
+        try:
+            with os.scandir(blocked):
+                pass
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("current user bypasses directory permissions")
+        yield plan, blocked, original_mode
+    finally:
+        blocked.chmod(original_mode)
 
 
 # --- _quote_remote_path -------------------------------------------------------
@@ -467,6 +519,47 @@ def test_apply_archive_removes_the_source_on_success(tmp_path, sandbox_home):
 
 
 @pytest.mark.requires_fd
+def test_apply_archive_retire_stages_source_instead_of_deleting(tmp_path, sandbox_home):
+    # Arrange -- operator 2026-10-24: verified moves restage, then delete.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(plan, retire_source=True, runner=_FakeRunner(returncode=0))
+    # Assert -- original moved aside with bytes intact, manifest says where.
+    from pathlib import Path
+
+    staged = Path(manifest.staged_path)
+    result = (
+        source.exists(),
+        (staged / "a.bin").is_file(),
+        manifest.retained_source,
+        staged.parent.name,
+    )
+    assert result == (False, True, True, ".stx-restorable")
+
+
+@pytest.mark.requires_fd
+def test_copy_only_mode_preserves_source_with_safe_retirement_default(
+    tmp_path, sandbox_home
+):
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(
+        plan, remove_source=False, runner=_FakeRunner(returncode=0)
+    )
+    # Assert
+    assert (manifest.retained_source, manifest.staged_path, source.exists()) == (
+        True,
+        "",
+        True,
+    )
+
+
+@pytest.mark.requires_fd
 def test_apply_archive_writes_a_manifest_file_on_success(tmp_path, sandbox_home):
     # Arrange
     source = tmp_path / "source"
@@ -491,15 +584,8 @@ def test_apply_archive_manifest_records_the_source_path(tmp_path, sandbox_home):
 
 
 @pytest.mark.requires_fd
-def test_apply_archive_records_that_the_check_was_a_tally(tmp_path, sandbox_home):
-    """The manifest must say WHAT the check could see, not only that it passed.
-
-    `verified: "verified"` is a claim about the outcome. This field is the
-    claim about the INSTRUMENT, and the two are not the same: the tally
-    cannot see a destination file with the right name, the right length and
-    the wrong bytes -- which `test__content_verify` asserts in CI -- and
-    `apply_archive` deletes the source on that verdict.
-    """
+def test_default_archive_records_independent_content_gate(tmp_path, sandbox_home):
+    """Every default move records its independent content-verification instrument."""
     # Arrange
     source = tmp_path / "source"
     _touch(source / "a.bin")
@@ -507,7 +593,7 @@ def test_apply_archive_records_that_the_check_was_a_tally(tmp_path, sandbox_home
     # Act
     manifest = apply_archive(plan, runner=_FakeRunner(returncode=0))
     # Assert
-    assert manifest.verification_method == "tally"
+    assert manifest.verification_method == "content"
 
 
 @pytest.mark.requires_fd
@@ -523,7 +609,9 @@ def test_the_manifest_file_on_disk_carries_the_method(tmp_path, sandbox_home):
     # Act
     apply_archive(plan, runner=_FakeRunner(returncode=0))
     # Assert
-    assert json.loads(plan.manifest_path.read_text())["verification_method"] == "tally"
+    assert (
+        json.loads(plan.manifest_path.read_text())["verification_method"] == "content"
+    )
 
 
 def test_an_old_manifest_reads_back_as_unknown_not_tally():
@@ -553,13 +641,8 @@ def test_an_old_manifest_reads_back_as_unknown_not_tally():
 
 
 @pytest.mark.requires_fd
-def test_the_content_gate_is_off_by_default(tmp_path, sandbox_home):
-    """Opt-in, because rsync --checksum already reads every byte on both sides.
-
-    Hashing both trees again by default would roughly double the cost of a
-    multi-terabyte archive to close a narrower residual window, and a default
-    nobody can afford to leave on gets turned off.
-    """
+def test_content_gate_is_required_by_default(tmp_path, sandbox_home):
+    """A successful rsync and tally never authorize retiring an unhashed source."""
     # Arrange
     source = tmp_path / "source"
     _touch(source / "a.bin")
@@ -567,7 +650,7 @@ def test_the_content_gate_is_off_by_default(tmp_path, sandbox_home):
     # Act
     manifest = apply_archive(plan, runner=_FaithfulDigestRunner(returncode=0))
     # Assert
-    assert manifest.verification_method == "tally"
+    assert manifest.verification_method == "content"
 
 
 @pytest.mark.requires_fd
@@ -641,25 +724,32 @@ def test_wrong_content_leaves_the_source_intact(refused_on_content):
 
 
 @pytest.mark.requires_fd
-def test_the_same_destination_passes_the_tally_it_fails_on_content(tmp_path, sandbox_home):
-    """DISCRIMINATING CONTROL — proves the gate adds something.
-
-    Same runner, same destination, only the flag differs. If this ever fails
-    because the tally ALSO catches it, the corruption being simulated is not
-    this gate's class and the test above has stopped being evidence.
-    """
+def test_copy_only_tally_mode_does_not_authorize_removing_original(
+    tmp_path, sandbox_home
+):
     # Arrange
     source = tmp_path / "source"
     _touch(source / "a.bin")
     plan = plan_archive(source, "nas")
     # Act
-    manifest = apply_archive(plan, runner=_CorruptDigestRunner(returncode=0))
+    manifest = apply_archive(
+        plan,
+        remove_source=False,
+        verify_content_too=False,
+        runner=_CorruptDigestRunner(returncode=0),
+    )
     # Assert
-    assert manifest.verified == "verified"
+    assert (
+        manifest.verification_method,
+        manifest.retained_source,
+        source.exists(),
+    ) == ("tally", True, True)
 
 
 @pytest.mark.requires_fd
-def test_apply_archive_creates_the_remote_parent_directory_first(tmp_path, sandbox_home):
+def test_apply_archive_creates_the_remote_parent_directory_first(
+    tmp_path, sandbox_home
+):
     # Arrange
     source = tmp_path / "source"
     _touch(source / "a.bin")
@@ -972,7 +1062,9 @@ def test_apply_restore_delete_remote_command_targets_the_remote_path(tmp_path):
     assert "needle" in runner.calls[1][-1]
 
 
-def test_apply_restore_delete_remote_command_leaves_the_leading_tilde_unquoted(tmp_path):
+def test_apply_restore_delete_remote_command_leaves_the_leading_tilde_unquoted(
+    tmp_path,
+):
     # Arrange -- same regression class as the archive-side mkdir: a naive
     # shlex.quote(whole_path) would wrap "~" and break tilde-expansion.
     source = tmp_path / "source"
@@ -1113,6 +1205,55 @@ def test_apply_archive_with_an_injected_runner_does_not_require_rsync(
 # These exist because a guard that has never been OBSERVED to fire is
 # indistinguishable from one that cannot. The happy-path tests above prove
 # the verb still works; only these prove it still protects anything.
+def test_unknown_source_tally_refuses_archive(unreadable_archive_plan):
+    # Arrange
+    plan, _blocked, _mode = unreadable_archive_plan
+    runner = _LyingTallyRunner("0\n0\n")
+
+    # Act
+    raised = pytest.raises(ArchiveNotVerifiedError)
+
+    # Assert
+    with raised:
+        apply_archive(plan, runner=runner)
+
+
+def test_unknown_source_tally_records_refusal_manifest(unreadable_archive_plan):
+    # Arrange
+    plan, _blocked, _mode = unreadable_archive_plan
+    runner = _LyingTallyRunner("0\n0\n")
+
+    # Act
+    try:
+        apply_archive(plan, runner=runner)
+    except ArchiveNotVerifiedError:
+        pass
+    verdict = load(plan.manifest_path)["verified"]
+
+    # Assert
+    assert verdict == "could-not-look"
+
+
+def test_unknown_source_tally_preserves_exact_source_payloads(unreadable_archive_plan):
+    # Arrange
+    plan, blocked, original_mode = unreadable_archive_plan
+    runner = _LyingTallyRunner("0\n0\n")
+
+    # Act
+    try:
+        apply_archive(plan, runner=runner)
+    except ArchiveNotVerifiedError:
+        pass
+    blocked.chmod(original_mode)
+    payloads = {
+        "visible": (plan.source / "visible.bin").read_bytes(),
+        "hidden": (blocked / "hidden.bin").read_bytes(),
+    }
+
+    # Assert
+    assert payloads == {"visible": b"visible", "hidden": b"hidden"}
+
+
 def _plan_with_two_files(tmp_path, sandbox_home):
     source = tmp_path / "source"
     _touch(source / "a.bin")
@@ -1261,3 +1402,203 @@ def test_a_verified_archive_records_verified_in_the_manifest(tmp_path, sandbox_h
 
 
 # EOF
+
+
+class _SidecarEchoRunner(_FakeRunner):
+    """A faithful destination that also echoes the sidecar back on `cat`.
+
+    Records the local manifest path from the scp argv, then answers the
+    read-back `cat` with those exact bytes -- the round trip the real
+    sidecar write performs, without a network.
+    """
+
+    def __init__(self):
+        super().__init__(returncode=0)
+        self._sidecar_src = None
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        first = os.path.basename(str(cmd[0])) if cmd else ""
+        if first == "scp":
+            self._sidecar_src = str(cmd[-2])
+            return _FakeCompletedProcess(0, "", "")
+        if first == "ssh" and "cat " in " ".join(str(p) for p in cmd):
+            if self._sidecar_src is None:
+                return _FakeCompletedProcess(0, "", "")
+            with open(self._sidecar_src, encoding="utf-8") as fh:
+                return _FakeCompletedProcess(0, fh.read(), "")
+        if _looks_like_digest(cmd):
+            return _FakeCompletedProcess(
+                0, _simulated_destination_digest(self.calls), ""
+            )
+        if _looks_like_tally(cmd):
+            tally = _simulated_destination_tally(self.calls)
+            return _FakeCompletedProcess(0, tally, "")
+        return _FakeCompletedProcess(0, "", "")
+
+
+class _SidecarFailingRunner(_FakeRunner):
+    """scp refuses; everything else answers like a faithful destination."""
+
+    def __call__(self, cmd, **kwargs):
+        first = os.path.basename(str(cmd[0])) if cmd else ""
+        if first == "scp":
+            self.calls.append(cmd)
+            return _FakeCompletedProcess(1, "", "scp: connection refused")
+        return super().__call__(cmd, **kwargs)
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_sends_manifest_sidecar_to_destination(tmp_path, sandbox_home):
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    runner = _SidecarEchoRunner()
+    # Act
+    apply_archive(plan, runner=runner)
+    # Assert
+    assert any(
+        "scitex-archive-manifest.json" in str(p) for c in runner.calls for p in c
+    )
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_marks_sidecar_written_on_matching_readback(
+    tmp_path, sandbox_home
+):
+    # Arrange
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(plan, runner=_SidecarEchoRunner())
+    # Assert
+    got = (
+        manifest.sidecar_written,
+        manifest.sidecar_path.endswith(".scitex-archive-manifest.json"),
+    )
+    assert got == (True, True)
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_removes_source_despite_sidecar_failure(tmp_path, sandbox_home):
+    # Arrange -- a replica hiccup must not strand a verified migration.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    apply_archive(plan, runner=_SidecarFailingRunner())
+    # Assert
+    assert not source.exists()
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_records_sidecar_failure_in_manifest(tmp_path, sandbox_home):
+    # Arrange -- the gap must be visible in the manifest, not silent.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(plan, runner=_SidecarFailingRunner())
+    # Assert
+    assert (manifest.sidecar_written, bool(manifest.sidecar_detail)) == (False, True)
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_records_destination_tier_on_manifest(tmp_path, sandbox_home):
+    # Arrange -- "nas" rewrites to scitex-nas-03, the tier1 unit.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(plan, runner=_FakeRunner(returncode=0))
+    # Assert
+    assert manifest.destination_tier == "tier1"
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_records_content_digest_when_content_gate_runs(
+    tmp_path, sandbox_home
+):
+    # Arrange
+    from scitex_storage._transfer._content_verify import digest_tree, tree_digest
+
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    expected = tree_digest(digest_tree(str(source)))
+    # Act
+    manifest = apply_archive(
+        plan, verify_content_too=True, runner=_FaithfulDigestRunner()
+    )
+    # Assert
+    assert manifest.content_digest == expected
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_keeps_source_when_remove_source_is_false(tmp_path, sandbox_home):
+    # Arrange -- backup mode: copy-verified, source retained.
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    manifest = apply_archive(
+        plan, remove_source=False, runner=_FakeRunner(returncode=0)
+    )
+    # Assert
+    assert (source.exists(), manifest.retained_source) == (True, True)
+
+
+@pytest.mark.requires_fd
+def test_apply_archive_still_refuses_unverified_backup(tmp_path, sandbox_home):
+    # Arrange -- retained source does not relax verification: a failed
+    # read-back raises before anything is recorded as done.
+    from scitex_storage._transfer._archive import ArchiveNotVerifiedError
+
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    # Act
+    ctx = pytest.raises(ArchiveNotVerifiedError)
+    # Assert
+    with ctx:
+        apply_archive(
+            plan,
+            remove_source=False,
+            runner=_LyingTallyRunner("0\n0\n"),
+        )
+
+
+def test_iter_manifests_lists_written_manifests_newest_first(tmp_path, sandbox_home):
+    # Arrange
+    import time
+
+    from scitex_storage._transfer._archive import iter_manifests
+
+    for name in ("a", "b"):
+        source = tmp_path / name
+        _touch(source / "f.bin")
+        plan = plan_archive(source, "nas")
+        apply_archive(plan, runner=_FakeRunner(returncode=0))
+        time.sleep(0.01)
+    # Act
+    found = iter_manifests()
+    # Assert
+    assert [m.source for m in found] == [str(tmp_path / "b"), str(tmp_path / "a")]
+
+
+def test_iter_manifests_skips_unreadable_files(tmp_path, sandbox_home):
+    # Arrange -- a corrupt JSON next to real manifests must not break listing.
+    from scitex_storage._transfer._archive import _manifest_dir, iter_manifests
+
+    _manifest_dir().mkdir(parents=True, exist_ok=True)
+    (_manifest_dir() / "junk.json").write_text("{nope")
+    source = tmp_path / "source"
+    _touch(source / "a.bin")
+    plan = plan_archive(source, "nas")
+    apply_archive(plan, runner=_FakeRunner(returncode=0))
+    # Act
+    found = iter_manifests()
+    # Assert
+    assert len(found) == 1
