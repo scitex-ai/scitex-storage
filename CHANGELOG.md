@@ -22,9 +22,11 @@ versions follow [Semantic Versioning](https://semver.org/).
   re-delivery of the same alarm text within 24 h is not mailed twice. The
   subject names the host. `--check-notify` reports From/To/server and whether a
   password is present, never the password itself.
-  `examples/systemd/scitex-storage-alarm-with-secret.sh` decrypts the SMTP
-  password from `~/.pw/*.gpg` at start, into the alarm process only. It
-  never writes a plaintext copy.
+  The SMTP password stays encrypted at rest: with
+  `$SCITEX_STORAGE_ALARM_EMAIL_PASSWORD_GPG` (and optionally
+  `$SCITEX_STORAGE_ALARM_EMAIL_GNUPGHOME`) the rail runs `gpg --batch
+  --decrypt` at send time into memory only. A key that is missing or needs a
+  passphrase fails the rail by name. No plaintext copy is ever written.
 
 - **`alarm` suppresses repeats per filesystem.** The state file now keeps,
   per filesystem, the level last mailed and when it was mailed. The same level

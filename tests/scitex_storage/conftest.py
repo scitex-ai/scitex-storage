@@ -179,14 +179,16 @@ def _tls_pair(tmp_path: Path) -> tuple[str, str]:
     cert, key = tmp_path / "smtp-cert.pem", tmp_path / "smtp-key.pem"
     subprocess.run(
         ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
-         "-subj", "/CN=localhost", "-keyout", str(key), "-out", str(cert)],
+         "-subj", "/CN=localhost",
+         "-addext", "subjectAltName=IP:127.0.0.1,DNS:localhost",
+         "-keyout", str(key), "-out", str(cert)],
         check=True,
         capture_output=True,
     )
     return str(cert), str(key)
 
 
-def _ops_env(tmp_path: Path, port: int) -> dict:
+def _ops_env(tmp_path: Path, port: int, cert: str) -> dict:
     """The ``ops`` profile variables an alarm host sets, pointed at 127.0.0.1."""
     pw = tmp_path / "no-reply.password"
     pw.write_text(SMTP_TEST_PASSWORD + "\n")
@@ -198,13 +200,20 @@ def _ops_env(tmp_path: Path, port: int) -> dict:
         "SCITEX_NOTIFICATION_PROFILE_OPS_SMTP_PORT": str(port),
         "SCITEX_NOTIFICATION_PROFILE_OPS_PASSWORD_FILE": str(pw),
         "SCITEX_NOTIFICATION_RATE_LIMIT_DIR": str(tmp_path / "rate-limit"),
+        # The client VERIFIES the server certificate (as it must in
+        # production); OpenSSL's standard variable makes it trust this one.
+        "SSL_CERT_FILE": cert,
     }
 
 
 def _smtp(tmp_path: Path, refuse: bool):
+    # Each server gets its own directory: two servers in one test must not
+    # overwrite each other's certificate or password file.
+    tmp_path = tmp_path / ("smtp-refusing" if refuse else "smtp")
+    tmp_path.mkdir()
     cert, key = _tls_pair(tmp_path)
     server = LocalSMTPServer(cert, key, refuse=refuse)
-    server.env = _ops_env(tmp_path, server.port)
+    server.env = _ops_env(tmp_path, server.port, cert)
     server.password = SMTP_TEST_PASSWORD
     return server
 
@@ -237,3 +246,50 @@ def ops_profile_env(smtp_server):
         else:
             os.environ[key] = value
 
+
+
+def _gpg(home: Path, *args: str, **kw) -> None:
+    subprocess.run(
+        ["gpg", "--homedir", str(home), "--batch", "--quiet", *args],
+        capture_output=True,
+        check=True,
+        timeout=60,
+        **kw,
+    )
+
+
+@pytest.fixture
+def gpg_ciphertext(tmp_path):
+    """A REAL throwaway gpg home (passphrase-less key) and a ciphertext of
+    :data:`SMTP_TEST_PASSWORD` made with it: ``(homedir, path)``."""
+    if shutil.which("gpg") is None:
+        pytest.skip("gpg is needed for the encrypted-password path")
+    home = tmp_path / "gnupg"
+    home.mkdir(mode=0o700)
+    uid = "alarm-test@example.invalid"
+    _gpg(home, "--passphrase", "", "--quick-gen-key", uid, "default", "default", "never")
+    out = tmp_path / "no-reply.gpg"
+    _gpg(home, "--trust-model", "always", "--encrypt", "-r", uid, "-o", str(out),
+         input=SMTP_TEST_PASSWORD.encode())
+    yield str(home), str(out)
+    subprocess.run(["gpgconf", "--homedir", str(home), "--kill", "all"],
+                   capture_output=True, check=False, timeout=30)
+
+
+@pytest.fixture
+def ops_profile_gpg_env(ops_profile_env, gpg_ciphertext):
+    """The ``ops`` profile with its password ONLY as a gpg ciphertext."""
+    home, cipher = gpg_ciphertext
+    keys = ("SCITEX_NOTIFICATION_PROFILE_OPS_PASSWORD_FILE",
+            "SCITEX_STORAGE_ALARM_EMAIL_PASSWORD_GPG",
+            "SCITEX_STORAGE_ALARM_EMAIL_GNUPGHOME")
+    saved = {k: os.environ.get(k) for k in keys}
+    os.environ.pop(keys[0], None)
+    os.environ[keys[1]] = cipher
+    os.environ[keys[2]] = home
+    yield ops_profile_env
+    for key, value in saved.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value

@@ -233,4 +233,59 @@ def test_event_id_is_stable_for_the_same_alarm_text():
     assert len(ids) == 1
 
 
+
+
+# --------------------------------------------------------------------------
+# Password decrypted at send time from a gpg ciphertext (never a file)
+# --------------------------------------------------------------------------
+
+
+def test_encrypted_password_is_decrypted_for_the_login(ops_profile_gpg_env):
+    # Arrange
+    send = email_notifier()
+    # Act
+    send(ALARM)
+    # Assert
+    assert ops_profile_gpg_env.messages[0]["password_ok"] is True
+
+
+def test_check_email_rail_decrypts_the_password(ops_profile_gpg_env):
+    # Arrange
+    profile = "ops"
+    # Act
+    result = check_email_rail(profile)
+    # Assert
+    assert result["has_password"] is True
+
+
+def test_check_email_rail_never_returns_the_decrypted_password(ops_profile_gpg_env):
+    # Arrange
+    profile = "ops"
+    # Act
+    result = check_email_rail(profile)
+    # Assert
+    assert ops_profile_gpg_env.password not in json.dumps(result)
+
+
+def test_undecryptable_ciphertext_fails_the_rail_by_name(ops_profile_gpg_env, tmp_path):
+    """A key that is absent (or needs a passphrase) is loud, not an empty login."""
+    # Arrange
+    os.environ["SCITEX_STORAGE_ALARM_EMAIL_GNUPGHOME"] = str(tmp_path / "no-keys")
+    rails = [Rail("email", email_notifier())]
+    # Act
+    result = notify_if_needed(_critical(), rails, previous_level=OK)
+    # Assert
+    assert "cannot decrypt" in result.detail
+
+
+def test_undecryptable_ciphertext_sends_nothing(ops_profile_gpg_env, tmp_path):
+    # Arrange
+    os.environ["SCITEX_STORAGE_ALARM_EMAIL_GNUPGHOME"] = str(tmp_path / "no-keys")
+    rails = [Rail("email", email_notifier())]
+    # Act
+    notify_if_needed(_critical(), rails, previous_level=OK)
+    # Assert
+    assert ops_profile_gpg_env.messages == []
+
+
 # EOF

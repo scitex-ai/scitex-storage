@@ -57,9 +57,11 @@ personal helper.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import os
 import socket
+import subprocess
 import threading
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence, Union
@@ -284,8 +286,20 @@ def operator_dm_notifier(to: str = "operator") -> Notifier:
 #: From ``no-reply@scitex.ai`` To ``dev@scitex.ai``. The addresses are NOT
 #: in this package; the alarm host sets them, with the SMTP server and the
 #: credential, as ``SCITEX_NOTIFICATION_PROFILE_OPS_{FROM,TO,SMTP_HOST,
-#: SMTP_PORT,PASSWORD_FILE}`` (see ``examples/systemd/alarm.env.example``).
+#: SMTP_PORT}`` plus :data:`PASSWORD_GPG_ENV` (see
+#: ``examples/systemd/alarm.env.example``).
 DEFAULT_EMAIL_PROFILE = "ops"
+
+#: Path of a gpg ciphertext holding the profile's SMTP password. The fleet
+#: keeps mailbox passwords encrypted at rest (``~/.pw/<account>.gpg``) and a
+#: systemd timer sources no shell loader, so the rail decrypts it ITSELF,
+#: at send time, into memory only: never a file, never logged, never in a
+#: result. Used only when the profile carries no password of its own.
+PASSWORD_GPG_ENV = "SCITEX_STORAGE_ALARM_EMAIL_PASSWORD_GPG"
+
+#: Optional ``gpg --homedir`` for that ciphertext (a host may keep a
+#: dedicated keyring for it). Default: gpg's own home.
+GNUPGHOME_ENV = "SCITEX_STORAGE_ALARM_EMAIL_GNUPGHOME"
 
 #: Environment override for the profile name.
 EMAIL_PROFILE_ENV = "SCITEX_STORAGE_ALARM_EMAIL_PROFILE"
@@ -322,6 +336,53 @@ def _notification_api():
     return get_profile, send_with_profile
 
 
+def _decrypt_password(path: str, homedir: str | None) -> str:
+    """``gpg --batch --decrypt`` into memory. Never prompts, never writes.
+
+    A key that needs a passphrase, or no key at all, is an ERROR naming the
+    file and gpg's exit code -- not a silent empty password. gpg's stderr
+    tail is kept for diagnosis; it never carries the plaintext.
+    """
+    cmd = ["gpg"]
+    if homedir:
+        cmd += ["--homedir", os.path.expanduser(homedir)]
+    cmd += ["--quiet", "--batch", "--no-tty", "--decrypt", os.path.expanduser(path)]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=30, check=False)
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "gpg is not installed; cannot decrypt the SMTP password"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"gpg timed out decrypting {path} (passphrase prompt?)"
+        ) from exc
+    password = proc.stdout.decode("utf-8", "replace").strip()
+    if proc.returncode != 0 or not password:
+        tail = proc.stderr.decode("utf-8", "replace").strip()[-300:]
+        raise RuntimeError(
+            f"cannot decrypt {path} non-interactively (gpg rc={proc.returncode})"
+            + (f": {tail}" if tail else "")
+        )
+    return password
+
+
+def load_email_profile(profile: str | None = None):
+    """The resolved scitex-notification ``Profile``, password filled in.
+
+    The profile's own ``PASSWORD`` / ``PASSWORD_FILE`` win; otherwise, when
+    :data:`PASSWORD_GPG_ENV` is set, the password is decrypted from that
+    ciphertext into this process's memory.
+    """
+    get_profile, _send = _notification_api()
+    resolved = get_profile(resolve_email_profile(profile))
+    cipher = os.environ.get(PASSWORD_GPG_ENV)
+    if cipher and not resolved.password:
+        password = _decrypt_password(cipher, os.environ.get(GNUPGHOME_ENV))
+        resolved = dataclasses.replace(resolved, password=password)
+    return resolved
+
+
 def email_event_id(text: str, host: str | None = None) -> str:
     """Stable per message, so a retry of the SAME alarm cannot send twice.
 
@@ -349,15 +410,17 @@ def email_notifier(profile: str | None = None) -> Notifier:
     message (``status: sent``), or when this exact alarm text was already
     accepted inside :data:`EMAIL_DEDUPE_WINDOW_S` (``suppressed``). An
     unusable profile (missing variable, unreadable or group-readable
-    password file) or an SMTP error RAISES, so the rail chain names it.
+    password file, a ciphertext gpg cannot decrypt without a prompt) or an
+    SMTP error RAISES, so the rail chain names it.
     SMTP acceptance is the strongest confirmation this transport can give;
     it is not proof of reading.
     """
 
     def send(text: str) -> bool | None:
         _get_profile, send_with_profile = _notification_api()
+        resolved = load_email_profile(profile)
         result = send_with_profile(
-            resolve_email_profile(profile),
+            resolved,
             email_subject(text),
             text,
             dedupe_key=email_event_id(text),
@@ -383,8 +446,8 @@ def check_email_rail(profile: str | None = None) -> dict:
     name = resolve_email_profile(profile)
     base = {"ok": False, "profile": name}
     try:
-        get_profile, send_with_profile = _notification_api()
-        resolved = get_profile(name)
+        _get_profile, send_with_profile = _notification_api()
+        resolved = load_email_profile(name)
         send_with_profile(
             resolved,
             "[SciTeX] scitex-storage alarm rail check (dry run)",
@@ -398,7 +461,8 @@ def check_email_rail(profile: str | None = None) -> dict:
         return {
             **base,
             **info,
-            "detail": f"profile {name!r} has no SMTP password; "
+            "detail": f"profile {name!r} has no SMTP password (set "
+            f"${PASSWORD_GPG_ENV} or the profile's PASSWORD_FILE); "
             "the server would refuse an unauthenticated submission",
         }
     return {
