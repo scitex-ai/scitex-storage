@@ -7,6 +7,16 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.18] - 2026-11-27
+
+- **Release pipeline: accept a set of qualified apptainer pins.** The v0.6.17
+  tag never reached PyPI: every test leg failed at "Apptainer entrypoint bytes
+  differ from the qualified release pin". The runner pool's distro apptainer is
+  not upgraded in lockstep (compute-01/02 run 1.5.5, compute-03 runs 1.5.3), so
+  one pin could match only some runners. `SCITEX_CI_APPTAINER_SHA256` may now be
+  a whitespace-separated set of exact SHA256 pins. A mismatch reports the
+  observed digest. 0.6.18 ships the 0.6.17 content unchanged otherwise.
+
 ## [0.6.17] - 2026-11-27
 
 - **BREAKING: the `alarm` email rail mails the ops inbox, not the operator.**
