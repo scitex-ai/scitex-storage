@@ -7,6 +7,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.19] - 2026-11-27
+
+- **Release pipeline: the release gate runs the same suites as `ci.yml`.**
+  The v0.6.18 tag passed the new apptainer pin set, and then failed in every
+  test leg. The reused `ci-cpu.sif` has no rsync or fclones, so the backup,
+  move, archive-integrity, versions and duplicate-scan tests failed there. The
+  same commit was green in `ci.yml`. The release workflow now calls the org
+  `pytest-matrix` and the pinned `fd-fclones-integration` workflows, which
+  `ci.yml` already uses, on the tagged commit. Build and publish still run in
+  the SIF and still re-verify the tagged source. The SIF-only
+  `.github/ci/run-in-sif.sh` is removed. 0.6.19 ships the 0.6.17 content
+  unchanged otherwise.
+
 ## [0.6.18] - 2026-11-27
 
 - **Release pipeline: accept a set of qualified apptainer pins.** The v0.6.17
