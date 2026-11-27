@@ -30,7 +30,6 @@ from pathlib import Path
 
 from scitex_ssh import SSHResult, exec_remote, sync_dir
 
-from ._audit import logged_transfer, transfer_stage
 from ._archive_transport import (
     _UNSAFE_REMOTE_PATHS,
     _as_dir_contents,
@@ -38,6 +37,33 @@ from ._archive_transport import (
     _quote_remote_path,
     _rsync_binary,
 )
+from ._audit import logged_transfer, transfer_stage
+
+
+class RestoreNotVerifiedError(RuntimeError):
+    """The restored data does not reproduce the manifest's content digest.
+
+    Raised only when the caller asked for ``verify_content``. The remote copy
+    is untouched, whatever ``delete_remote`` said.
+    """
+
+
+def restored_digest(path: Path, *, is_file: bool) -> str:
+    """Content digest of restored data, in the manifest's convention.
+
+    A file is its own sha256 and a directory is the canonical tree digest,
+    matching ``ArchiveManifest.content_digest``. Empty when the data cannot
+    be completely read, so it can never equal a real baseline.
+    """
+    from ._content_verify import digest_file_unit, digest_tree, tree_digest
+
+    if is_file:
+        manifest = digest_file_unit(str(path))
+        return "" if manifest.root_missing else manifest.digests.get(path.name, "")
+    manifest = digest_tree(str(path))
+    if not manifest.usable or manifest.unreadable or not manifest.digests:
+        return ""
+    return tree_digest(manifest)
 
 
 @dataclass
@@ -69,9 +95,13 @@ def plan_restore(source: str | Path) -> RestorePlan:
 
 @logged_transfer("restore")
 def apply_restore(
-    plan: RestorePlan, *, delete_remote: bool = False, runner=None
+    plan: RestorePlan,
+    *,
+    delete_remote: bool = False,
+    verify_content: bool = False,
+    runner=None,
 ) -> Path:
-    """Pull the archived directory back to its original local path.
+    """Pull the archived directory (or single file) back to its original path.
 
     Verifies via rsync's own exit code; raises loud on failure (nothing is
     removed remotely in that case, regardless of ``delete_remote``). The
@@ -80,6 +110,15 @@ def apply_restore(
     explicitly asked. ``runner`` is passed straight through to both
     ``sync_dir`` and ``exec_remote``.
 
+    ``verify_content=True`` re-hashes the restored data and requires it to
+    reproduce the manifest's ``content_digest`` before anything else happens,
+    ``delete_remote`` included. A missing baseline or a different digest
+    raises :class:`RestoreNotVerifiedError`. It is off by default so existing
+    callers that restore into a non-empty directory keep merge semantics.
+
+    A manifest whose ``source_kind`` is ``"file"`` restores the single entry
+    ``remote_path/<name>`` to the original file path.
+
     Requires ``rsync`` only when ``runner is None`` — same reasoning as
     :func:`~scitex_storage._transfer._archive.apply_archive`.
     """
@@ -87,11 +126,17 @@ def apply_restore(
         _rsync_binary()
     manifest = plan.manifest
     source = Path(manifest.source)
+    is_file = getattr(manifest, "source_kind", "directory") == "file"
+    remote = (
+        f"{manifest.remote_path.rstrip('/')}/{source.name}"
+        if is_file
+        else _as_dir_contents(manifest.remote_path)
+    )
     transfer_stage("rsync")
     result: SSHResult = sync_dir(
         manifest.destination,
         str(source),
-        _as_dir_contents(manifest.remote_path),
+        remote,
         direction="pull",
         runner=runner,
     )
@@ -102,6 +147,20 @@ def apply_restore(
             f"failed (exit {result.returncode}) -- remote copy untouched.\n"
             f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
         )
+
+    if verify_content:
+        transfer_stage("verification")
+        if not manifest.content_digest:
+            raise RestoreNotVerifiedError(
+                f"{source} was restored, but its manifest records no content "
+                f"digest to verify against -- the remote copy was left untouched."
+            )
+        if restored_digest(source, is_file=is_file) != manifest.content_digest:
+            raise RestoreNotVerifiedError(
+                f"restored {source} does not reproduce the manifest content "
+                f"digest -- the remote copy at {manifest.destination}:"
+                f"{manifest.remote_path} was left untouched."
+            )
 
     if delete_remote:
         transfer_stage("remote_cleanup")
@@ -124,5 +183,6 @@ def apply_restore(
             )
 
     return source
+
 
 # EOF

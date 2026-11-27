@@ -35,7 +35,8 @@
 | 3 | **Stale-build cleanup deletes a live image** — a directory of dated images (SIFs, tarballs) where the currently-live file is often the oldest-looking one still symlinked in | **`scitex-storage images prune`** — rotates to the newest N, but a file any symlink in the directory currently resolves to is never a candidate, regardless of age. Dry-run by default |
 | 4 | **HPC fileset hits its inode quota** — millions of small files on GPFS; deleting real data is not an option, and the fix (tar it) reads file content, barred from login nodes | **`scitex-storage sweep`** — tars an inode-hog directory in place, compute-node-only (needs `$SLURM_JOB_ID`), explicit per-directory `--confirm`, skips anything still active |
 | 5 | **Copy-then-delete risks silent loss** — local disk fills with directories that should move to NAS, but "just delete after copying" risks a partial/failed copy silently losing data | **`scitex-storage archive`** — copy-verify-then-remove over ssh to `nas`/`nas2` (scitex-ssh's `sync_dir`), rsync checksum plus mandatory independent SHA256 before moving, manifest written first, `restore` reads it back; the original stays in seven-day restorable staging by default (only an explicitly applied `sweep-restorable` removes expired staging) |
-| 6 | **Duplicate copies pile up** — `dataset (1).zip`, `dataset_final_v2.zip`, and other near-identical names crowding the same directory | **`scitex-storage find-duplicates`** — an explicitly opt-in, separate verb (via `fclones`) that hashes file contents to report exact-duplicate groups; kept out of `scan` on purpose (see below) |
+| 6 | **A hot volume keeps filling up** — old backups, dumps and datasets nobody reads sit on the fastest disk | **`scitex-storage tier ROOT --to HOST`** — selects cold files and subtrees (atime and mtime), coldest first, until `--target-used-percent` is projected, moves each through `archive`, and leaves a `<path>.stx-tiered.json` pointer that `restore <path>` follows back |
+| 7 | **Duplicate copies pile up** — `dataset (1).zip`, `dataset_final_v2.zip`, and other near-identical names crowding the same directory | **`scitex-storage find-duplicates`** — an explicitly opt-in, separate verb (via `fclones`) that hashes file contents to report exact-duplicate groups; kept out of `scan` on purpose (see below) |
 
 ## Quick Start
 
@@ -439,7 +440,7 @@ scitex_storage/
 ├── _tiers.py       ← canonical NAS tier definitions + manifest sidecar
 ├── _alarm/         ← free-space alarm (decide + notify, cron-safe)
 └── _cli/           ← scan, survey, find-duplicates, find-recipe, images,
-                      sweep, sweep-status, archive, restore, backup, scrub,
+                      sweep, sweep-status, archive, tier, restore, backup, scrub,
                       validate-inodes, verify-content, reclaim,
                       reclaim-restore, relocate, relocate-restore,
                       fleet-status, alarm, document-sorter,
@@ -448,181 +449,19 @@ scitex_storage/
 
 ## 1 Interfaces
 
-<details open>
-<summary><strong>CLI</strong></summary>
-
-<br>
+The CLI flag reference with examples, and the Python API, are in
+[docs/cli.md](docs/cli.md).
 
 ```bash
-scitex-storage scan [PATH ...] [--top N] [--sort size|files] [--max-depth D] [--json]
-scitex-storage find-duplicates PATH [PATH ...] [--max-depth D] [--json]
+scitex-storage scan [PATH ...] [--top N] [--sort size|files] [--json]
+scitex-storage find-duplicates PATH [PATH ...] [--json]
+scitex-storage images prune DIRECTORY [--keep N] [--apply]
+scitex-storage sweep DIRECTORY --threshold-files N [--apply --confirm NAME ...]
+scitex-storage archive SOURCE --to HOST [--yes]
+scitex-storage tier ROOT --to HOST [--target-used-percent P] [--yes]
+scitex-storage restore SOURCE [--delete-remote] [--yes]
+scitex-storage sweep-restorable [--verify-remote] [--yes]
 ```
-
-**`scan`** (stat-only, `fd`-backed — never reads file contents):
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `PATH ...` | `~/.scitex ~/proj` | One or more roots. Missing default roots are skipped; a missing *explicit* PATH is a hard error |
-| `--top N` | 20 | How many top children to print per root |
-| `--sort` | `size` | Rank children by total `size` or by inode `files` count |
-| `--max-depth D` | unlimited | Cap recursion depth per child (login-node / network-path safety) |
-| `--json` | off | Emit machine-readable JSON instead of the text table |
-
-```bash
-scitex-storage images prune DIRECTORY [--keep N] [--pattern GLOB] [--apply] [--json]
-```
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `DIRECTORY` | (required) | Directory of versioned files to rotate, e.g. a SIF build dir |
-| `--keep N` | 5 | Target retained count. Files any symlink in `DIRECTORY` references are kept on top of this |
-| `--pattern` | `*.sif` | Glob matched against candidate filenames |
-| `--apply` | off | Actually delete. Skips (never deletes) any candidate a running process still has open. Without it, prints the plan only (dry-run) |
-| `--json` | off | Emit machine-readable JSON instead of the text report |
-
-```bash
-$ scitex-storage images prune ~/.scitex/agent-container/containers/sac-base
-scitex-storage images prune  /home/user/.scitex/agent-container/containers/sac-base
-====================================================================================
-1 referenced (always kept), 4 newest kept, 2 to remove
-
-  WOULD REMOVE:
-        1.3 GB  sac-base-2026-0512-212752.sif
-        1.3 GB  sac-base-2026-0513-083535.sif
-
-  2.6 GB reclaimable
-  (dry-run — pass --apply to actually delete)
-```
-
-```bash
-scitex-storage sweep DIRECTORY --threshold-files N [--min-age-hours H] [--apply --confirm NAME ...] [--min-remaining-seconds S] [--json]
-```
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `DIRECTORY` | (required) | Directory whose immediate children are sweep candidates |
-| `--threshold-files N` | (required, no default) | Minimum file count to qualify as a candidate |
-| `--min-age-hours` | 24 | Exclude a candidate if its newest file is younger than this |
-| `--apply` | off | Actually tar + remove. Requires `--confirm` |
-| `--confirm NAME` | — | Explicit per-directory consent (repeatable). Never a blanket apply |
-| `--min-remaining-seconds` | 300 | Stop before starting a candidate if less SLURM walltime remains |
-| `--json` | off | Emit machine-readable JSON instead of the text report |
-
-`--apply` **refuses to run outside a SLURM allocation** (`$SLURM_JOB_ID` must
-be set) — tarring reads file content and the cleanup is a heavy metadata
-op, both barred from Spartan login nodes. Submit via `sbatch` or
-`srun --overlap --jobid=<held-allocation>`.
-
-```bash
-$ scitex-storage sweep /data/gpfs/projects/punim0264/runs --threshold-files 5000
-scitex-storage sweep  /data/gpfs/projects/punim0264/runs
-==========================================================
-threshold >= 5,000 files, min age 24h  (1 candidate(s), 0 skipped as too fresh)
-
-  CANDIDATES (dry-run):
-        18,204  old-run-42  (~18,203 inodes reclaimable)
-
-  18,203 inodes reclaimable
-  (dry-run — pass --apply --confirm NAME [--confirm NAME ...] to sweep)
-```
-
-```bash
-scitex-storage sweep-status DIRECTORY [--json]
-```
-
-Read-only: lists directories already swept (a sibling `<name>.tar` exists).
-
-```bash
-scitex-storage archive SOURCE --to nas|nas2 [--remote-path PATH] [--exclude PATTERN ...] [--checksum/--no-checksum] [--yes|-y] [--dry-run] [--json]
-scitex-storage restore SOURCE [--delete-remote] [--yes|-y] [--dry-run] [--json]
-```
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `SOURCE` | (required) | Directory to archive / the original path to restore to |
-| `--to` | (required, `archive` only) | `nas` or `nas2` — the `~/.ssh/config` alias to sync to |
-| `--remote-path` | mirrors `SOURCE` under `~/scitex-storage-archive` | Explicit remote path override |
-| `--exclude PATTERN` | — | Glob to exclude from the sync (repeatable) |
-| `--checksum` / `--no-checksum` | on | Read every byte on both sides (rsync `--checksum`) before removing the local copy |
-| `--delete-remote` | off | `restore` only: remove the remote copy after a verified pull |
-| `--yes`, `-y` | off | Actually sync/pull + mutate. Canonical mutating-verb flag (`archive`/`restore` are in the ecosystem's hardcoded mutating-verb list, unlike `images prune`/`sweep`'s `--apply`) |
-| `--dry-run` | — | Explicit spelling of the default (no side effects either way) |
-| `--json` | off | Emit machine-readable JSON instead of the text report |
-
-Applied archive, backup, and restore attempts write a private JSON record
-under `~/.scitex/scitex-storage/runtime/transfer-logs/`. A record identifies
-the failed stage and rsync exit code when available. Retries have separate
-records, and dry runs leave this directory untouched.
-
-`archive` is copy-verify-then-remove, never delete-then-copy: a failed sync
-leaves `SOURCE` completely untouched and no manifest is written. The
-manifest (`~/.scitex/scitex-storage/runtime/archive-manifests/`) is what
-`restore` reads back — it never needs `SOURCE` to still exist.
-
-**`find-duplicates`** (`fclones`-backed — DOES read file contents to hash them; a separate, explicitly opt-in verb, never run implicitly by `scan`):
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `PATH ...` | *(required)* | One or more roots to search for exact duplicates |
-| `--max-depth D` | unlimited | Cap recursion depth (login-node / network-path safety) |
-| `--json` | off | Emit machine-readable JSON instead of the text report |
-
-Other top-level commands (ecosystem-standard, per every scitex-* CLI):
-`list-python-apis` (introspect the Python API), `mcp list-tools`
-(no MCP server shipped yet — reports zero tools), `--help-recursive`.
-
-</details>
-
-<details>
-<summary><strong>Python API</strong></summary>
-
-<br>
-
-```python
-import scitex_storage as ss
-
-result = ss.scan("~/.scitex")           # read-only, stat-only walk
-result.total_size                        # bytes across all children
-result.total_files                       # inodes across all children
-result.by_size()[0]                      # biggest child (ChildUsage)
-result.by_file_count()[0]                # child with the most inodes
-
-for r in ss.scan_roots(["~/.scitex", "~/proj"]):
-    print(r.root, r.total_size, r.total_files)
-
-plan = ss.plan_prune("~/.scitex/agent-container/containers/sac-base", keep=5)
-plan.remove                              # candidates that would be deleted
-plan.reclaimable_bytes                   # bytes those candidates hold
-
-result = ss.apply_prune(plan)            # never touches referenced or open files
-result.removed                           # candidates actually unlinked
-result.skipped_in_use                    # candidates skipped: [(candidate, pids), ...]
-result.reclaimed_bytes                   # bytes actually freed
-
-sweep_plan = ss.plan_sweep("/data/gpfs/projects/punim0264/runs", threshold_files=5000)
-sweep_plan.candidates                    # inode-hog children, old enough to be safe
-sweep_plan.skipped_fresh                 # met the threshold but too recently touched
-
-sweep_result = ss.apply_sweep(sweep_plan, confirm_names=["old-run-42"])  # SLURM-only
-sweep_result.swept                       # [SweptCandidate(tar_path, member_count, ...), ...]
-sweep_result.reclaimed_inodes
-
-ss.sweep_status("/data/gpfs/projects/punim0264/runs")  # what's already swept
-
-archive_plan = ss.plan_archive("~/proj/old-experiment", "nas2")
-archive_plan.remote_path                 # default: mirrors the source path
-manifest = ss.apply_archive(archive_plan)  # sync, verify, write manifest, remove source
-
-restore_plan = ss.plan_restore("~/proj/old-experiment")  # reads the manifest back
-ss.apply_restore(restore_plan)           # pulls it back; keeps the remote copy by default
-
-# Separate, explicitly opt-in -- reads file contents to hash them.
-groups = ss.find_duplicates(["~/proj/old-scan"])
-for group in groups:
-    print(len(group), "identical files:", group)
-```
-
-</details>
 
 ## Roadmap (not implemented)
 

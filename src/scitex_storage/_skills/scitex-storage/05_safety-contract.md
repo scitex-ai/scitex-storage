@@ -136,6 +136,12 @@ investigation, even when the manual opt-in is supplied.
     `bytes_freed`. Prefer `reclaim`, `move` or `backup` + `retire` whenever a
     copy or a rollback window is worth keeping.
 
+11. Tier moves every unit through `apply_archive` and writes its pointer only
+    after a content-verified, staged move; the run log precedes the first
+    mutation. A tiered restore re-verifies the digest before removing the
+    pointer. `sweep-restorable --verify-remote` deletes only when a bounded
+    remote re-hash matches. Details: [10_tier.md](10_tier.md).
+
 Applied archive, backup, and restore attempts record a private JSON log in
 `~/.scitex/scitex-storage/runtime/transfer-logs/`. Each retry has its own
 record with time, endpoints, stage, and outcome. Checksummed copy and

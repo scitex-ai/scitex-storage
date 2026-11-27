@@ -46,3 +46,7 @@ intransitive_verbs:
             # SOURCE to --to, verify the copy, and retain SOURCE. Not a noun view.
   - scrub  # why: established filesystem action (e.g. btrfs/zpool scrub):
            # re-measure MANIFEST's archived tree; read-only verdict, not a view group.
+  - tier  # why: storage-tiering action (cf. hierarchical storage management,
+          # "tier data to cold storage"): move ROOT's cold units to --to.
+          # The object is the ROOT argument, exactly like `scan`/`sweep`;
+          # the verb reading is the one intended, not a noun view of tiers.

@@ -32,4 +32,6 @@ content versions that retain their source.
   and single-assert rules
 - [09_content-versions.md](09_content-versions.md) — experimental local immutable file
   versions, verified checkout, and ordinary Git pointer ownership
+- [10_tier.md](10_tier.md) — cold units to a colder host: selection,
+  pointers, run log, tiered restore, remote sweep verifier
 - [20_env-vars.md](20_env-vars.md) — every supported env var

@@ -7,6 +7,46 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.21] - 2026-11-27
+
+- **New `tier` verb: keep a hot volume below a fill level.** `scitex-storage
+  tier ROOT --to HOST` selects regular files and whole directory subtrees
+  whose newest atime and mtime are older than `--cold-after-days` and that
+  are at least `--min-size`. Coldest go first, then largest. It stops once
+  `--target-used-percent` is projected and honours `--max-bytes` and
+  `--max-items`. The walk never crosses filesystems or follows symlinks. It
+  skips restorable staging, pointers, `--exclude` matches, hard-linked files
+  and anything held open or mounted on. Dry-run by default. With `--yes` each
+  unit is re-checked and then moved by `apply_archive`, which verifies
+  content and stages the original for 7 days. Only after that does tier
+  write a pointer `<path>.stx-tiered.json` (schema
+  `scitex-storage/tier-pointer/v1`). A run log in `runtime/tier-logs/` is
+  written before the first move and after every unit. Exit 21 means a unit
+  failed; it keeps its source and gets no pointer. Python API:
+  `plan_tier` / `apply_tier` / `restore_tiered` in `_transfer._tier`.
+- **`restore` works on tiered paths.** When a pointer exists, `restore PATH
+  --yes` refuses an occupied path and pulls the data back. It requires the
+  restored content to reproduce the manifest digest (`apply_restore(...,
+  verify_content=True)`, new `RestoreNotVerifiedError`), and only then
+  removes the pointer or, with `--delete-remote`, the remote copy.
+- **Single-file archives.** `plan_archive(..., allow_file=True)` archives one
+  regular file as the only entry of the remote directory `remote_path`. The
+  manifest records `source_kind: file`, and `content_digest` is the file's
+  sha256. Scrub, restore and retention staging understand it. The `archive`
+  CLI stays directory-only.
+- **`sweep-restorable --verify-remote`.** It supplies a bounded remote target
+  verifier. The verifier re-hashes the remote copy over ssh within the
+  remaining `--max-seconds`, and expired originals of verified archive and
+  tier moves are deleted only when the digest still matches. Before this,
+  the CLI had no remote verifier, so those originals were deferred forever
+  and the space was never returned.
+- **Daily timer example.** `examples/systemd/scitex-storage-tier.{service,timer}`
+  and `tier.env.example` first sweep verified expired staging and then tier.
+  They run with `Nice=10` and the idle I/O class, and read their arguments
+  from `~/.scitex/scitex-storage/tier.env`.
+- **README CLI flag reference moved to `docs/cli.md`.** The README keeps a
+  one-line usage per verb and links there.
+
 ## [0.6.20] - 2026-11-27
 
 - **Fixed a racy transfer-audit test that stopped the v0.6.19 release.** The

@@ -61,11 +61,10 @@ Design constraints:
 
 from __future__ import annotations
 
-import json
+import os
 import posixpath
 import shutil
 import time
-from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from scitex_ssh import SSHResult, exec_remote, sync_dir
@@ -76,12 +75,24 @@ from .._measure._scan import (
 from .._measure._scan import _measure_dir
 from .._measure._space import remote_free_bytes
 from .._tiers import tier_of_destination
+from ._archive_records import (
+    SOURCE_KIND_DIRECTORY as SOURCE_KIND_DIRECTORY,
+)
+from ._archive_records import SOURCE_KIND_FILE as SOURCE_KIND_FILE
+from ._archive_records import ArchiveManifest as ArchiveManifest
+from ._archive_records import ArchivePlan as ArchivePlan
+from ._archive_records import (
+    _source_manifest,
+    _source_tally,
+    _unit_digest,
+)
+from ._archive_records import iter_manifests as iter_manifests
+from ._archive_records import remote_tree_digest as remote_tree_digest
 from ._archive_transport import (
     _UNSAFE_REMOTE_PATHS,
     DESTINATIONS,
     _as_dir_contents,
     _default_remote_path,
-    _manifest_dir,
     _manifest_path,
     _quote_remote_path,
     _rsync_binary,
@@ -90,8 +101,9 @@ from ._archive_transport import (
     write_manifest_sidecar,
 )
 from ._archive_transport import DEFAULT_REMOTE_ROOT as DEFAULT_REMOTE_ROOT
+from ._archive_transport import _manifest_dir as _manifest_dir
 from ._audit import logged_transfer, transfer_stage
-from ._content_verify import digest_tree, tree_digest, verify_content
+from ._content_verify import verify_content
 from ._durable import atomic_json
 from ._remote_digest import REMOTE_DIGEST_CMD, parse_remote_manifest
 from ._restore import RestorePlan as RestorePlan
@@ -101,7 +113,6 @@ from ._sweep import InsufficientSpaceError, check_space
 from ._verify import (
     REMOTE_TALLY_CMD,
     RemoteTally,
-    local_tally,
     parse_remote_tally,
     verify_transfer,
 )
@@ -117,22 +128,12 @@ class ArchiveNotVerifiedError(RuntimeError):
     """
 
 
-@dataclass
-class ArchivePlan:
-    """The result of :func:`plan_archive` — never touches the network."""
-
-    source: Path
-    destination: str
-    remote_path: str
-    size_bytes: int
-    file_count: int
-    manifest_path: Path
-
-
 def plan_archive(
     source: str | Path,
     destination: str,
     remote_path: str | None = None,
+    *,
+    allow_file: bool = False,
 ) -> ArchivePlan:
     """Compute (never execute) an archive plan for ``source`` -> ``destination``.
 
@@ -147,6 +148,10 @@ def plan_archive(
     :func:`_rsync_binary`'s call sites) and, for the CLI's benefit, checked
     up-front in ``_cli/_archive_cmd.py`` so the DEFAULT dry-run cannot
     promise a run that could not start.
+
+    ``allow_file=True`` also accepts a single REGULAR file (never a symlink).
+    It is opt-in so the ``archive`` CLI keeps its directory-only contract;
+    ``tier`` uses it to move large cold files one at a time.
     """
     # Rewrite a retired alias BEFORE validating, so the plan carries the name
     # that will actually be dialled. The ArchivePlan's `destination` ends up in
@@ -160,11 +165,15 @@ def plan_archive(
     source = Path(source).expanduser()
     if not source.exists():
         raise FileNotFoundError(f"path does not exist: {source}")
-    if not source.is_dir():
+    is_file = allow_file and source.is_file() and not source.is_symlink()
+    if not source.is_dir() and not is_file:
         raise NotADirectoryError(f"not a directory: {source}")
     source = source.resolve()
 
-    size, file_count, _newest_mtime, _err = _measure_dir(source)
+    if is_file:
+        size, file_count = source.lstat().st_size, 1
+    else:
+        size, file_count, _newest_mtime, _err = _measure_dir(source)
     remote = remote_path or _default_remote_path(source)
     if remote.strip() in _UNSAFE_REMOTE_PATHS:
         raise ValueError(f"refusing an unsafe remote path: {remote!r}")
@@ -176,90 +185,8 @@ def plan_archive(
         size_bytes=size,
         file_count=file_count,
         manifest_path=_manifest_path(source),
+        source_kind=SOURCE_KIND_FILE if is_file else SOURCE_KIND_DIRECTORY,
     )
-
-
-@dataclass
-class ArchiveManifest:
-    """Persisted record of one completed archive — the source of truth for restore."""
-
-    source: str
-    destination: str
-    remote_path: str
-    size_bytes: int
-    file_count: int
-    checksummed: bool
-    archived_at: float
-    #: The destination read-back verdict ("verified" / "mismatch" /
-    #: "could-not-look"). Recorded even when it BLOCKS the source removal,
-    #: so a failed verification leaves an auditable record rather than only
-    #: an exception in someone's terminal. Defaulted so manifests written by
-    #: earlier versions still load via from_dict.
-    verified: str = "could-not-look"
-    verification_evidence: str = "written by a version that did not verify"
-    #: Actual verification instrument. Moves require independent SHA256
-    #: ("content"); copy-only operations may use count and byte total ("tally").
-    #: Older manifests retain "unknown" rather than inventing past evidence.
-    verification_method: str = "unknown"
-    #: Remote path of the manifest SIDECAR replica written next to the
-    #: archived tree (see ``manifest_sidecar_remote_path``). Recorded even
-    #: when the replica FAILED -- a missing map must be visible, not silent.
-    #: Defaulted so older manifests still load via from_dict.
-    sidecar_path: str = ""
-    #: Whether the sidecar round trip (scp + read-back compare) succeeded.
-    sidecar_written: bool = False
-    #: Human-readable sidecar outcome, success or failure reason.
-    sidecar_detail: str = "sidecar not attempted by this version"
-    #: Tier of the destination host (canonical :mod:`.._tiers` facts).
-    #: Defaulted so older manifests still load via from_dict.
-    destination_tier: str = "unknown"
-    #: Canonical pre-copy tree digest. Always recorded for verified moves;
-    #: a tally-only copy has no content baseline and must not claim one.
-    content_digest: str = ""
-    #: True for copy-only backups and restorable staged originals.
-    #: Older manifests retain their existing interpretation.
-    retained_source: bool = False
-    #: Where the source was staged when this run retired it instead of
-    #: deleting it (restorable retention). Empty when the source was deleted
-    #: or kept in place. Defaulted so older manifests still load via
-    #: from_dict.
-    staged_path: str = ""
-    #: Audit of a later ``retire`` run that deleted the retained source after
-    #: re-verifying this archive (status, verifier results, bytes freed).
-    #: Written before AND after the delete. Empty when never retired.
-    #: Defaulted so older manifests still load via from_dict.
-    retirement: dict = field(default_factory=dict)
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> ArchiveManifest:
-        return cls(**data)
-
-
-def iter_manifests() -> list[ArchiveManifest]:
-    """All readable local manifests, newest first; unreadable files skipped.
-
-    A corrupt JSON next to real manifests must not break listing -- it is
-    skipped silently here and surfaced by nothing, because a half-written
-    manifest from a killed run is routine, not an event. Sort key is the
-    recorded ``archived_at``, not mtime: the file may have been rewritten
-    (sidecar status) after the archive it records.
-    """
-    found: list[ArchiveManifest] = []
-    try:
-        paths = sorted(_manifest_dir().glob("*.json"))
-    except OSError:
-        return []
-    for path in paths:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            found.append(ArchiveManifest.from_dict(data))
-        except (OSError, ValueError, TypeError):
-            continue
-    found.sort(key=lambda m: m.archived_at, reverse=True)
-    return found
 
 
 @logged_transfer("archive")
@@ -304,8 +231,13 @@ def apply_archive(
     """
     # A move always uses an independent content baseline, even when an older
     # caller explicitly passes the former opt-in flag as False.
+    is_file = plan.source_kind == SOURCE_KIND_FILE
+    if is_file:
+        # A single file has nothing to exclude; passing patterns on would only
+        # let a basename pattern drop the one entry from the transfer.
+        exclude = ()
     baseline = (
-        digest_tree(str(plan.source), exclude=exclude) if remove_source or verify_content_too else None
+        _source_manifest(plan, exclude) if remove_source or verify_content_too else None
     )
     if baseline is not None and (not baseline.usable or baseline.unreadable):
         refusal = ArchiveManifest(
@@ -319,6 +251,7 @@ def apply_archive(
             verified="could-not-look",
             verification_method="content",
             verification_evidence="Source cannot be fully hashed; left intact.",
+            source_kind=plan.source_kind,
         )
         atomic_json(plan.manifest_path, refusal.to_dict())
         raise ArchiveNotVerifiedError(refusal.verification_evidence)
@@ -326,16 +259,19 @@ def apply_archive(
     if runner is None:
         _rsync_binary()
     remote_parent = posixpath.dirname(plan.remote_path)
-    if remote_parent and remote_parent not in _UNSAFE_REMOTE_PATHS:
+    # A file is pushed INTO remote_path, so that directory itself must exist;
+    # a directory's contents are pushed to remote_path, which rsync creates.
+    remote_dir = plan.remote_path if is_file else remote_parent
+    if remote_dir and remote_dir not in _UNSAFE_REMOTE_PATHS:
         mkdir_result = exec_remote(
             plan.destination,
-            f"mkdir -p -- {_quote_remote_path(remote_parent)}",
+            f"mkdir -p -- {_quote_remote_path(remote_dir)}",
             runner=runner,
         )
         if not mkdir_result.success:
             raise RuntimeError(
                 f"failed to create remote parent directory "
-                f"{plan.destination}:{remote_parent} "
+                f"{plan.destination}:{remote_dir} "
                 f"(exit {mkdir_result.returncode}) -- source left untouched.\n"
                 f"--- stdout ---\n{mkdir_result.stdout}\n"
                 f"--- stderr ---\n{mkdir_result.stderr}"
@@ -374,8 +310,8 @@ def apply_archive(
     extra_opts: tuple[str, ...] = ("--checksum",) if checksum else ()
     result: SSHResult = sync_dir(
         plan.destination,
-        _as_dir_contents(str(plan.source)),
-        plan.remote_path,
+        str(plan.source) if is_file else _as_dir_contents(str(plan.source)),
+        _as_dir_contents(plan.remote_path) if is_file else plan.remote_path,
         direction="push",
         exclude=exclude,
         extra_opts=extra_opts,
@@ -400,7 +336,7 @@ def apply_archive(
     # against it would fail a perfectly good archive -- the 2026-07-23
     # to_nas false alarm exactly.
     transfer_stage("verification")
-    expected = local_tally(str(plan.source), exclude=exclude)
+    expected = _source_tally(plan, exclude)
     probe = exec_remote(
         plan.destination,
         REMOTE_TALLY_CMD.format(path=_quote_remote_path(plan.remote_path)),
@@ -445,8 +381,8 @@ def apply_archive(
         method = "content"
         # The source was hashed anyway: keep its canonical digest as the
         # scrub baseline at zero marginal cost.
-        content_digest = tree_digest(source_manifest)
-        unchanged = verify_content(source_manifest, digest_tree(str(plan.source), exclude=exclude))
+        content_digest = _unit_digest(plan, source_manifest)
+        unchanged = verify_content(source_manifest, _source_manifest(plan, exclude))
         if not unchanged.may_remove_source:
             verdict = unchanged
 
@@ -471,6 +407,7 @@ def apply_archive(
         destination_tier=tier_of_destination(plan.destination),
         content_digest=content_digest,
         retained_source=not remove_source,
+        source_kind=plan.source_kind,
     )
     transfer_stage("manifest")
     plan.manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -505,7 +442,7 @@ def apply_archive(
 
     if remove_source:
         transfer_stage("source_retirement")
-        current = digest_tree(str(plan.source), exclude=exclude)
+        current = _source_manifest(plan, exclude)
         identity = plan.source.stat().st_dev, plan.source.stat().st_ino
         if (
             identity != source_identity
@@ -535,6 +472,8 @@ def apply_archive(
             manifest.retained_source = True
             manifest.staged_path = staged.staged_path
             atomic_json(plan.manifest_path, manifest.to_dict())
+        elif is_file:
+            os.unlink(plan.source)
         else:
             shutil.rmtree(plan.source)
     return manifest

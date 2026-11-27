@@ -20,6 +20,13 @@ from .._transfer._retention import sweep_restorable
 from ._compat import spec_command_kwargs
 
 
+def _remote_verifier():
+    # Imported on use: it needs scitex-ssh, which a local-only sweep must not.
+    from .._transfer._remote_target import remote_target_verifier
+
+    return remote_target_verifier()
+
+
 @click.command(
     "sweep-restorable",
     **spec_command_kwargs(
@@ -39,6 +46,10 @@ from ._compat import spec_command_kwargs
             (
                 "{prog} sweep-restorable --yes",
                 "delete exactly the expired staged trees",
+            ),
+            (
+                "{prog} sweep-restorable --verify-remote --max-seconds 3600 --yes",
+                "also delete expired originals whose remote copy re-hashes",
             ),
         ),
     ),
@@ -65,6 +76,15 @@ from ._compat import spec_command_kwargs
     default=False,
     help="Explicitly permit deleting manually staged trees without a verified copy.",
 )
+@click.option(
+    "--verify-remote",
+    "verify_remote",
+    is_flag=True,
+    default=False,
+    help="Re-hash remote archive copies over ssh (bounded by --max-seconds) so "
+    "expired originals of verified archive/tier moves can be deleted. Without "
+    "it those originals are always deferred.",
+)
 @click.option("--max-items", type=click.IntRange(min=1), default=32, show_default=True)
 @click.option(
     "--max-bytes", type=click.IntRange(min=1), default=1024**3, show_default=True
@@ -88,6 +108,7 @@ def sweep_restorable_cmd(
     max_seconds: float,
     as_json: bool,
     allow_manual_delete: bool,
+    verify_remote: bool,
 ) -> None:
     # --yes is the only thing that deletes: without it this is a dry-run
     # listing, whether --dry-run was spelled out or not.
@@ -99,6 +120,7 @@ def sweep_restorable_cmd(
         max_entries=max_entries,
         max_seconds=max_seconds,
         allow_manual_delete=allow_manual_delete,
+        target_verifier=_remote_verifier() if verify_remote else None,
     )
     if as_json:
         click.echo(
